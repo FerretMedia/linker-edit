@@ -10,10 +10,12 @@
     entries,
     onClose,
     onRestore,
+    onPreview,
   }: {
     entries: HistoryEntry[] | null;
     onClose: () => void;
     onRestore: (entry: HistoryEntry) => void;
+    onPreview: (timelineId: string, commit: string) => void;
   } = $props();
 
   let expanded = $state(new Set<string>());
@@ -136,7 +138,7 @@
               {#if strips.length || rest.length}
                 <div class="mt-2 flex flex-col gap-3 rounded-lg border bg-card p-2.5">
                   {#each strips as { strip, detail } (strip.name)}
-                    <ClipStrip {strip} {detail} />
+                    <ClipStrip {strip} {detail} onPreview={(id) => onPreview(id, entry.commit)} />
                   {/each}
                   {#each rest as line, lineIndex (lineIndex)}
                     <p class="text-xs leading-snug">

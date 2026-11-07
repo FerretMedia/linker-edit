@@ -3,6 +3,7 @@ import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, Provider, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type AppOptions } from "./app.ts";
 import type { AgentTurn } from "./history/history.ts";
+import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
 
 type Script = (sink: TurnSink, signal: AbortSignal) => Promise<void>;
@@ -42,7 +43,7 @@ function setup(...scripts: Script[]) {
   return setupWith({}, ...scripts);
 }
 
-function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve">>, ...scripts: Script[]) {
+function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve" | "preview">>, ...scripts: Script[]) {
   const sessions: Provider[] = [];
   const prompts: string[] = [];
   const app = createApp({
@@ -60,6 +61,7 @@ function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve">
     },
     checkResolve: options.checkResolve ?? (async () => ({ state: "not_running" })),
     history: options.history,
+    preview: options.preview,
   });
   const client = testClient();
   app.connect(client);
@@ -227,6 +229,7 @@ describe("app edit history", () => {
           },
           recentContext: async () => "9f8e7d6 2026-11-07 10:00 Claude: Earlier cut",
           log: async () => [{ ...EARLIER_CUT, commit: `c${records.length}` }],
+          timeline: async () => null,
           mediaFile: () => null,
         },
       },
@@ -289,5 +292,73 @@ describe("app edit history", () => {
     open();
     await turnDone();
     expect(records.at(-1)).toMatchObject({ prompt: "cut it", actions: ["timeline.create_empty"] });
+  });
+});
+
+describe("app preview", () => {
+  /** A renderer the test drives: each render waits for events the test emits. */
+  function fakeRenderer() {
+    const renders: { timelineId: string | null; emit: (event: PreviewEvent) => void; stopped: boolean }[] = [];
+    const renderer: PreviewRenderer = {
+      render(timelineId, onEvent) {
+        const render = { timelineId, emit: onEvent, stopped: false };
+        renders.push(render);
+        return { stop: () => ((render.stopped = true), onEvent({ event: "error", message: "Preview stopped.", stopped: true })) };
+      },
+      file: () => null,
+    };
+    return { renderer, renders };
+  }
+
+  it("renders a timeline, reports progress and serves the result, outdated once Resolve is saved again", async () => {
+    const { renderer, renders } = fakeRenderer();
+    const { app, client, send, turnDone } = setupWith(
+      {
+        preview: renderer,
+        checkResolve: async () => ({ state: "connected", product: "DaVinci Resolve Studio", version: "21", project: "Doc", timeline: null }),
+        history: {
+          record: async (turn) => (turn ? { commit: "abc1234", changes: [] } : null),
+          recentContext: async () => "",
+          log: async () => [],
+          timeline: async () => null,
+          mediaFile: () => null,
+        },
+      },
+      async (sink) => {
+        sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "done" });
+      },
+    );
+    await app.refreshResolve();
+    send({ type: "render_preview", timelineId: "t1" });
+    expect(client.state.preview).toEqual({ state: "rendering", timeline: null, percent: 0 });
+
+    // Resolve does one thing at a time: no turn while a render runs, and no second render.
+    send({ type: "send", text: "cut it" });
+    send({ type: "render_preview" });
+    expect(client.state.items).toEqual([]);
+    expect(renders).toHaveLength(1);
+
+    renders[0]!.emit({ event: "start", timeline: { id: "t1", name: "AI - Cut" } });
+    renders[0]!.emit({ event: "progress", percent: 40 });
+    expect(client.state.preview).toEqual({ state: "rendering", timeline: { id: "t1", name: "AI - Cut" }, percent: 40 });
+    renders[0]!.emit({ event: "done", file: "/previews/preview-1.mp4" });
+    expect(client.state.preview).toMatchObject({ state: "ready", url: "/preview/preview-1.mp4", outdated: false });
+
+    send({ type: "send", text: "cut it" });
+    await turnDone();
+    expect(client.state.preview).toMatchObject({ state: "ready", outdated: true });
+  });
+
+  it("stops a render and shows failures", () => {
+    const { renderer, renders } = fakeRenderer();
+    const { client, send } = setupWith({ preview: renderer });
+    send({ type: "render_preview" });
+    send({ type: "stop_preview" });
+    expect(renders[0]).toMatchObject({ timelineId: null, stopped: true });
+    expect(client.state.preview).toEqual({ state: "idle" });
+
+    send({ type: "render_preview" });
+    renders[1]!.emit({ event: "error", message: "Resolve has no timeline open." });
+    expect(client.state.preview).toEqual({ state: "error", message: "Resolve has no timeline open." });
   });
 });

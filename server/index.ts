@@ -4,6 +4,7 @@ import { createApp } from "./app.ts";
 import { APP_ROOT, loadConfig } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
+import { createPreviewRenderer } from "./preview/preview.ts";
 import { createClaudeSession } from "./providers/claude.ts";
 import { createCodexSession } from "./providers/codex.ts";
 import { replayQuery } from "./providers/replay.ts";
@@ -34,6 +35,7 @@ const app = createApp({
   history: replay
     ? undefined
     : createHistory({ dir: config.workspaceDir, readSnapshot: () => readResolveSnapshot(config.resolveMcp) }),
+  preview: createPreviewRenderer({ dir: config.previewDir, mcp: config.resolveMcp }),
 });
 
 const server = createServer(app, path.join(APP_ROOT, "build"));

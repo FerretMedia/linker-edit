@@ -35,7 +35,7 @@ interface RawItem {
   end: number | null;
   source_start: number | null;
   source_end: number | null;
-  media: { id: string; name: string | null; path: string } | null;
+  media: { id: string; name: string | null; path: string; fps?: string | number | null } | null;
   enabled: boolean | null;
   properties: Record<string, unknown>;
   fusion_comps?: number;
@@ -89,6 +89,8 @@ export interface MediaEntry {
   id: string;
   name: string;
   path: string;
+  /** The source's own frame rate, which a clip's source frames count in. */
+  fps?: number;
 }
 
 // Properties worth versioning and their defaults; Vit tracks the same set.
@@ -190,7 +192,9 @@ export function mediaEntries(snapshot: RawSnapshot): MediaEntry[] {
   for (const timeline of snapshot.timelines) {
     for (const track of [...timeline.video, ...timeline.audio]) {
       for (const item of track.items) {
-        if (item.media) media.set(item.media.id, { id: item.media.id, name: item.media.name ?? "", path: item.media.path });
+        if (!item.media) continue;
+        const fps = num(item.media.fps);
+        media.set(item.media.id, { id: item.media.id, name: item.media.name ?? "", path: item.media.path, ...(fps ? { fps } : {}) });
       }
     }
   }
