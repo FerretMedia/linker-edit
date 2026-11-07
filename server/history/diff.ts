@@ -1,3 +1,4 @@
+import type { ClipChange, StripTile, TimelineStrip } from "../../shared/protocol.ts";
 import type { Clip, Marker, StoredTimeline } from "./model.ts";
 
 export function formatDuration(frames: number, fps: number): string {
@@ -24,25 +25,44 @@ function phrase(clips: Clip[], noun: string, verb: string): string | null {
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
-function clipChanges(before: Clip[], after: Clip[], noun: string): string[] {
+interface ComparedClip {
+  clip: Clip;
+  previous?: Clip;
+  change: ClipChange | null;
+}
+
+/** Every clip after the change, then the removed ones, each with what happened to it. Trimmed beats moved beats changed. */
+function compareClips(before: Clip[], after: Clip[]): ComparedClip[] {
   const old = new Map(before.map((clip) => [clip.id, clip]));
-  const added: Clip[] = [];
-  const trimmed: Clip[] = [];
-  const moved: Clip[] = [];
-  const changed: Clip[] = [];
-  for (const clip of after) {
-    const previous = old.get(clip.id);
-    old.delete(clip.id);
-    if (!previous) {
-      added.push(clip);
-    } else if (
+  const unmatched = after.filter((clip) => !old.has(clip.id));
+  const matched = new Map(after.flatMap((clip) => (old.has(clip.id) ? [[clip.id, old.get(clip.id)!] as const] : [])));
+  for (const clip of matched.values()) old.delete(clip.id);
+  // Resolve gives a clip a new id whenever it is placed again, which is how scripts and agents move or
+  // re-trim one. The same media from the same source in or out point is still that clip.
+  const pairs = new Map<Clip, Clip>();
+  for (const clip of unmatched) {
+    const twin = [...old.values()].find(
+      (candidate) =>
+        clip.media !== null &&
+        candidate.media === clip.media &&
+        (candidate.source_start === clip.source_start || candidate.source_end === clip.source_end),
+    );
+    if (!twin) continue;
+    old.delete(twin.id);
+    pairs.set(clip, twin);
+  }
+  const compared = after.map((clip): ComparedClip => {
+    const previous = matched.get(clip.id) ?? pairs.get(clip);
+    if (!previous) return { clip, change: "added" };
+    let change: ClipChange | null = null;
+    if (
       previous.end - previous.start !== clip.end - clip.start ||
       previous.source_start !== clip.source_start ||
       previous.source_end !== clip.source_end
     ) {
-      trimmed.push(clip);
+      change = "trimmed";
     } else if (previous.start !== clip.start || previous.track !== clip.track) {
-      moved.push(clip);
+      change = "moved";
     } else if (
       previous.media !== clip.media ||
       previous.name !== clip.name ||
@@ -50,16 +70,31 @@ function clipChanges(before: Clip[], after: Clip[], noun: string): string[] {
       previous.fusion_comps !== clip.fusion_comps ||
       !sameJson(previous.properties, clip.properties)
     ) {
-      changed.push(clip);
+      change = "changed";
     }
-  }
-  return [
-    phrase(added, noun, "added"),
-    phrase([...old.values()], noun, "removed"),
-    phrase(trimmed, noun, "trimmed"),
-    phrase(moved, noun, "moved"),
-    phrase(changed, noun, "changed"),
-  ].filter((part) => part !== null);
+    return { clip, previous, change };
+  });
+  const removed = before.filter((clip) => old.has(clip.id));
+  return [...compared, ...removed.map((clip): ComparedClip => ({ clip, change: "removed" }))];
+}
+
+const VERBS: [ClipChange, string][] = [
+  ["added", "added"],
+  ["removed", "removed"],
+  ["trimmed", "trimmed"],
+  ["moved", "moved"],
+  ["changed", "changed"],
+];
+
+function clipChanges(before: Clip[], after: Clip[], noun: string): string[] {
+  const compared = compareClips(before, after);
+  return VERBS.map(([change, verb]) =>
+    phrase(
+      compared.filter((entry) => entry.change === change).map((entry) => entry.clip),
+      noun,
+      verb,
+    ),
+  ).filter((part) => part !== null);
 }
 
 function markerChanges(before: Marker[], after: Marker[]): string[] {
@@ -114,4 +149,76 @@ export function describeChanges(before: StoredTimeline[], after: StoredTimeline[
   }
   for (const timeline of old.values()) lines.push(`"${timeline.metadata.name}": timeline removed`);
   return lines;
+}
+
+/** Tiles shown before a strip folds the rest into "+N". */
+const STRIP_LIMIT = 24;
+
+const seconds = (frames: number, fps: number) => Math.round((frames / (fps || 24)) * 10) / 10;
+
+/**
+ * Video clips in timeline order for the history panel. A new timeline shows its whole cut; a changed
+ * one shows each changed clip with a neighbour either side and folds the untouched runs between.
+ */
+export function timelineStrips(
+  before: StoredTimeline[],
+  after: StoredTimeline[],
+  isImage: (media: string) => boolean,
+): TimelineStrip[] {
+  const old = new Map(before.map((timeline) => [timeline.metadata.id, timeline]));
+  const strips: TimelineStrip[] = [];
+  for (const timeline of after) {
+    const previous = old.get(timeline.metadata.id);
+    const fps = timeline.metadata.frame_rate;
+    const compared = previous
+      ? compareClips(previous.cuts, timeline.cuts)
+      : timeline.cuts.map((clip): ComparedClip => ({ clip, change: null }));
+    if (previous && !compared.some((entry) => entry.change)) continue;
+    if (compared.length === 0) continue;
+
+    const at = (entry: ComparedClip) => entry.clip.start;
+    compared.sort((a, b) => at(a) - at(b) || a.clip.track - b.clip.track);
+    const tile = ({ clip, previous: was, change }: ComparedClip): StripTile => {
+      const delta =
+        change === "moved" && was
+          ? seconds(clip.start - was.start, fps)
+          : change === "trimmed" && was
+            ? seconds(clip.end - clip.start - (was.end - was.start), fps)
+            : undefined;
+      return {
+        kind: "clip",
+        name: clip.name,
+        media: clip.media,
+        image: clip.media !== null && isImage(clip.media),
+        change,
+        ...(delta ? { delta } : {}),
+      };
+    };
+
+    const keep = compared.map(
+      (_, index) => !previous || [index - 1, index, index + 1].some((near) => compared[near]?.change),
+    );
+    const tiles: StripTile[] = [];
+    let shown = 0;
+    for (let index = 0; index < compared.length; ) {
+      let run = 0;
+      while (index + run < compared.length && !keep[index + run]) run++;
+      // A lone untouched clip shows as itself: a "+1" tile would take the same room.
+      if (run === 1) keep[index] = true;
+      if (run > 1) {
+        tiles.push({ kind: "more", count: run });
+        index += run;
+        continue;
+      }
+      if (shown === STRIP_LIMIT) {
+        tiles.push({ kind: "more", count: compared.length - index });
+        break;
+      }
+      tiles.push(tile(compared[index]!));
+      shown++;
+      index++;
+    }
+    strips.push({ name: timeline.metadata.name, state: previous ? "changed" : "new", tiles });
+  }
+  return strips;
 }

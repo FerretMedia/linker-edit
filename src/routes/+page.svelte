@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { CircleAlert, WifiOff } from "@lucide/svelte";
-  import type { ChatItem, Provider } from "#shared/protocol.ts";
+  import { CircleAlert, History, WifiOff } from "@lucide/svelte";
+  import type { ChatItem, HistoryEntry, Provider } from "#shared/protocol.ts";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
   import Composer from "#lib/components/Composer.svelte";
+  import HistoryPanel from "#lib/components/HistoryPanel.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
@@ -21,6 +22,7 @@
   let composer: ReturnType<typeof Composer> | undefined = $state();
   let scroller: HTMLElement | undefined = $state();
   let stickToBottom = true;
+  let historyOpen = $state(false);
 
   const app = $derived(server.state);
   const canSend = $derived(server.connected && !!app && !app.busy && draft.trim().length > 0);
@@ -60,6 +62,16 @@
     void followKey;
     if (scroller && stickToBottom) scroller.scrollTop = scroller.scrollHeight;
   });
+
+  $effect(() => {
+    // Asks again after a reconnect; while open, the server pushes every new save.
+    if (historyOpen && server.connected) server.send({ type: "load_history" });
+  });
+
+  function restore(entry: HistoryEntry) {
+    draft = `Restore the timelines to how they were in save ${entry.commit} ("${entry.subject}").`;
+    composer?.focus();
+  }
 
   function onScroll() {
     if (!scroller) return;
@@ -106,6 +118,18 @@
             {app.resolve.project}
           </span>
         {/if}
+        <button
+          type="button"
+          class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors {historyOpen
+            ? 'bg-accent text-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+          aria-pressed={historyOpen}
+          onclick={() => (historyOpen = !historyOpen)}
+          title="Edit history"
+        >
+          <History class="size-3.5" />
+          History
+        </button>
       </header>
 
       {#if !server.connected}
@@ -188,5 +212,9 @@
         />
       </div>
     </main>
+
+    {#if historyOpen}
+      <HistoryPanel entries={server.history} onClose={() => (historyOpen = false)} onRestore={restore} />
+    {/if}
   </div>
 {/if}

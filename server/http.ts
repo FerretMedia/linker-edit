@@ -50,6 +50,16 @@ export function createServer(app: App, distDir: string): http.Server {
       res.writeHead(400).end("Bad request");
       return;
     }
+    if (urlPath.startsWith("/media/")) {
+      const media = app.mediaFile(urlPath.slice("/media/".length));
+      if (!media) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, { "content-type": media.type, "cache-control": "private, max-age=300" });
+      fs.createReadStream(media.path).on("error", () => res.destroy()).pipe(res);
+      return;
+    }
     const file = staticFile(distDir, urlPath);
     if (!file) {
       res.writeHead(404).end("UI not built. Use `npm run dev`, or `npm run build` then `npm start`.");

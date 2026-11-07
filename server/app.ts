@@ -116,6 +116,7 @@ export function createApp(options: AppOptions) {
       try {
         const saved = await options.history!.record(agentTurn);
         if (saved) {
+          await publishHistory();
           const who = agentTurn ? "Saved to edit history" : "Saved your own Resolve changes to edit history";
           sink.notice(`${who} (${saved.commit})${saved.changes.length ? `: ${saved.changes.join("; ")}` : "."}`);
         }
@@ -162,6 +163,12 @@ export function createApp(options: AppOptions) {
     items = [];
     session = newSession();
     broadcast(snapshot());
+  }
+
+  // History is shared by everyone looking at this workspace, so every client gets each update.
+  async function publishHistory() {
+    const entries = (await options.history?.log().catch(() => [])) ?? [];
+    broadcast({ type: "history", entries });
   }
 
   let resolveCheck: Promise<void> | null = null;
@@ -213,6 +220,9 @@ export function createApp(options: AppOptions) {
       case "refresh_resolve":
         void refreshResolve();
         break;
+      case "load_history":
+        void publishHistory();
+        break;
     }
   }
 
@@ -224,6 +234,7 @@ export function createApp(options: AppOptions) {
     },
     handleMessage,
     refreshResolve,
+    mediaFile: (id: string) => options.history?.mediaFile(id) ?? null,
     busy: () => turn !== null,
   };
 }
