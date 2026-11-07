@@ -81,6 +81,8 @@ The workspace folder is a Git repository. Linker-Edit saves the open Resolve pro
 
 Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.json`, `markers.json` and `metadata.json`, one clip per line, so `git log -p` reads like an edit decision list. Media is never stored.
 
+**History** in the top right lists every save, newest first, with what changed per timeline. **Restore** on a save writes the undo request into the composer for you to send.
+
 Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
 
 You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.

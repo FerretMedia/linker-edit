@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
-import type { AppState, ClientMessage, Provider, ServerMessage } from "../shared/protocol.ts";
+import type { AppState, ClientMessage, HistoryEntry, Provider, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type AppOptions } from "./app.ts";
 import type { AgentTurn } from "./history/history.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
@@ -10,10 +10,14 @@ type Script = (sink: TurnSink, signal: AbortSignal) => Promise<void>;
 /** A client that keeps state the way the UI does, and resolves waits as messages arrive. */
 function testClient() {
   let state: AppState | null = null;
+  const histories: HistoryEntry[][] = [];
   const waiters: { check: () => boolean; resolve: () => void }[] = [];
   return {
+    histories,
     send(data: string) {
-      state = applyServerMessage(state, JSON.parse(data) as ServerMessage);
+      const message = JSON.parse(data) as ServerMessage;
+      if (message.type === "history") histories.push(message.entries);
+      state = applyServerMessage(state, message);
       for (const waiter of [...waiters]) {
         if (waiter.check()) {
           waiters.splice(waiters.indexOf(waiter), 1);
@@ -198,6 +202,18 @@ describe("app chats", () => {
   });
 });
 
+const EARLIER_CUT: HistoryEntry = {
+  commit: "9f8e7d6",
+  date: "2026-11-07T10:00:00+01:00",
+  author: "Claude",
+  agent: "claude",
+  subject: "Earlier cut",
+  prompt: "Earlier cut",
+  actions: [],
+  changes: [],
+  timelines: [],
+};
+
 describe("app edit history", () => {
   function withHistory(...scripts: Script[]) {
     const records: (AgentTurn | undefined)[] = [];
@@ -210,6 +226,8 @@ describe("app edit history", () => {
             return turn ? { commit: "abc1234", changes: ['"AI - Cut": new timeline, 3 clips, 0:10'] } : null;
           },
           recentContext: async () => "9f8e7d6 2026-11-07 10:00 Claude: Earlier cut",
+          log: async () => [{ ...EARLIER_CUT, commit: `c${records.length}` }],
+          mediaFile: () => null,
         },
       },
       ...scripts,
@@ -245,6 +263,17 @@ describe("app edit history", () => {
     expect(client.state.items.filter((item) => item.kind === "notice")).toMatchObject([
       { tone: "info", text: 'Saved to edit history (abc1234): "AI - Cut": new timeline, 3 clips, 0:10' },
     ]);
+  });
+
+  it("sends the history on request and to every client after each save", async () => {
+    const { app, client, send, turnDone } = withHistory(async (sink) => {
+      sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "done" });
+    });
+    send({ type: "load_history" });
+    await app.refreshResolve();
+    send({ type: "send", text: "cut it" });
+    await turnDone();
+    expect(client.histories.map((entries) => entries.map((entry) => entry.commit))).toEqual([["c0"], ["c2"]]);
   });
 
   it("still saves a turn's Resolve changes after its chat was reset", async () => {

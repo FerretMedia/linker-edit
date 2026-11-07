@@ -2,11 +2,11 @@ import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Provider } from "../../shared/protocol.ts";
+import type { HistoryEntry, Provider } from "../../shared/protocol.ts";
 import type { ResolveMcpConfig } from "../config.ts";
 import { needsApproval } from "../policy.ts";
 import { RESOLVE_MCP_NAME } from "../rules.ts";
-import { describeChanges } from "./diff.ts";
+import { describeChanges, timelineStrips } from "./diff.ts";
 import {
   jsonRows,
   mediaEntries,
@@ -14,6 +14,8 @@ import {
   storedTimeline,
   timelineFiles,
   timelineFolders,
+  TIMELINE_FILES,
+  type MediaEntry,
   type RawSnapshot,
   type StoredTimeline,
 } from "./model.ts";
@@ -40,6 +42,10 @@ export interface History {
   record(turn?: AgentTurn): Promise<Saved | null>;
   /** The last few saves, for an agent starting a new chat. Empty when there is no history yet. */
   recentContext(): Promise<string>;
+  /** The newest saves, for the history panel. */
+  log(limit?: number): Promise<HistoryEntry[]>;
+  /** A still in the history's media, for its thumbnail; null for video, audio and unknown ids. */
+  mediaFile(id: string): { path: string; type: string } | null;
 }
 
 const SNAPSHOT_SCRIPT = path.join(import.meta.dirname, "snapshot.py");
@@ -127,6 +133,92 @@ export function commitMessage(changes: string[], turn?: AgentTurn): string {
   ].join("\n\n") + "\n";
 }
 
+/** A bulleted section of a commit message written by commitMessage, without its "- none" placeholder. */
+function section(body: string, title: string): string[] {
+  const lines = new RegExp(`(?:^|\\n)${title}:\\n((?:- .*(?:\\n|$))*)`).exec(body)?.[1] ?? "";
+  return lines
+    .split("\n")
+    .filter((line) => line.startsWith("- ") && line !== "- none")
+    .map((line) => line.slice(2));
+}
+
+function parseEntry([commit = "", date = "", author = "", email = "", body = ""]: string[]): HistoryEntry {
+  const agent = (Object.keys(AGENT_NAMES) as Provider[]).find((provider) => email === `${provider}@linker-edit.local`) ?? null;
+  const prompt = /^Prompt: ([\s\S]*?)\n\nResolve actions:/m.exec(body)?.[1] ?? null;
+  return {
+    commit,
+    date,
+    author,
+    agent,
+    subject: body.split("\n")[0] ?? "",
+    prompt,
+    actions: section(body, "Resolve actions"),
+    changes: section(body, "Changes"),
+    timelines: [],
+  };
+}
+
+/** Contents of each `<rev>:<path>`, or null where it doesn't exist (a new timeline has no `<commit>^` side). */
+function catFiles(cwd: string, names: string[]): Promise<(string | null)[]> {
+  if (names.length === 0) return Promise.resolve([]);
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", ["cat-file", "--batch"], { cwd, windowsHide: true });
+    const chunks: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("error", reject);
+    child.on("close", () => {
+      const out = Buffer.concat(chunks);
+      let at = 0;
+      resolve(
+        names.map(() => {
+          const lineEnd = out.indexOf(10, at);
+          if (lineEnd === -1) return null;
+          const header = out.subarray(at, lineEnd).toString().split(" ");
+          at = lineEnd + 1;
+          if (header.length !== 3 || header[1] !== "blob" || !/^[0-9a-f]+$/.test(header[0]!)) return null;
+          const size = Number(header[2]);
+          const text = out.subarray(at, at + size).toString("utf8");
+          at += size + 1;
+          return text;
+        }),
+      );
+    });
+    child.stdin.end(`${names.join("\n")}\n`);
+  });
+}
+
+// Browsers can draw these, so stills on the history strips show as themselves.
+const IMAGE_TYPES: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+  ".avif": "image/avif",
+};
+
+const imageType = (file: string | undefined) => (file ? (IMAGE_TYPES[path.extname(file).toLowerCase()] ?? null) : null);
+
+/** Media pool item id → file path, from the media.json of every project in the history. */
+function readMedia(dir: string): Map<string, string> {
+  const media = new Map<string, string>();
+  const root = path.join(dir, HISTORY_ROOT);
+  if (!fs.existsSync(root)) return media;
+  for (const project of fs.readdirSync(root, { withFileTypes: true })) {
+    const file = path.join(root, project.name, "media.json");
+    if (!project.isDirectory() || !fs.existsSync(file)) continue;
+    try {
+      for (const entry of (JSON.parse(fs.readFileSync(file, "utf8")) as { media: MediaEntry[] }).media) {
+        media.set(entry.id, entry.path);
+      }
+    } catch {
+      // A hand-edited or half-merged media.json only costs thumbnails.
+    }
+  }
+  return media;
+}
+
 function readStored(projectDir: string): StoredTimeline[] {
   if (!fs.existsSync(projectDir)) return [];
   return fs
@@ -202,26 +294,59 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
     return { commit, changes };
   }
 
-  async function recentContext(): Promise<string> {
+  async function log(limit = 50): Promise<HistoryEntry[]> {
     await prepare();
-    const log = await git(dir, [
-      "log",
-      "-n",
-      "5",
-      "--date=format:%Y-%m-%d %H:%M",
-      "--format=%x1e%h%x1f%ad%x1f%an%x1f%B",
-      "--",
-      HISTORY_ROOT,
+    const result = await git(dir, [
+      ...["-c", "core.quotePath=false", "log", "-n", String(limit), "--raw", "--no-renames"],
+      ...["--format=%x1e%H%x1f%h%x1f%aI%x1f%an%x1f%ae%x1f%B%x1f", "--", HISTORY_ROOT],
     ]);
-    if (log.code !== 0) return "";
-    return log.stdout
+    if (result.code !== 0) return [];
+    const commits = result.stdout
       .split("\x1e")
       .filter((entry) => entry.trim())
       .map((entry) => {
-        const [hash, date, author, body = ""] = entry.split("\x1f");
-        const [subject] = body.split("\n");
-        const changes = /\nChanges:\n((?:- .*\n?)*)/.exec(body)?.[1]?.trimEnd() ?? "";
-        return `${hash} ${date} ${author}: ${subject}${changes ? `\n${changes.replace(/^/gm, "  ")}` : ""}`;
+        const [hash = "", ...fields] = entry.split("\x1f");
+        const raw = fields.pop() ?? "";
+        // --raw lines end in a tab and the path; a timeline's files sit at resolve/<project>/<timeline>/<file>.
+        const folders = new Set(
+          raw
+            .split("\n")
+            .map((line) => line.split("\t")[1]?.split("/") ?? [])
+            .filter((parts) => parts.length === 4)
+            .map((parts) => parts.slice(0, 3).join("/")),
+        );
+        return { hash, folders: [...folders], entry: parseEntry(fields) };
+      });
+
+    // Each touched timeline before and after its commit, read in one git process.
+    const names = commits.flatMap(({ hash, folders }) =>
+      folders.flatMap((folder) => TIMELINE_FILES.flatMap((file) => [`${hash}^:${folder}/${file}`, `${hash}:${folder}/${file}`])),
+    );
+    const blobs = new Map((await catFiles(dir, names)).map((text, index) => [names[index]!, text]));
+    const media = readMedia(dir);
+    const isImage = (id: string) => imageType(media.get(id)) !== null;
+    return commits.map(({ hash, folders, entry }) => {
+      const side = (rev: string) =>
+        folders
+          .map((folder) => {
+            try {
+              return parseTimelineFiles((file) => blobs.get(`${rev}:${folder}/${file}`) ?? null);
+            } catch {
+              return null;
+            }
+          })
+          .filter((timeline) => timeline !== null);
+      return { ...entry, timelines: timelineStrips(side(`${hash}^`), side(hash), isImage) };
+    });
+  }
+
+  async function recentContext(): Promise<string> {
+    return (await log(5))
+      .map(({ commit, date, author, subject, changes }) => {
+        // %aI is local time with an offset, so its first 16 characters read as the user's clock.
+        const when = date.slice(0, 16).replace("T", " ");
+        const details = changes.length ? `\n${bullets(changes).replace(/^/gm, "  ")}` : "";
+        return `${commit} ${when} ${author}: ${subject}${details}`;
       })
       .join("\n");
   }
@@ -236,6 +361,16 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
       const result = queue.then(recentContext);
       queue = result.catch(() => {});
       return result;
+    },
+    log: (limit) => {
+      const result = queue.then(() => log(limit));
+      queue = result.catch(() => {});
+      return result;
+    },
+    mediaFile(id) {
+      const file = readMedia(dir).get(id);
+      const type = imageType(file);
+      return file && type && fs.existsSync(file) ? { path: file, type } : null;
     },
   };
 }

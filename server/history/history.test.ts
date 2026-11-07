@@ -113,6 +113,20 @@ describe("edit history", () => {
         ].join("\n"),
       ),
     );
+    expect(await history.log()).toMatchObject([
+      { agent: null, subject: "Changes made in Resolve", prompt: null, actions: [], changes: ['"AI - Tight": timeline removed'], timelines: [] },
+      {
+        author: "Claude",
+        agent: "claude",
+        subject: "Make a tighter cut with only clip b",
+        prompt: "Make a tighter cut\nwith only clip b",
+        actions: ['timeline.create_empty {"name":"AI - Tight"}'],
+        changes: ['"AI - Tight": new timeline, 1 clip, 0:02'],
+        timelines: [{ name: "AI - Tight", state: "new", tiles: [{ kind: "clip", name: "clip b", media: "m-b", image: false, change: null }] }],
+        date: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/),
+      },
+      { agent: null, changes: ['"Interview": new timeline, 2 clips, 0:04'], timelines: [{ name: "Interview", state: "new" }] },
+    ]);
   });
 
   it("saves nothing for a project without timelines", async () => {

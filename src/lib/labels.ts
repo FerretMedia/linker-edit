@@ -1,4 +1,4 @@
-import type { Provider } from "#shared/protocol.ts";
+import type { ClipChange, Provider } from "#shared/protocol.ts";
 
 const RESOLVE_PREFIX = "mcp__resolve__";
 
@@ -32,3 +32,28 @@ function compactJson(value: unknown): string {
 }
 
 export const formatJson = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
+
+/** `"AI - Cut": 2 clips added` → the timeline and what happened to it, as written by describeChanges. */
+export function splitChange(change: string): { timeline: string | null; detail: string } {
+  const match = /^"(.*)": (.*)$/.exec(change);
+  return match ? { timeline: match[1]!, detail: match[2]! } : { timeline: null, detail: change };
+}
+
+const dayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+export function dayLabel(date: Date, now: Date): string {
+  const startOfDay = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return dayFormat.format(date);
+}
+
+/** Colours for clip changes on the history strips; the legend reads the same map. */
+export const CHANGE_STYLE: Record<ClipChange, { ring: string; dot: string }> = {
+  added: { ring: "ring-success", dot: "bg-success" },
+  moved: { ring: "ring-primary", dot: "bg-primary" },
+  trimmed: { ring: "ring-warning", dot: "bg-warning" },
+  changed: { ring: "ring-violet-500", dot: "bg-violet-500" },
+  removed: { ring: "ring-destructive", dot: "bg-destructive" },
+};

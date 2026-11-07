@@ -1,10 +1,12 @@
-import type { AppState, ClientMessage, ServerMessage } from "#shared/protocol.ts";
+import type { AppState, ClientMessage, HistoryEntry, ServerMessage } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
 
 /** One WebSocket to the local server, reconnecting; the server owns all state. */
 class ServerConnection {
   state = $state<AppState | null>(null);
   connected = $state(false);
+  /** Null until the history panel first asks for it. */
+  history = $state<HistoryEntry[] | null>(null);
   #socket: WebSocket | null = null;
 
   connect() {
@@ -17,7 +19,9 @@ class ServerConnection {
       setTimeout(() => this.connect(), 1000);
     };
     socket.onmessage = (event) => {
-      this.state = applyServerMessage(this.state, JSON.parse(event.data as string) as ServerMessage);
+      const message = JSON.parse(event.data as string) as ServerMessage;
+      if (message.type === "history") this.history = message.entries;
+      else this.state = applyServerMessage(this.state, message);
     };
   }
 

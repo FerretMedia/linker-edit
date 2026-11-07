@@ -203,6 +203,8 @@ export function jsonRows(key: string, rows: unknown[]): string {
   return `{ "${key}": [\n${rows.map((row) => `  ${JSON.stringify(row)}`).join(",\n")}\n] }\n`;
 }
 
+export const TIMELINE_FILES = ["metadata.json", "cuts.json", "audio.json", "markers.json"];
+
 export function timelineFiles(timeline: StoredTimeline): Record<string, string> {
   return {
     "metadata.json": `${JSON.stringify(timeline.metadata, null, 2)}\n`,
