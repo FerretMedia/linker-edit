@@ -11,8 +11,9 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 ## What works today
 
 - **Chat with Claude or Codex** about your open Resolve project. They read it and edit it directly through [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp).
-- **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI/…` timelines next to yours instead.
+- **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
+- **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
 
@@ -66,9 +67,23 @@ The defaults work for a standard install. To override them, copy `linker-edit.co
 
 - **Claude, with "Ask before changes" on:**
   - Resolve actions that only read (get, list, summaries, reports, plans) run immediately.
+  - Reading the edit history (`git log`, `git show`, `git diff`, `git status`) runs immediately.
   - Any other Resolve action, and any file edit, shows Allow/Deny.
 - **Claude, with it off:** everything runs.
 - **Codex:** runs without per-call approvals, because its SDK has no approval hook. Its file writes are sandboxed to the workspace folder.
+
+## Edit history
+
+The workspace folder is a Git repository. Linker-Edit saves the open Resolve project in it:
+
+- **After every turn in which the agent changed Resolve.** The commit is authored by Claude or Codex and holds your prompt, the Resolve actions and a summary such as `"AI - Rough cut": 3 clips removed, length 4:02 → 3:41`.
+- **Before every turn, if you changed something in Resolve yourself.** The agent can tell your edits from its own.
+
+Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.json`, `markers.json` and `metadata.json`, one clip per line, so `git log -p` reads like an edit decision list. Media is never stored.
+
+Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
+
+You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.
 
 ## Testing
 
@@ -90,4 +105,4 @@ For anything larger, please open an issue before writing the code, so we can agr
 
 ## Credits
 
-MIT licensed. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
+MIT licensed. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.

@@ -31,6 +31,7 @@ export type ResolveStatus =
     }
   | { state: "not_running" }
   | { state: "unreachable"; hint: string }
+  | { state: "blocked"; hint: string }
   | { state: "setup_needed"; hint: string };
 
 export interface ApprovalRequest {

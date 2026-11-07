@@ -6,10 +6,12 @@ import { checkResolve, parseProbeOutput } from "./resolveStatus.ts";
 
 describe("parseProbeOutput", () => {
   const connected = { state: "connected", product: "DaVinci Resolve Studio", version: "21.1.2", project: "Doc", timeline: null };
+  const probed = JSON.stringify({ ...connected, page: "edit" });
 
   it.each([
-    ["a connection", JSON.stringify(connected), connected],
-    ["a connection after module warnings", `DeprecationWarning: imp\r\n${JSON.stringify(connected)}\r\n`, connected],
+    ["a connection", probed, connected],
+    ["a connection after module warnings", `DeprecationWarning: imp\r\n${probed}\r\n`, connected],
+    ["a dialog or the Project Manager in front", JSON.stringify({ ...connected, page: null }), { state: "blocked" }],
     ["a missing scripting module", '{"state": "no_module", "detail": "DLL load failed"}', { state: "setup_needed" }],
     ["a refused connection", '{"state": "unreachable"}', { state: "unreachable" }],
     ["a crash or timeout", "", { state: "unreachable" }],

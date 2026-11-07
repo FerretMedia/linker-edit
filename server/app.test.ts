@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, Provider, ServerMessage } from "../shared/protocol.ts";
-import { createApp } from "./app.ts";
+import { createApp, type AppOptions } from "./app.ts";
+import type { AgentTurn } from "./history/history.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
 
 type Script = (sink: TurnSink, signal: AbortSignal) => Promise<void>;
@@ -34,26 +35,33 @@ function testClient() {
 
 /** Each send runs the next script, across sessions, so tests read top to bottom. */
 function setup(...scripts: Script[]) {
+  return setupWith({}, ...scripts);
+}
+
+function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve">>, ...scripts: Script[]) {
   const sessions: Provider[] = [];
+  const prompts: string[] = [];
   const app = createApp({
     workspaceDir: "/work",
     createSession: (provider): ProviderSession => {
       sessions.push(provider);
       return {
-        send: (_text, sink, signal) => {
+        send: (text, sink, signal) => {
+          prompts.push(text);
           const script = scripts.shift();
           if (!script) throw new Error("No script left for this send");
           return script(sink, signal);
         },
       };
     },
-    checkResolve: async () => ({ state: "not_running" }),
+    checkResolve: options.checkResolve ?? (async () => ({ state: "not_running" })),
+    history: options.history,
   });
   const client = testClient();
   app.connect(client);
   const send = (message: ClientMessage) => app.handleMessage(message);
   const turnDone = () => client.until((state) => !state.busy);
-  return { app, client, send, turnDone, sessions };
+  return { app, client, send, turnDone, sessions, prompts };
 }
 
 function gate() {
@@ -187,5 +195,70 @@ describe("app chats", () => {
     await turnDone();
     await late.until((state) => !state.busy);
     expect(late.state).toEqual(client.state);
+  });
+});
+
+describe("app edit history", () => {
+  function withHistory(...scripts: Script[]) {
+    const records: (AgentTurn | undefined)[] = [];
+    const harness = setupWith(
+      {
+        checkResolve: async () => ({ state: "connected", product: "DaVinci Resolve Studio", version: "21", project: "Doc", timeline: null }),
+        history: {
+          record: async (turn) => {
+            records.push(turn);
+            return turn ? { commit: "abc1234", changes: ['"AI - Cut": new timeline, 3 clips, 0:10'] } : null;
+          },
+          recentContext: async () => "9f8e7d6 2026-11-07 10:00 Claude: Earlier cut",
+        },
+      },
+      ...scripts,
+    );
+    return { ...harness, records };
+  }
+
+  it("saves before every turn and after a turn that changed Resolve, with what the agent did", async () => {
+    const { app, client, send, turnDone, records, prompts } = withHistory(
+      async (sink) => {
+        sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty", params: { name: "AI - Cut" } }, status: "running" });
+        sink.upsert({ id: "r", kind: "tool", name: "mcp__resolve__timeline", input: { action: "list" }, status: "done" });
+        sink.upsert({ id: "w", status: "done" });
+        sink.upsert({ id: "a", kind: "assistant", text: "Built AI - Cut." });
+      },
+      async (sink) => {
+        sink.upsert({ id: "r2", kind: "tool", name: "mcp__resolve__timeline", input: { action: "list" }, status: "done" });
+      },
+    );
+    await app.refreshResolve();
+    send({ type: "send", text: "cut it" });
+    await turnDone();
+    send({ type: "send", text: "what is on it?" });
+    await turnDone();
+
+    expect(records).toEqual([
+      undefined,
+      { provider: "claude", prompt: "cut it", actions: ['timeline.create_empty {"name":"AI - Cut"}'], summary: "Built AI - Cut." },
+      undefined,
+    ]);
+    expect(prompts[0]).toMatch(/^<edit_history>\n.*\n9f8e7d6 2026-11-07 10:00 Claude: Earlier cut\n<\/edit_history>\n\ncut it$/);
+    expect(prompts[1]).toBe("what is on it?");
+    expect(client.state.items.filter((item) => item.kind === "notice")).toMatchObject([
+      { tone: "info", text: 'Saved to edit history (abc1234): "AI - Cut": new timeline, 3 clips, 0:10' },
+    ]);
+  });
+
+  it("still saves a turn's Resolve changes after its chat was reset", async () => {
+    const { open, opened } = gate();
+    const { app, client, send, turnDone, records } = withHistory(async (sink) => {
+      sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "running" });
+      await opened;
+    });
+    await app.refreshResolve();
+    send({ type: "send", text: "cut it" });
+    await client.until((state) => state.items.some((item) => item.id === "w"));
+    send({ type: "new_chat" });
+    open();
+    await turnDone();
+    expect(records.at(-1)).toMatchObject({ prompt: "cut it", actions: ["timeline.create_empty"] });
   });
 });
