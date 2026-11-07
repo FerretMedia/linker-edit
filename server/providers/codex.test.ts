@@ -1,0 +1,78 @@
+import type { CodexOptions, ThreadEvent } from "@openai/codex-sdk";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { createCodexSession } from "./codex.ts";
+import { collectingSink, FIXTURES, testConfig } from "./testing.ts";
+
+const fake = vi.hoisted(() => ({ options: [] as unknown[], turns: [] as ThreadEvent[][] }));
+
+vi.mock("@openai/codex-sdk", () => ({
+  Codex: class {
+    constructor(options: unknown) {
+      fake.options.push(options);
+    }
+    startThread() {
+      return {
+        runStreamed: async () => ({
+          events: (async function* () {
+            yield* fake.turns.shift() ?? [];
+          })(),
+        }),
+      };
+    }
+  },
+}));
+
+const recorded = () =>
+  fs
+    .readFileSync(path.join(FIXTURES, "codex-turn.jsonl"), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as ThreadEvent);
+
+describe("Codex session", () => {
+  it("turns a recorded turn into chat items, keeping each turn's items apart", async () => {
+    fake.turns = [recorded(), recorded()];
+    const { sink, items } = collectingSink();
+    const codex = createCodexSession(testConfig);
+    await codex.send("one", sink, new AbortController().signal);
+    const firstTurn = items();
+    expect(firstTurn.map((item) => [item.kind, item.kind === "tool" ? `${item.name} ${item.status}` : ""])).toEqual([
+      ["assistant", ""],
+      ["tool", "mcp__resolve__project_settings done"],
+      ["assistant", ""],
+      ["tool", "edit files done"],
+      ["tool", "shell done"],
+      ["assistant", ""],
+    ]);
+    expect(firstTurn[1]).toMatchObject({
+      input: { action: "project_summary" },
+      output: expect.stringContaining("Untitled Project"),
+    });
+
+    await codex.send("two", sink, new AbortController().signal);
+    expect(items()).toHaveLength(firstTurn.length * 2);
+  });
+
+  it("shows failed turns and stream errors", async () => {
+    fake.turns = [
+      [
+        { type: "turn.failed", error: { message: "usage limit reached" } },
+        { type: "error", message: "stream closed" },
+      ],
+    ];
+    const { sink, items } = collectingSink();
+    await createCodexSession(testConfig).send("go", sink, new AbortController().signal);
+    expect(items().map((item) => item.kind === "notice" && item.text)).toEqual(["usage limit reached", "stream closed"]);
+  });
+
+  it("gives Codex forward-slash paths, which its --config parsing needs", () => {
+    createCodexSession(testConfig);
+    const options = fake.options.at(-1) as CodexOptions;
+    expect(JSON.stringify(options.config)).not.toContain("\\\\");
+    expect(options.config).toMatchObject({
+      mcp_servers: { resolve: { command: "C:/mcp/.venv/Scripts/python.exe", args: ["C:/mcp/src/server.py"] } },
+    });
+  });
+});

@@ -1,0 +1,11 @@
+{
+  "extends": "$app/tsconfig",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["$app/types", "node"]
+  },
+  "include": ["src", "server", "shared", "scripts", "e2e", "*.ts"]
+}
