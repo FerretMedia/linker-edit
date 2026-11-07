@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { CircleAlert, History, WifiOff } from "@lucide/svelte";
+  import { CircleAlert, History, MonitorPlay, WifiOff } from "@lucide/svelte";
   import type { ChatItem, HistoryEntry, Provider } from "#shared/protocol.ts";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
   import Composer from "#lib/components/Composer.svelte";
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
+  import PreviewPanel from "#lib/components/PreviewPanel.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
   import { renderMarkdown } from "#lib/markdown.ts";
+  import type { PreviewTarget } from "#lib/player.ts";
   import { server } from "#lib/connection.svelte.ts";
 
   const SUGGESTIONS = [
@@ -22,10 +24,13 @@
   let composer: ReturnType<typeof Composer> | undefined = $state();
   let scroller: HTMLElement | undefined = $state();
   let stickToBottom = true;
-  let historyOpen = $state(false);
+  // One side panel at a time, opened from the header like T3 Code's diff panel.
+  let panel = $state<"preview" | "history" | null>(null);
+  const historyOpen = $derived(panel === "history");
 
   const app = $derived(server.state);
-  const canSend = $derived(server.connected && !!app && !app.busy && draft.trim().length > 0);
+  const rendering = $derived(app?.preview.state === "rendering");
+  const canSend = $derived(server.connected && !!app && !app.busy && !rendering && draft.trim().length > 0);
   const chatTitle = $derived.by(() => {
     const first = app?.items.find((item) => item.kind === "user");
     return first ? first.text.split("\n")[0]!.slice(0, 80) : "New chat";
@@ -73,6 +78,18 @@
     composer?.focus();
   }
 
+  function togglePanel(name: "preview" | "history") {
+    panel = panel === name ? null : name;
+  }
+
+  // The current timeline until a version is picked from the history.
+  let previewTarget = $state<PreviewTarget>({ id: null, commit: null });
+
+  function openPreview(target: PreviewTarget) {
+    previewTarget = target;
+    panel = "preview";
+  }
+
   function onScroll() {
     if (!scroller) return;
     stickToBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
@@ -118,18 +135,24 @@
             {app.resolve.project}
           </span>
         {/if}
-        <button
-          type="button"
-          class="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors {historyOpen
-            ? 'bg-accent text-foreground'
-            : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
-          aria-pressed={historyOpen}
-          onclick={() => (historyOpen = !historyOpen)}
-          title="Edit history"
-        >
-          <History class="size-3.5" />
-          History
-        </button>
+        <div class="ml-auto flex shrink-0 items-center gap-1.5">
+          {#each [{ name: "preview", label: "Preview", Icon: MonitorPlay }, { name: "history", label: "History", Icon: History }] as const as toggle (toggle.name)}
+            <button
+              type="button"
+              class="flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors {panel === toggle.name
+                ? 'bg-accent text-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'}"
+              aria-pressed={panel === toggle.name}
+              onclick={() => togglePanel(toggle.name)}
+            >
+              <toggle.Icon class="size-3.5" />
+              {toggle.label}
+              {#if toggle.name === "preview" && rendering}
+                <span class="size-1.5 rounded-full bg-primary" title="Rendering"></span>
+              {/if}
+            </button>
+          {/each}
+        </div>
       </header>
 
       {#if !server.connected}
@@ -213,8 +236,19 @@
       </div>
     </main>
 
-    {#if historyOpen}
-      <HistoryPanel entries={server.history} onClose={() => (historyOpen = false)} onRestore={restore} />
+    {#if panel === "history"}
+      <HistoryPanel entries={server.history} onClose={() => (panel = null)} onRestore={restore} onPreview={(id, commit) => openPreview({ id, commit })} />
+    {:else if panel === "preview"}
+      <PreviewPanel
+        preview={app.preview}
+        resolve={app.resolve}
+        busy={app.busy}
+        target={previewTarget}
+        onTarget={(target) => (previewTarget = target)}
+        onRender={(timelineId) => server.send({ type: "render_preview", timelineId })}
+        onStop={() => server.send({ type: "stop_preview" })}
+        onClose={() => (panel = null)}
+      />
     {/if}
   </div>
 {/if}

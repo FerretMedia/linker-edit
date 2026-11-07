@@ -2,11 +2,12 @@ import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { HistoryEntry, Provider } from "../../shared/protocol.ts";
+import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
 import type { ResolveMcpConfig } from "../config.ts";
 import { needsApproval } from "../policy.ts";
 import { RESOLVE_MCP_NAME } from "../rules.ts";
 import { describeChanges, timelineStrips } from "./diff.ts";
+import { mediaType, playableTimeline } from "./playable.ts";
 import {
   jsonRows,
   mediaEntries,
@@ -44,7 +45,9 @@ export interface History {
   recentContext(): Promise<string>;
   /** The newest saves, for the history panel. */
   log(limit?: number): Promise<HistoryEntry[]>;
-  /** A still in the history's media, for its thumbnail; null for video, audio and unknown ids. */
+  /** A timeline the browser can play, as Resolve has it now (commit null) or as it was in a save. */
+  timeline(id: string | null, commit: string | null): Promise<PlayableTimeline | null>;
+  /** A media file the browser can show or play; null for other formats and unknown ids. */
   mediaFile(id: string): { path: string; type: string } | null;
 }
 
@@ -187,22 +190,9 @@ function catFiles(cwd: string, names: string[]): Promise<(string | null)[]> {
   });
 }
 
-// Browsers can draw these, so stills on the history strips show as themselves.
-const IMAGE_TYPES: Record<string, string> = {
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".bmp": "image/bmp",
-  ".avif": "image/avif",
-};
-
-const imageType = (file: string | undefined) => (file ? (IMAGE_TYPES[path.extname(file).toLowerCase()] ?? null) : null);
-
 /** Media pool item id → file path, from the media.json of every project in the history. */
-function readMedia(dir: string): Map<string, string> {
-  const media = new Map<string, string>();
+function readMedia(dir: string): Map<string, MediaEntry> {
+  const media = new Map<string, MediaEntry>();
   const root = path.join(dir, HISTORY_ROOT);
   if (!fs.existsSync(root)) return media;
   for (const project of fs.readdirSync(root, { withFileTypes: true })) {
@@ -210,7 +200,7 @@ function readMedia(dir: string): Map<string, string> {
     if (!project.isDirectory() || !fs.existsSync(file)) continue;
     try {
       for (const entry of (JSON.parse(fs.readFileSync(file, "utf8")) as { media: MediaEntry[] }).media) {
-        media.set(entry.id, entry.path);
+        media.set(entry.id, entry);
       }
     } catch {
       // A hand-edited or half-merged media.json only costs thumbnails.
@@ -255,6 +245,8 @@ function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: Store
 export function createHistory(options: { dir: string; readSnapshot: () => Promise<RawSnapshot> }): History {
   const { dir } = options;
   let identity: Promise<string[]> | null = null;
+  // Media seen in live snapshots, so the quick preview finds media no save has recorded yet.
+  const snapshotMedia = new Map<string, MediaEntry>();
   // Saves run one at a time, so a turn's "before" save always lands before its "after" save.
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -294,6 +286,40 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
     return { commit, changes };
   }
 
+  /** A timeline as Resolve has it now (current one without an id), or as it was in a save. */
+  async function timeline(id: string | null, commit: string | null): Promise<PlayableTimeline | null> {
+    await prepare();
+    if (!commit) {
+      const snapshot = await options.readSnapshot();
+      for (const entry of mediaEntries(snapshot)) snapshotMedia.set(entry.id, entry);
+      const raw = snapshot.timelines.find((candidate) => (id ? candidate.id === id : candidate.name === snapshot.current_timeline));
+      return raw ? playableTimeline(storedTimeline(raw), snapshotMedia, null) : null;
+    }
+    const tree = await git(dir, ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", commit, "--", HISTORY_ROOT]);
+    if (tree.code !== 0) return null;
+    const metadataFiles = tree.stdout.split("\n").filter((file) => file.split("/").length === 4 && file.endsWith("/metadata.json"));
+    const metadata = await catFiles(dir, metadataFiles.map((file) => `${commit}:${file}`));
+    const index = metadata.findIndex((text) => {
+      try {
+        return text !== null && (JSON.parse(text) as { id?: string }).id === id;
+      } catch {
+        return false;
+      }
+    });
+    if (index === -1) return null;
+    const folder = path.posix.dirname(metadataFiles[index]!);
+    const files = await catFiles(dir, [...TIMELINE_FILES, "../media.json"].map((file) => `${commit}:${path.posix.join(folder, file)}`));
+    const stored = parseTimelineFiles((file) => files[TIMELINE_FILES.indexOf(file)] ?? null);
+    if (!stored) return null;
+    const media = readMedia(dir);
+    try {
+      for (const entry of (JSON.parse(files.at(-1) ?? "") as { media: MediaEntry[] }).media) media.set(entry.id, entry);
+    } catch {
+      // Without that save's media.json, today's media list still finds most files.
+    }
+    return playableTimeline(stored, media, commit);
+  }
+
   async function log(limit = 50): Promise<HistoryEntry[]> {
     await prepare();
     const result = await git(dir, [
@@ -324,7 +350,7 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
     );
     const blobs = new Map((await catFiles(dir, names)).map((text, index) => [names[index]!, text]));
     const media = readMedia(dir);
-    const isImage = (id: string) => imageType(media.get(id)) !== null;
+    const isImage = (id: string) => mediaType(media.get(id)?.path)?.kind === "image";
     return commits.map(({ hash, folders, entry }) => {
       const side = (rev: string) =>
         folders
@@ -367,10 +393,15 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
       queue = result.catch(() => {});
       return result;
     },
+    timeline: (id, commit) => {
+      const result = queue.then(() => timeline(id, commit));
+      queue = result.catch(() => {});
+      return result;
+    },
     mediaFile(id) {
-      const file = readMedia(dir).get(id);
-      const type = imageType(file);
-      return file && type && fs.existsSync(file) ? { path: file, type } : null;
+      const file = (snapshotMedia.get(id) ?? readMedia(dir).get(id))?.path;
+      const type = mediaType(file);
+      return file && type && fs.existsSync(file) ? { path: file, type: type.type } : null;
     },
   };
 }

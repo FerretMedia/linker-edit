@@ -46,6 +46,7 @@ def media_of(item):
             "id": media_id,
             "name": call(mpi, "GetName"),
             "path": call(mpi, "GetClipProperty", "File Path") or "",
+            "fps": call(mpi, "GetClipProperty", "FPS"),
         }
     return media_cache[media_id]
 

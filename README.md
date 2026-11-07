@@ -14,6 +14,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
+- **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
 
@@ -58,6 +59,7 @@ The defaults work for a standard install. To override them, copy `linker-edit.co
 | Key | Default |
 |---|---|
 | `workspaceDir` | `~/LinkerEdit/workspace`, the agent's working folder for notes and exports |
+| `previewDir` | `~/LinkerEdit/previews`, where preview renders go |
 | `resolveMcpDir` | `../davinci-resolve-mcp` |
 | `python` | the checkout's `.venv` Python |
 | `env` | Resolve scripting paths for your OS |
@@ -86,6 +88,15 @@ Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.js
 Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
 
 You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.
+
+## Preview
+
+**Preview** in the top right plays a timeline beside the chat, in two ways:
+
+- **Cut preview** starts right away. It plays your media straight from disk, following the cuts, with zoom, position and opacity. Color, effects, transitions and titles only show in a render, and formats browsers can't decode (ProRes, BRAW and similar) show as a placeholder. It also plays earlier versions: **Play** on a timeline in the history opens it as it was in that save.
+- **Full render** has Resolve render the exact picture as a small MP4, and the player switches to it at the same spot. While it renders, Resolve switches to that timeline and the Deliver page, then puts your timeline, page and render settings back. The agent waits until the render is done, and you can stop it. Only the timeline as it is in Resolve now can be rendered.
+
+Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previous or next cut, F full screen, M mute.
 
 ## Testing
 

@@ -96,8 +96,21 @@ describe("edit history", () => {
       ].join("\n"),
     );
 
+    const tightSave = (await history.log(1))[0]!.commit;
+
     show([rawTimeline("t1", "Interview", [item("a", 86400), item("b", 86448, { ZoomX: 1.5 })])]);
     expect(await history.record()).toMatchObject({ changes: ['"AI - Tight": timeline removed'] });
+    // A removed timeline still plays from the save that had it; the live one comes from Resolve.
+    expect(await history.timeline("t2", tightSave)).toMatchObject({
+      name: "AI - Tight",
+      commit: tightSave,
+      duration: 2,
+      video: [{ name: "clip b", start: 0, end: 2, media: "m-b" }],
+    });
+    expect(await history.timeline("t2", null)).toBeNull();
+    expect(await history.timeline(null, null)).toBeNull();
+    expect(await history.timeline("t1", null)).toMatchObject({ commit: null, video: [{ name: "clip a" }, { name: "clip b", look: { ZoomX: 1.5 } }] });
+    expect(history.mediaFile("m-a")).toBeNull();
     expect(fs.existsSync(path.join(dir, "resolve", "Doc_ Final_", "AI_Tight"))).toBe(false);
     expect(git("status", "--porcelain")).toBe("");
 
