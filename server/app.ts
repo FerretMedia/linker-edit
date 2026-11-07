@@ -9,12 +9,15 @@ import type {
   ResolveStatus,
   ServerMessage,
 } from "../shared/protocol.ts";
+import { resolveWriteAction, withHistoryContext, type AgentTurn, type History } from "./history/history.ts";
 import type { ItemPatch, ProviderSession, TurnSink } from "./providers/types.ts";
 
 export interface AppOptions {
   workspaceDir: string;
   createSession: (provider: Provider, approvalMode: () => ApprovalMode) => ProviderSession;
   checkResolve: () => Promise<ResolveStatus>;
+  /** Saves Resolve's state to the workspace's Git history around turns that change it. */
+  history?: History;
 }
 
 export interface Client {
@@ -77,12 +80,23 @@ export function createApp(options: AppOptions) {
     const controller = new AbortController();
     turn = controller;
     const turnChat = chat;
+    const turnProvider = provider;
     const live = () => turnChat === chat;
+    const firstInChat = !items.some((item) => item.kind === "user");
     upsert({ id: randomUUID(), kind: "user", text });
     sendMeta();
 
+    // Kept outside the chat items, so a turn's Resolve writes are still saved if its chat is reset.
+    const tools = new Map<string, { name?: string; input?: unknown }>();
+    let reply = "";
+
     const sink: TurnSink = {
       upsert: (patch) => {
+        if (patch.kind === "tool" || tools.has(patch.id)) {
+          const tool = tools.get(patch.id) ?? {};
+          tools.set(patch.id, { name: patch.name ?? tool.name, input: patch.input ?? tool.input });
+        }
+        if (patch.kind === "assistant" && patch.text) reply = patch.text;
         if (live()) upsert(patch);
       },
       notice: (noticeText, tone = "info") => {
@@ -98,8 +112,25 @@ export function createApp(options: AppOptions) {
       },
     };
 
+    async function saveHistory(agentTurn?: AgentTurn) {
+      try {
+        const saved = await options.history!.record(agentTurn);
+        if (saved) {
+          const who = agentTurn ? "Saved to edit history" : "Saved your own Resolve changes to edit history";
+          sink.notice(`${who} (${saved.commit})${saved.changes.length ? `: ${saved.changes.join("; ")}` : "."}`);
+        }
+      } catch (error) {
+        sink.notice(`Couldn't save edit history: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    }
+
     try {
-      await session.send(text, sink, controller.signal);
+      let prompt = text;
+      if (options.history) {
+        if (resolve.state === "connected") await saveHistory();
+        if (firstInChat) prompt = withHistoryContext(await options.history.recentContext().catch(() => ""), text);
+      }
+      if (!controller.signal.aborted) await session.send(prompt, sink, controller.signal);
     } catch (error) {
       if (!controller.signal.aborted) {
         sink.notice(error instanceof Error ? error.message : String(error), "error");
@@ -110,6 +141,10 @@ export function createApp(options: AppOptions) {
         if (item.kind === "tool" && item.status === "running") sink.upsert({ id: item.id, status: "error" });
       }
       settleAllApprovals(false);
+      const actions = [...tools.values()].flatMap(({ name, input }) => resolveWriteAction(name, input) ?? []);
+      if (options.history && actions.length) {
+        await saveHistory({ provider: turnProvider, prompt: text, actions, summary: reply });
+      }
       turn = null;
       sendMeta();
       void refreshResolve();

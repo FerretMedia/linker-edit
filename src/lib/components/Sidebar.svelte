@@ -28,6 +28,8 @@
         };
       case "not_running":
         return { tone: "bg-muted-foreground", title: "Resolve is not running", detail: "Start Resolve, then refresh." };
+      case "blocked":
+        return { tone: "bg-warning", title: "Resolve needs attention", detail: resolve.hint };
       case "unreachable":
         return { tone: "bg-destructive", title: "Resolve not reachable", detail: resolve.hint };
       case "setup_needed":
