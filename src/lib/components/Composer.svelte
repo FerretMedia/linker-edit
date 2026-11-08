@@ -1,7 +1,9 @@
 <script lang="ts">
   import { ArrowUp, ShieldCheck, ShieldOff, Square } from "@lucide/svelte";
-  import type { ApprovalMode, Provider } from "#shared/protocol.ts";
+  import type { ApprovalMode, ContextUsage, Provider } from "#shared/protocol.ts";
+  import { formatTokens } from "#lib/context.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";
+  import ContextMeter from "./ContextMeter.svelte";
   import ProviderPicker from "./ProviderPicker.svelte";
 
   let {
@@ -10,20 +12,29 @@
     approvalMode,
     busy,
     canSend,
+    context,
+    compactChip,
     onSend,
     onStop,
     onSelectProvider,
     onSetApprovalMode,
+    onCompact,
+    onToggleCompactChip,
   }: {
     draft: string;
     provider: Provider;
     approvalMode: ApprovalMode;
     busy: boolean;
     canSend: boolean;
+    context: ContextUsage | null;
+    /** Shown when Claude's cache has expired on a big chat: "compact" summarizes before sending. */
+    compactChip: "compact" | "full" | null;
     onSend: () => void;
     onStop: () => void;
     onSelectProvider: (provider: Provider) => void;
     onSetApprovalMode: (mode: ApprovalMode) => void;
+    onCompact: () => void;
+    onToggleCompactChip: () => void;
   } = $props();
 
   let textarea: HTMLTextAreaElement;
@@ -72,6 +83,23 @@
       {/if}
     </button>
     <div class="flex-1"></div>
+    {#if context}
+      <ContextMeter {context} canCompact={provider === "claude" && !busy} {onCompact} />
+    {/if}
+    {#if compactChip && context && !busy}
+      <button
+        type="button"
+        class="flex h-7 items-center rounded-full border px-2.5 text-xs transition-colors hover:bg-accent {compactChip === 'compact'
+          ? 'text-foreground'
+          : 'text-muted-foreground'}"
+        title={compactChip === "compact"
+          ? `Claude's cache has expired. Sending summarizes the chat (${formatTokens(context.usedTokens)} tokens) first, so it isn't all reread. Click to send the full chat instead.`
+          : "Sends the full chat. Click to summarize it first."}
+        onclick={onToggleCompactChip}
+      >
+        {compactChip === "compact" ? "Compact" : "Full"}
+      </button>
+    {/if}
     {#if busy}
       <button
         type="button"

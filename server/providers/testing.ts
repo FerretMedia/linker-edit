@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { ChatItem } from "../../shared/protocol.ts";
+import type { ChatItem, ContextUsage } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
 import type { ItemPatch, TurnSink } from "./types.ts";
 
@@ -20,6 +20,7 @@ export const testConfig: AppConfig = {
 export function collectingSink(answer: (tool: string, input: unknown) => boolean = () => true) {
   const items = new Map<string, ItemPatch>();
   const approvals: { tool: string; input: unknown }[] = [];
+  const contexts: (ContextUsage | null)[] = [];
   let notices = 0;
   const upsert = (patch: ItemPatch) => items.set(patch.id, { ...items.get(patch.id), ...patch });
   const sink: TurnSink = {
@@ -29,6 +30,7 @@ export function collectingSink(answer: (tool: string, input: unknown) => boolean
       approvals.push({ tool, input });
       return answer(tool, input);
     },
+    context: (usage) => contexts.push(usage),
   };
-  return { sink, approvals, items: () => [...items.values()] as ChatItem[] };
+  return { sink, approvals, contexts, items: () => [...items.values()] as ChatItem[] };
 }

@@ -5,12 +5,16 @@ import { describe, expect, it, vi } from "vitest";
 import { createCodexSession } from "./codex.ts";
 import { collectingSink, FIXTURES, testConfig } from "./testing.ts";
 
-const fake = vi.hoisted(() => ({ options: [] as unknown[], turns: [] as ThreadEvent[][] }));
+const fake = vi.hoisted(() => ({ options: [] as unknown[], turns: [] as ThreadEvent[][], resumed: [] as string[] }));
 
 vi.mock("@openai/codex-sdk", () => ({
   Codex: class {
     constructor(options: unknown) {
       fake.options.push(options);
+    }
+    resumeThread(id: string) {
+      fake.resumed.push(id);
+      return { ...this.startThread(), id };
     }
     startThread() {
       return {
@@ -53,6 +57,14 @@ describe("Codex session", () => {
 
     await codex.send("two", sink, new AbortController().signal);
     expect(items()).toHaveLength(firstTurn.length * 2);
+  });
+
+  it("continues a thread from before a restart", async () => {
+    fake.turns = [[]];
+    const codex = createCodexSession(testConfig, "thread-1");
+    expect(codex.resumeId()).toBe("thread-1");
+    await codex.send("go on", collectingSink().sink, new AbortController().signal);
+    expect(fake.resumed).toEqual(["thread-1"]);
   });
 
   it("shows failed turns and stream errors", async () => {

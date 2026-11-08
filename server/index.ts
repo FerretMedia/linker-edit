@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
 import { createApp } from "./app.ts";
+import { fileChatStore } from "./chatStore.ts";
 import { APP_ROOT, loadConfig } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
@@ -26,16 +27,17 @@ if (replay) console.log(`Replaying ${replay} instead of calling Claude`);
 
 const app = createApp({
   workspaceDir: config.workspaceDir,
-  createSession: (provider, approvalMode) =>
+  createSession: (provider, approvalMode, resumeId) =>
     provider === "codex"
-      ? createCodexSession(config)
-      : createClaudeSession(config, approvalMode, replay ? replayQuery(replay) : query),
+      ? createCodexSession(config, resumeId)
+      : createClaudeSession(config, approvalMode, { runQuery: replay ? replayQuery(replay) : query, resumeId }),
   checkResolve: () => checkResolve(config.resolveMcp),
   // A replayed turn never touched Resolve, so there is nothing to save.
   history: replay
     ? undefined
     : createHistory({ dir: config.workspaceDir, readSnapshot: () => readResolveSnapshot(config.resolveMcp) }),
   preview: createPreviewRenderer({ dir: config.previewDir, mcp: config.resolveMcp }),
+  store: fileChatStore(config.workspaceDir),
 });
 
 const server = createServer(app, path.join(APP_ROOT, "build"));

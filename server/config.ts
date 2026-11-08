@@ -17,6 +17,8 @@ interface UserConfig {
   python?: string;
   /** Extra or replacement environment variables for the MCP server. */
   env?: Record<string, string>;
+  /** Tokens at which Claude compacts the chat by itself, 100000 to 1000000. Claude Code decides when unset. */
+  autoCompactWindow?: number;
 }
 
 export interface ResolveMcpConfig {
@@ -30,6 +32,7 @@ export interface AppConfig {
   workspaceDir: string;
   previewDir: string;
   resolveMcp: ResolveMcpConfig;
+  autoCompactWindow?: number;
 }
 
 function readUserConfig(file: string): UserConfig {
@@ -92,6 +95,10 @@ export function loadConfig(
   platform: NodeJS.Platform = process.platform,
 ): AppConfig {
   const user = readUserConfig(file);
+  const window = user.autoCompactWindow;
+  if (window !== undefined && !(Number.isInteger(window) && window >= 100_000 && window <= 1_000_000)) {
+    throw new Error(`autoCompactWindow in ${file} must be a whole number from 100000 to 1000000.`);
+  }
   const mcpDir = user.resolveMcpDir ?? path.resolve(APP_ROOT, "..", "davinci-resolve-mcp");
   const python =
     user.python ??
@@ -112,5 +119,6 @@ export function loadConfig(
       serverScript: path.join(mcpDir, "src", "server.py"),
       env: { ...env, ...user.env },
     },
+    ...(window === undefined ? {} : { autoCompactWindow: window }),
   };
 }
