@@ -12,7 +12,7 @@ except Exception as e:
 r = d.scriptapp("Resolve")
 if not r:
     print(json.dumps({"state": "unreachable"})); sys.exit()
-out = {"state": "connected", "product": r.GetProductName(), "version": r.GetVersionString(), "project": None, "timeline": None}
+out = {"state": "connected", "product": r.GetProductName(), "version": r.GetVersionString(), "project": None, "timeline": None, "page": r.GetCurrentPage()}
 p = r.GetProjectManager().GetCurrentProject()
 if p:
     out["project"] = p.GetName()
@@ -20,6 +20,9 @@ if p:
     out["timeline"] = t.GetName() if t else None
 print(json.dumps(out))
 `;
+
+const BLOCKED_HINT =
+  "Resolve answers but refuses edits while the Project Manager or a dialog, such as an update prompt, is open. Open a project and close the dialog in Resolve, then refresh.";
 
 const UNREACHABLE_HINT =
   "Resolve is running but refuses scripting. Use DaVinci Resolve Studio, set Preferences → System → General → External scripting using: Local, then restart Resolve.";
@@ -63,7 +66,12 @@ export function parseProbeOutput(stdout: string): ResolveStatus {
   const out = stdout.trim().split("\n").pop() ?? "";
   try {
     const result = JSON.parse(out) as { state: string; detail?: string } & Record<string, unknown>;
-    if (result.state === "connected") return result as unknown as ResolveStatus;
+    if (result.state === "connected") {
+      const { page, ...status } = result;
+      // No page means Resolve is on the Project Manager or behind a modal dialog.
+      if (page === null) return { state: "blocked", hint: BLOCKED_HINT };
+      return status as unknown as ResolveStatus;
+    }
     if (result.state === "no_module") {
       return { state: "setup_needed", hint: `Resolve scripting module failed to load: ${result.detail}` };
     }

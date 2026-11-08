@@ -13,6 +13,6 @@ export default defineConfig({
   ],
   server: {
     port: 5317,
-    proxy: { "/ws": { target: "ws://127.0.0.1:4317", ws: true } },
+    proxy: { "/ws": { target: "ws://127.0.0.1:4317", ws: true }, "/media": "http://127.0.0.1:4317", "/preview": "http://127.0.0.1:4317", "/api": "http://127.0.0.1:4317" },
   },
 });

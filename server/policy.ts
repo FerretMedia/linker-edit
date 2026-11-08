@@ -30,9 +30,20 @@ export function isReadAction(action: string): boolean {
 
 const RESOLVE_PREFIX = `mcp__${RESOLVE_MCP_NAME}__`;
 
+// Reading the edit history: plain or quoted arguments only, so no chaining, substitution or redirects.
+const GIT_READ = /^git[ \t]+(log|show|diff|status)([ \t]+("[^"$`\\]*"|'[^']*'|[^\s;&|<>`$()"'\\])+)*$/;
+
+function isGitRead(command: string): boolean {
+  // --output writes the result to a file.
+  return GIT_READ.test(command.trim()) && !command.includes("--output");
+}
+
 /** In "ask" mode: does this tool call need the user's OK before it runs? */
 export function needsApproval(toolName: string, input: Record<string, unknown>): boolean {
   if (READ_ONLY_TOOLS.has(toolName)) return false;
+  // Claude Code on Windows runs shell commands through PowerShell instead of Bash.
+  const shell = toolName === "Bash" || toolName === "PowerShell";
+  if (shell && typeof input.command === "string" && isGitRead(input.command)) return false;
   if (toolName.startsWith(RESOLVE_PREFIX)) {
     const tool = toolName.slice(RESOLVE_PREFIX.length);
     if (tool === "knowledge") return false;

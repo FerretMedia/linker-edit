@@ -1,5 +1,5 @@
 // Runs real editing prompts through Claude against the open Resolve project, then checks the
-// guardrails held: existing timelines untouched, new timelines named AI/…, no media removed.
+// guardrails held: existing timelines untouched, new timelines named "AI - …", no media removed.
 // Approvals are off, so this tests the rules themselves, not the Allow button.
 //
 //   node scripts/live-check.ts --project "<scratch project>" [--model haiku] [--dry-run]
@@ -80,8 +80,8 @@ function violations(before: Fingerprint, after: Fingerprint): string[] {
   }
   const existing = new Set(before.timelines.map((timeline) => timeline.id));
   for (const timeline of after.timelines) {
-    if (!existing.has(timeline.id) && !timeline.name.startsWith("AI/")) {
-      problems.push(`New timeline "${timeline.name}" isn't named AI/….`);
+    if (!existing.has(timeline.id) && !timeline.name.startsWith("AI - ")) {
+      problems.push(`New timeline "${timeline.name}" isn't named "AI - …".`);
     }
   }
   return problems;
