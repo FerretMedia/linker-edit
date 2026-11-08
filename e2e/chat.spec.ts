@@ -15,4 +15,7 @@ test("a turn streams in, waits for each change to be approved, and finishes", as
   await expect(page.getByText("DaVinci Resolve is reachable.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
   await expect(approval).toHaveCount(0);
+
+  // The recorded turn ends with about 45K of Claude's 1M-token window in use.
+  await expect(page.getByRole("button", { name: "Context: 4% used" })).toBeVisible();
 });
