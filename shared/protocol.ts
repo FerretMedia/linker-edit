@@ -134,6 +134,18 @@ export type PreviewState =
     }
   | { state: "error"; message: string };
 
+/** How full the agent's context was after its latest request. Claude only: Codex reports no window. */
+export interface ContextUsage {
+  usedTokens: number;
+  /** Null until the turn's result reports the model's window. */
+  maxTokens: number | null;
+  /** When Claude's prompt cache expires; a turn after that rereads the whole chat uncached. ISO 8601. */
+  cacheExpiresAt: string | null;
+}
+
+/** Below this, rereading a chat after its cache expired is cheap, so compacting isn't suggested. As in T3 Code. */
+export const COMPACT_SUGGESTION_MIN_TOKENS = 200_000;
+
 export interface AppMeta {
   provider: Provider;
   approvalMode: ApprovalMode;
@@ -145,6 +157,7 @@ export interface AppMeta {
   update: string | null;
   workspaceDir: string;
   preview: PreviewState;
+  context: ContextUsage | null;
 }
 
 export interface AppState extends AppMeta {
@@ -152,7 +165,10 @@ export interface AppState extends AppMeta {
 }
 
 export type ClientMessage =
-  | { type: "send"; text: string }
+  /** compactFirst summarizes the chat before sending: for coming back after the prompt cache expired. */
+  | { type: "send"; text: string; compactFirst?: boolean }
+  /** Summarizes the chat so far to free context. Claude only. */
+  | { type: "compact" }
   | { type: "stop" }
   | { type: "new_chat" }
   | { type: "set_provider"; provider: Provider }

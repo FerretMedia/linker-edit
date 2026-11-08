@@ -29,6 +29,7 @@ const username = os.userInfo().username;
 function sanitize(message: Record<string, unknown>): Record<string, unknown> | null {
   if (!KEEP.has(String(message.type))) return null;
   if (message.type === "system") {
+    if (message.subtype === "compact_boundary") return message;
     if (message.subtype !== "init") return null;
     const { type, subtype, session_id, uuid, model, mcp_servers } = message;
     const resolve = (mcp_servers as { name: string }[]).filter((server) => server.name === RESOLVE_MCP_NAME);
@@ -46,23 +47,22 @@ if (provider === "claude") {
   const sink: TurnSink = {
     upsert: (patch) => console.log(patch.kind ?? "update", patch.name ?? patch.status ?? patch.text?.slice(0, 80) ?? ""),
     notice: (text) => console.log("notice", text),
+    context: (usage) => console.log("context", usage?.usedTokens ?? "unknown"),
     requestApproval: async (tool) => {
       const allow = tool !== "Bash";
       console.log(allow ? "allow" : "deny", tool);
       return allow;
     },
   };
-  const session = createClaudeSession(
-    config,
-    () => "ask",
-    async function* (params) {
+  const session = createClaudeSession(config, () => "ask", {
+    runQuery: async function* (params) {
       for await (const message of query({ ...params, options: { ...params.options, model: "haiku" } })) {
         const kept = sanitize(message as unknown as Record<string, unknown>);
         if (kept) lines.push(JSON.stringify(kept));
         yield message;
       }
     },
-  );
+  });
   await session.send(prompt, sink, new AbortController().signal);
 } else {
   const thread = new Codex(codexOptions(config)).startThread({

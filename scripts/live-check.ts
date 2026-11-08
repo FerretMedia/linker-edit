@@ -1,5 +1,6 @@
 // Runs real editing prompts through Claude against the open Resolve project, then checks the
 // guardrails held: existing timelines untouched, new timelines named "AI - …", no media removed.
+// It then compacts the chat and continues it in a fresh session, as after a restart.
 // Approvals are off, so this tests the rules themselves, not the Allow button.
 //
 //   node scripts/live-check.ts --project "<scratch project>" [--model haiku] [--dry-run]
@@ -13,7 +14,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "../server/config.ts";
-import { createClaudeSession } from "../server/providers/claude.ts";
+import { createClaudeSession, type RunQuery } from "../server/providers/claude.ts";
 import type { TurnSink } from "../server/providers/types.ts";
 import { prepareWorkspace } from "../server/rules.ts";
 
@@ -105,17 +106,25 @@ if (values.project !== before.project) {
 
 const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-live-"));
 prepareWorkspace(workspaceDir);
+const notices: { text: string; tone?: string }[] = [];
+let replies = 0;
 const sink: TurnSink = {
   upsert: (patch) => {
     if (patch.kind === "tool") console.log(`  tool ${patch.name} ${JSON.stringify(patch.input).slice(0, 120)}`);
-    else if (patch.kind === "assistant") console.log(`  says ${patch.text?.slice(0, 200)}`);
+    else if (patch.kind === "assistant") {
+      replies += 1;
+      console.log(`  says ${patch.text?.slice(0, 200)}`);
+    }
   },
-  notice: (text, tone) => console.log(`  ${tone ?? "info"}: ${text}`),
+  notice: (text, tone) => {
+    notices.push({ text, tone });
+    console.log(`  ${tone ?? "info"}: ${text}`);
+  },
   requestApproval: async () => true,
+  context: (usage) => usage && console.log(`  context ${usage.usedTokens} of ${usage.maxTokens ?? "?"} tokens`),
 };
-const session = createClaudeSession({ ...config, workspaceDir }, () => "auto", (params) =>
-  query({ ...params, options: { ...params.options, model: values.model } }),
-);
+const runQuery: RunQuery = (params) => query({ ...params, options: { ...params.options, model: values.model } });
+const session = createClaudeSession({ ...config, workspaceDir }, () => "auto", { runQuery });
 for (const prompt of PROMPTS) {
   console.log(`\n> ${prompt}`);
   await session.send(prompt, sink, new AbortController().signal);
@@ -123,9 +132,21 @@ for (const prompt of PROMPTS) {
 
 const after = await fingerprint();
 const problems = after ? violations(before, after) : ["Resolve stopped answering."];
+
+console.log("\n> /compact");
+await session.compact!(sink, new AbortController().signal);
+if (!notices.some((notice) => notice.text.startsWith("Compacted the chat"))) problems.push("The chat didn't compact.");
+
+console.log("\n> (restart) Which timelines did you create in this chat?");
+const resumed = createClaudeSession({ ...config, workspaceDir }, () => "auto", { runQuery, resumeId: session.resumeId()! });
+const [errorsBefore, repliesBefore] = [notices.filter((notice) => notice.tone === "error").length, replies];
+await resumed.send("Which timelines did you create in this chat? One line.", sink, new AbortController().signal);
+if (notices.filter((notice) => notice.tone === "error").length > errorsBefore || replies === repliesBefore) {
+  problems.push("The chat didn't continue after a restart.");
+}
 console.log(`\nWorking folder: ${workspaceDir}`);
 if (problems.length === 0) {
-  console.log(`Guardrails held: ${after!.timelines.length - before.timelines.length} new AI timelines, nothing else touched.`);
+  console.log(`Guardrails, compaction and resume held: ${after!.timelines.length - before.timelines.length} new AI timelines, nothing else touched.`);
 } else {
   console.error(`Guardrails broken:\n${problems.map((problem) => `- ${problem}`).join("\n")}`);
   process.exit(1);
