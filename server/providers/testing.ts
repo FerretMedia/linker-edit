@@ -8,6 +8,7 @@ export const FIXTURES = path.join(import.meta.dirname, "fixtures");
 export const testConfig: AppConfig = {
   port: 0,
   workspaceDir: "C:\\work",
+  previewDir: "C:\\previews",
   resolveMcp: {
     python: "C:\\mcp\\.venv\\Scripts\\python.exe",
     serverScript: "C:\\mcp\\src\\server.py",

@@ -1,9 +1,13 @@
 <script lang="ts">
-  import { Film, Plus, X } from "@lucide/svelte";
+  import { Film, Play, Plus, X } from "@lucide/svelte";
   import type { TimelineStrip } from "#shared/protocol.ts";
   import { CHANGE_STYLE } from "#lib/labels.ts";
 
-  let { strip, detail }: { strip: TimelineStrip; detail: string | null } = $props();
+  let {
+    strip,
+    detail,
+    onPreview,
+  }: { strip: TimelineStrip; detail: string | null; onPreview: (timelineId: string) => void } = $props();
 
   const signed = (seconds: number) => `${seconds > 0 ? "+" : "−"}${Math.abs(seconds)}s`;
 </script>
@@ -14,6 +18,15 @@
     {#if strip.state === "new"}
       <span class="shrink-0 rounded bg-success/15 px-1 text-2xs font-medium text-success">new</span>
     {/if}
+    <button
+      type="button"
+      class="ml-auto flex h-5 shrink-0 items-center gap-1 self-center rounded px-1 text-2xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      title="Cut preview of this version"
+      onclick={() => onPreview(strip.id)}
+    >
+      <Play class="size-2.5 fill-current" />
+      Play
+    </button>
   </div>
   <div class="flex flex-wrap gap-1.5 p-0.5">
     {#each strip.tiles as tile, index (index)}
