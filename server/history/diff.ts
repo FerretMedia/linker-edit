@@ -218,7 +218,7 @@ export function timelineStrips(
       shown++;
       index++;
     }
-    strips.push({ name: timeline.metadata.name, state: previous ? "changed" : "new", tiles });
+    strips.push({ id: timeline.metadata.id, name: timeline.metadata.name, state: previous ? "changed" : "new", tiles });
   }
   return strips;
 }

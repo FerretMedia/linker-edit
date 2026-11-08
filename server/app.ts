@@ -1,15 +1,18 @@
 import { randomUUID } from "node:crypto";
+import * as path from "node:path";
 import type {
   AppMeta,
   ApprovalMode,
   ApprovalRequest,
   ChatItem,
   ClientMessage,
+  PreviewState,
   Provider,
   ResolveStatus,
   ServerMessage,
 } from "../shared/protocol.ts";
 import { resolveWriteAction, withHistoryContext, type AgentTurn, type History } from "./history/history.ts";
+import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ItemPatch, ProviderSession, TurnSink } from "./providers/types.ts";
 
 export interface AppOptions {
@@ -18,6 +21,8 @@ export interface AppOptions {
   checkResolve: () => Promise<ResolveStatus>;
   /** Saves Resolve's state to the workspace's Git history around turns that change it. */
   history?: History;
+  /** Renders timelines through Resolve for the preview panel. */
+  preview?: PreviewRenderer;
 }
 
 export interface Client {
@@ -33,6 +38,8 @@ export function createApp(options: AppOptions) {
   let resolve: ResolveStatus = { state: "checking" };
   let items: ChatItem[] = [];
   let turn: AbortController | null = null;
+  let preview: PreviewState = { state: "idle" };
+  let previewJob: { stop(): void } | null = null;
   // Bumped on every reset, so a turn that is still winding down can't write into the next chat.
   let chat = 0;
   const approvals = new Map<string, { request: ApprovalRequest; settle: (allow: boolean) => void }>();
@@ -56,6 +63,7 @@ export function createApp(options: AppOptions) {
       approvals: [...approvals.values()].map((entry) => entry.request),
       resolve,
       workspaceDir: options.workspaceDir,
+      preview,
     };
   }
 
@@ -76,7 +84,8 @@ export function createApp(options: AppOptions) {
   }
 
   async function runTurn(text: string) {
-    if (turn) return;
+    // Resolve does one thing at a time: a render switches timelines and pages while it runs.
+    if (turn || previewJob) return;
     const controller = new AbortController();
     turn = controller;
     const turnChat = chat;
@@ -116,6 +125,7 @@ export function createApp(options: AppOptions) {
       try {
         const saved = await options.history!.record(agentTurn);
         if (saved) {
+          if (preview.state === "ready") preview = { ...preview, outdated: true };
           await publishHistory();
           const who = agentTurn ? "Saved to edit history" : "Saved your own Resolve changes to edit history";
           sink.notice(`${who} (${saved.commit})${saved.changes.length ? `: ${saved.changes.join("; ")}` : "."}`);
@@ -171,6 +181,27 @@ export function createApp(options: AppOptions) {
     broadcast({ type: "history", entries });
   }
 
+  function renderPreview(timelineId: string | null) {
+    if (!options.preview || turn || previewJob) return;
+    preview = { state: "rendering", timeline: null, percent: 0 };
+    sendMeta();
+    previewJob = options.preview.render(timelineId, (event) => {
+      if (event.event === "start") preview = { state: "rendering", timeline: event.timeline, percent: 0 };
+      else if (event.event === "progress" && preview.state === "rendering") preview = { ...preview, percent: event.percent };
+      else if (event.event === "done" || event.event === "error") {
+        const timeline = preview.state === "rendering" ? preview.timeline : null;
+        previewJob = null;
+        if (event.event === "error") preview = event.stopped ? { state: "idle" } : { state: "error", message: event.message };
+        else if (!timeline) preview = { state: "error", message: "Resolve rendered without naming the timeline." };
+        else {
+          const url = `/preview/${encodeURIComponent(path.basename(event.file))}`;
+          preview = { state: "ready", timeline, url, renderedAt: new Date().toISOString(), outdated: false };
+        }
+      }
+      sendMeta();
+    });
+  }
+
   let resolveCheck: Promise<void> | null = null;
   function refreshResolve(): Promise<void> {
     resolveCheck ??= options
@@ -223,6 +254,12 @@ export function createApp(options: AppOptions) {
       case "load_history":
         void publishHistory();
         break;
+      case "render_preview":
+        renderPreview(message.timelineId ?? null);
+        break;
+      case "stop_preview":
+        previewJob?.stop();
+        break;
     }
   }
 
@@ -235,6 +272,11 @@ export function createApp(options: AppOptions) {
     handleMessage,
     refreshResolve,
     mediaFile: (id: string) => options.history?.mediaFile(id) ?? null,
+    previewFile: (name: string) => options.preview?.file(name) ?? null,
+    playableTimeline: async (id: string | null, commit: string | null) => {
+      if (!options.history) throw new Error("Edit history is off, so there is nothing to play.");
+      return options.history.timeline(id, commit);
+    },
     busy: () => turn !== null,
   };
 }
