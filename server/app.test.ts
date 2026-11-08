@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, Provider, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type AppOptions } from "./app.ts";
+import type { ChatStore, SavedChat } from "./chatStore.ts";
 import type { AgentTurn } from "./history/history.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
@@ -43,31 +44,56 @@ function setup(...scripts: Script[]) {
   return setupWith({}, ...scripts);
 }
 
-function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve" | "preview">>, ...scripts: Script[]) {
+function memoryStore(chat: SavedChat | null = null): ChatStore & { chat: SavedChat | null } {
+  return {
+    chat,
+    load() {
+      return this.chat;
+    },
+    save(saved) {
+      this.chat = structuredClone(saved);
+    },
+  };
+}
+
+/**
+ * Sessions get a provider id on their first send, like the real ones. Claude's compact() sends
+ * "/compact" and runs the next script, so compactions read top to bottom with the turns.
+ */
+function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve" | "preview" | "store">>, ...scripts: Script[]) {
   const sessions: Provider[] = [];
+  const resumeIds: (string | undefined)[] = [];
   const prompts: string[] = [];
   const app = createApp({
     workspaceDir: "/work",
-    createSession: (provider): ProviderSession => {
+    createSession: (provider, _approvalMode, resumeId): ProviderSession => {
       sessions.push(provider);
+      resumeIds.push(resumeId);
+      let id = resumeId ?? null;
+      const name = `${provider}-${sessions.length}`;
+      const send: ProviderSession["send"] = (text, sink, signal) => {
+        prompts.push(text);
+        id ??= name;
+        const script = scripts.shift();
+        if (!script) throw new Error("No script left for this send");
+        return script(sink, signal);
+      };
       return {
-        send: (text, sink, signal) => {
-          prompts.push(text);
-          const script = scripts.shift();
-          if (!script) throw new Error("No script left for this send");
-          return script(sink, signal);
-        },
+        send,
+        ...(provider === "claude" ? { compact: (sink: TurnSink, signal: AbortSignal) => send("/compact", sink, signal) } : {}),
+        resumeId: () => id,
       };
     },
     checkResolve: options.checkResolve ?? (async () => ({ state: "not_running" })),
     history: options.history,
     preview: options.preview,
+    store: options.store,
   });
   const client = testClient();
   app.connect(client);
   const send = (message: ClientMessage) => app.handleMessage(message);
   const turnDone = () => client.until((state) => !state.busy);
-  return { app, client, send, turnDone, sessions, prompts };
+  return { app, client, send, turnDone, sessions, resumeIds, prompts };
 }
 
 function gate() {
@@ -124,17 +150,18 @@ describe("app turns", () => {
 });
 
 describe("app approvals", () => {
-  function awaitingApproval() {
+  async function awaitingApproval() {
     const answers: boolean[] = [];
     const harness = setup(async (sink) => {
       answers.push(await sink.requestApproval("mcp__resolve__timeline", { action: "create_empty" }));
     });
     harness.send({ type: "send", text: "build it" });
+    await harness.client.until((state) => state.approvals.length > 0);
     return { ...harness, answers };
   }
 
   it.each([true, false])("passes the user's answer (%s) to the provider", async (allow) => {
-    const { client, send, turnDone, answers } = awaitingApproval();
+    const { client, send, turnDone, answers } = await awaitingApproval();
     const [request] = client.state.approvals;
     expect(request).toMatchObject({ tool: "mcp__resolve__timeline", input: { action: "create_empty" } });
     send({ type: "approve", id: request!.id, allow });
@@ -144,7 +171,7 @@ describe("app approvals", () => {
   });
 
   it("allows pending approvals when switched to auto", async () => {
-    const { send, turnDone, answers } = awaitingApproval();
+    const { send, turnDone, answers } = await awaitingApproval();
     send({ type: "set_approval_mode", mode: "auto" });
     await turnDone();
     expect(answers).toEqual([true]);
@@ -153,7 +180,7 @@ describe("app approvals", () => {
   it.each<ClientMessage>([{ type: "stop" }, { type: "new_chat" }, { type: "set_provider", provider: "codex" }])(
     "denies pending approvals on %j",
     async (message) => {
-      const { client, send, turnDone, answers } = awaitingApproval();
+      const { client, send, turnDone, answers } = await awaitingApproval();
       send(message);
       expect(client.state.approvals).toEqual([]);
       await turnDone();
@@ -172,6 +199,7 @@ describe("app chats", () => {
       answers.push(await sink.requestApproval("Write", {}));
     });
     send({ type: "send", text: "go" });
+    await client.until((state) => state.approvals.length > 0);
     send({ type: "new_chat" });
     await turnDone();
     expect(answers).toEqual([false, false]);
@@ -185,6 +213,47 @@ describe("app chats", () => {
     send({ type: "set_provider", provider: "codex" });
     expect(sessions).toEqual(["claude", "codex"]);
     expect(client.state.provider).toBe("codex");
+  });
+
+  it("keeps the chat going when the provider changes, giving the new agent a summary", async () => {
+    const { client, send, turnDone, prompts } = setup(
+      async (sink) => {
+        sink.upsert({ id: "a", kind: "assistant", text: "Built AI - Cut." });
+        sink.context({ usedTokens: 40_000, maxTokens: 1_000_000, cacheExpiresAt: null });
+      },
+      async () => {},
+    );
+    send({ type: "send", text: "cut it" });
+    await turnDone();
+    send({ type: "set_provider", provider: "codex" });
+    expect(client.state.context).toBeNull();
+    expect(client.state.items.at(-1)).toMatchObject({ kind: "notice", text: expect.stringContaining("Switched to Codex") });
+
+    send({ type: "send", text: "shorter" });
+    await turnDone();
+    expect(prompts[1]).toMatch(/^<earlier_conversation>\n.*\nUser: cut it\nAssistant: Built AI - Cut\.\n<\/earlier_conversation>\n\nshorter$/);
+    expect(client.state.items.map((item) => item.kind)).toEqual(["user", "assistant", "notice", "user"]);
+  });
+
+  it("compacts on request, and before a message when the user asks", async () => {
+    const compacted = async (sink: TurnSink) => {
+      sink.notice("Compacted.");
+      sink.context({ usedTokens: 9_000, maxTokens: 1_000_000, cacheExpiresAt: null });
+    };
+    const { client, send, turnDone, prompts } = setup(async () => {}, compacted, compacted, async () => {});
+    // Nothing to compact before the first turn.
+    send({ type: "compact" });
+    expect(client.state.busy).toBe(false);
+
+    send({ type: "send", text: "one" });
+    await turnDone();
+    send({ type: "compact" });
+    await turnDone();
+    expect(client.state.context).toMatchObject({ usedTokens: 9_000 });
+    send({ type: "send", text: "two", compactFirst: true });
+    await turnDone();
+    expect(prompts).toEqual(["one", "/compact", "/compact", "two"]);
+    expect(client.state.items.map((item) => (item.kind === "user" ? item.text : item.kind))).toEqual(["one", "notice", "two", "notice"]);
   });
 
   it("gives a client that connects mid-turn the same state", async () => {
@@ -201,6 +270,49 @@ describe("app chats", () => {
     await turnDone();
     await late.until((state) => !state.busy);
     expect(late.state).toEqual(client.state);
+  });
+});
+
+describe("app restarts", () => {
+  it("keeps the chat and continues the provider's conversation", async () => {
+    const store = memoryStore();
+    const first = setupWith({ store }, async (sink) => {
+      sink.upsert({ id: "a", kind: "assistant", text: "Built AI - Cut." });
+      sink.context({ usedTokens: 40_000, maxTokens: 1_000_000, cacheExpiresAt: "2026-11-08T12:00:00.000Z" });
+    });
+    first.send({ type: "set_provider", provider: "claude" });
+    first.send({ type: "send", text: "cut it" });
+    await first.turnDone();
+
+    const second = setupWith({ store }, async () => {});
+    expect(second.client.state).toEqual({ ...first.client.state, resolve: { state: "checking" } });
+    expect(second.resumeIds).toEqual(["claude-1"]);
+    second.send({ type: "send", text: "shorter" });
+    await second.turnDone();
+    expect(second.prompts).toEqual(["shorter"]);
+
+    second.send({ type: "new_chat" });
+    expect(store.chat).toMatchObject({ items: [], context: null, resumeId: null });
+  });
+
+  it("starts a new conversation with a summary when the earlier one can't be continued", async () => {
+    const store = memoryStore({ provider: "claude", resumeId: "gone", items: [{ id: "1", kind: "user", text: "cut it" }], context: null });
+    const { client, send, turnDone, resumeIds, prompts } = setupWith(
+      { store },
+      async () => {
+        throw new Error("No conversation found");
+      },
+      async (sink) => sink.upsert({ id: "a", kind: "assistant", text: "Done." }),
+    );
+    send({ type: "send", text: "shorter" });
+    await turnDone();
+    expect(resumeIds).toEqual(["gone", undefined]);
+    expect(prompts[0]).toBe("shorter");
+    expect(prompts[1]).toMatch(/User: cut it\n<\/earlier_conversation>\n\nshorter$/);
+    expect(client.state.items.filter((item) => item.kind === "notice")).toMatchObject([
+      { tone: "info", text: expect.stringContaining("Couldn't continue the earlier conversation (No conversation found)") },
+    ]);
+    expect(store.chat?.resumeId).toBe("claude-2");
   });
 });
 

@@ -8,6 +8,7 @@
   import Sidebar from "#lib/components/Sidebar.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
+  import { compactSuggested } from "#lib/context.ts";
   import { renderMarkdown } from "#lib/markdown.ts";
   import type { PreviewTarget } from "#lib/player.ts";
   import { server } from "#lib/connection.svelte.ts";
@@ -31,6 +32,27 @@
   const app = $derived(server.state);
   const rendering = $derived(app?.preview.state === "rendering");
   const canSend = $derived(server.connected && !!app && !app.busy && !rendering && draft.trim().length > 0);
+  let now = $state(Date.now());
+  // The cache expiry the user switched to sending the full chat for.
+  let fullFor = $state<string | null>(null);
+  const compactChip = $derived.by(() => {
+    if (!app || !compactSuggested(app.provider, app.context, now)) return null;
+    return fullFor === app.context?.cacheExpiresAt ? "full" : "compact";
+  });
+
+  $effect(() => {
+    // Wakes once when Claude's prompt cache expires, to offer compacting; no ticking clock.
+    const expires = app?.context?.cacheExpiresAt;
+    if (!expires) return;
+    const wait = Date.parse(expires) - Date.now();
+    if (wait <= 0) {
+      now = Date.now();
+      return;
+    }
+    const timer = setTimeout(() => (now = Date.now()), wait + 1000);
+    return () => clearTimeout(timer);
+  });
+
   const chatTitle = $derived.by(() => {
     const first = app?.items.find((item) => item.kind === "user");
     return first ? first.text.split("\n")[0]!.slice(0, 80) : "New chat";
@@ -97,13 +119,12 @@
 
   function send() {
     if (!canSend) return;
-    server.send({ type: "send", text: draft.trim() });
+    server.send({ type: "send", text: draft.trim(), compactFirst: compactChip === "compact" });
     draft = "";
     stickToBottom = true;
   }
 
   function selectProvider(provider: Provider) {
-    if (app?.items.length && !confirm("Switching agent starts a new chat. Continue?")) return;
     server.send({ type: "set_provider", provider });
   }
 
@@ -228,7 +249,11 @@
           approvalMode={app.approvalMode}
           busy={app.busy}
           {canSend}
+          context={app.context}
+          {compactChip}
           onSend={send}
+          onCompact={() => server.send({ type: "compact" })}
+          onToggleCompactChip={() => (fullFor = compactChip === "compact" ? (app.context?.cacheExpiresAt ?? null) : null)}
           onStop={() => server.send({ type: "stop" })}
           onSelectProvider={selectProvider}
           onSetApprovalMode={(mode) => server.send({ type: "set_approval_mode", mode })}
