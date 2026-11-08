@@ -9,6 +9,8 @@ export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 interface UserConfig {
   port?: number;
   workspaceDir?: string;
+  /** Where preview renders go. Kept out of the workspace so they never show in its Git status. */
+  previewDir?: string;
   /** Folder of a davinci-resolve-mcp checkout with its .venv. */
   resolveMcpDir?: string;
   /** Python that runs the MCP server. Defaults to the checkout's .venv. */
@@ -26,6 +28,7 @@ export interface ResolveMcpConfig {
 export interface AppConfig {
   port: number;
   workspaceDir: string;
+  previewDir: string;
   resolveMcp: ResolveMcpConfig;
 }
 
@@ -103,6 +106,7 @@ export function loadConfig(
   return {
     port: user.port ?? 4317,
     workspaceDir: user.workspaceDir ?? path.join(os.homedir(), "LinkerEdit", "workspace"),
+    previewDir: user.previewDir ?? path.join(os.homedir(), "LinkerEdit", "previews"),
     resolveMcp: {
       python,
       serverScript: path.join(mcpDir, "src", "server.py"),

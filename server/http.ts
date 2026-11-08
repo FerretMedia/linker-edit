@@ -41,13 +41,70 @@ export function staticFile(distDir: string, urlPath: string): string | null {
   return fs.existsSync(index) ? index : null;
 }
 
+/** The bytes a Range header asks for, null for the whole file, or "invalid" for a range past the end. */
+export function byteRange(header: string | undefined, size: number): { start: number; end: number } | null | "invalid" {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header ?? "");
+  if (!match || (!match[1] && !match[2])) return null;
+  const range = match[1]
+    ? { start: Number(match[1]), end: match[2] ? Math.min(Number(match[2]), size - 1) : size - 1 }
+    : { start: Math.max(0, size - Number(match[2])), end: size - 1 };
+  return range.start > range.end || range.start >= size ? "invalid" : range;
+}
+
+// Video players seek with Range requests, so files go out in parts when asked.
+function sendFile(req: http.IncomingMessage, res: http.ServerResponse, file: string, type: string) {
+  const size = fs.statSync(file).size;
+  const range = byteRange(req.headers.range, size);
+  if (range === "invalid") {
+    res.writeHead(416, { "content-range": `bytes */${size}` }).end();
+    return;
+  }
+  const { start, end } = range ?? { start: 0, end: size - 1 };
+  res.writeHead(range ? 206 : 200, {
+    "content-type": type,
+    "content-length": end - start + 1,
+    "accept-ranges": "bytes",
+    "cache-control": "private, max-age=300",
+    ...(range ? { "content-range": `bytes ${start}-${end}/${size}` } : {}),
+  });
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  fs.createReadStream(file, { start, end }).on("error", () => res.destroy()).pipe(res);
+}
+
 export function createServer(app: App, distDir: string): http.Server {
   const server = http.createServer((req, res) => {
     let urlPath: string;
+    let query: URLSearchParams;
     try {
-      urlPath = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+      const url = new URL(req.url ?? "/", "http://localhost");
+      urlPath = decodeURIComponent(url.pathname);
+      query = url.searchParams;
     } catch {
       res.writeHead(400).end("Bad request");
+      return;
+    }
+    if (urlPath === "/api/timeline") {
+      const json = (status: number, body: unknown) =>
+        res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+      app
+        .playableTimeline(query.get("id") || null, query.get("commit") || null)
+        .then((timeline) => (timeline ? json(200, timeline) : json(404, { error: "That timeline isn't in Resolve or in that save." })))
+        .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
+    if (urlPath.startsWith("/media/")) {
+      const media = app.mediaFile(urlPath.slice("/media/".length));
+      if (media) sendFile(req, res, media.path, media.type);
+      else res.writeHead(404).end();
+      return;
+    }
+    if (urlPath.startsWith("/preview/")) {
+      const preview = app.previewFile(urlPath.slice("/preview/".length));
+      if (preview) sendFile(req, res, preview, "video/mp4");
+      else res.writeHead(404).end();
       return;
     }
     const file = staticFile(distDir, urlPath);

@@ -7,7 +7,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createApp } from "./app.ts";
-import { createServer, isAllowedOrigin, staticFile } from "./http.ts";
+import { byteRange, createServer, isAllowedOrigin, staticFile } from "./http.ts";
 
 describe("isAllowedOrigin", () => {
   it.each([
@@ -23,6 +23,22 @@ describe("isAllowedOrigin", () => {
     ["file://", false],
   ])("%s → %s", (origin, expected) => {
     expect(isAllowedOrigin(origin)).toBe(expected);
+  });
+});
+
+describe("byteRange", () => {
+  it.each([
+    [undefined, null],
+    ["bytes=0-", { start: 0, end: 999 }],
+    ["bytes=100-199", { start: 100, end: 199 }],
+    ["bytes=900-5000", { start: 900, end: 999 }],
+    ["bytes=-100", { start: 900, end: 999 }],
+    ["bytes=1000-", "invalid"],
+    ["bytes=5-2", "invalid"],
+    ["bytes=0-1,5-9", null],
+    ["items=0-1", null],
+  ])("%s → %j", (header, expected) => {
+    expect(byteRange(header, 1000)).toEqual(expected);
   });
 });
 

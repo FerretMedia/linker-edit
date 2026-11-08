@@ -11,8 +11,10 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 ## What works today
 
 - **Chat with Claude or Codex** about your open Resolve project. They read it and edit it directly through [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp).
-- **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI/…` timelines next to yours instead.
+- **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
+- **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
+- **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
 
@@ -57,6 +59,7 @@ The defaults work for a standard install. To override them, copy `linker-edit.co
 | Key | Default |
 |---|---|
 | `workspaceDir` | `~/LinkerEdit/workspace`, the agent's working folder for notes and exports |
+| `previewDir` | `~/LinkerEdit/previews`, where preview renders go |
 | `resolveMcpDir` | `../davinci-resolve-mcp` |
 | `python` | the checkout's `.venv` Python |
 | `env` | Resolve scripting paths for your OS |
@@ -66,9 +69,34 @@ The defaults work for a standard install. To override them, copy `linker-edit.co
 
 - **Claude, with "Ask before changes" on:**
   - Resolve actions that only read (get, list, summaries, reports, plans) run immediately.
+  - Reading the edit history (`git log`, `git show`, `git diff`, `git status`) runs immediately.
   - Any other Resolve action, and any file edit, shows Allow/Deny.
 - **Claude, with it off:** everything runs.
 - **Codex:** runs without per-call approvals, because its SDK has no approval hook. Its file writes are sandboxed to the workspace folder.
+
+## Edit history
+
+The workspace folder is a Git repository. Linker-Edit saves the open Resolve project in it:
+
+- **After every turn in which the agent changed Resolve.** The commit is authored by Claude or Codex and holds your prompt, the Resolve actions and a summary such as `"AI - Rough cut": 3 clips removed, length 4:02 → 3:41`.
+- **Before every turn, if you changed something in Resolve yourself.** The agent can tell your edits from its own.
+
+Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.json`, `markers.json` and `metadata.json`, one clip per line, so `git log -p` reads like an edit decision list. Media is never stored.
+
+**History** in the top right lists every save, newest first, with what changed per timeline. **Restore** on a save writes the undo request into the composer for you to send.
+
+Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
+
+You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.
+
+## Preview
+
+**Preview** in the top right plays a timeline beside the chat, in two ways:
+
+- **Cut preview** starts right away. It plays your media straight from disk, following the cuts, with zoom, position and opacity. Color, effects, transitions and titles only show in a render, and formats browsers can't decode (ProRes, BRAW and similar) show as a placeholder. It also plays earlier versions: **Play** on a timeline in the history opens it as it was in that save.
+- **Full render** has Resolve render the exact picture as a small MP4, and the player switches to it at the same spot. While it renders, Resolve switches to that timeline and the Deliver page, then puts your timeline, page and render settings back. The agent waits until the render is done, and you can stop it. Only the timeline as it is in Resolve now can be rendered.
+
+Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previous or next cut, F full screen, M mute.
 
 ## Testing
 
@@ -90,4 +118,4 @@ For anything larger, please open an issue before writing the code, so we can agr
 
 ## Credits
 
-MIT licensed. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
+MIT licensed. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
