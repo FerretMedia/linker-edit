@@ -16,6 +16,7 @@ import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ItemPatch, ProviderSession, TurnSink } from "./providers/types.ts";
 
 export interface AppOptions {
+  version: string;
   workspaceDir: string;
   createSession: (provider: Provider, approvalMode: () => ApprovalMode) => ProviderSession;
   checkResolve: () => Promise<ResolveStatus>;
@@ -40,6 +41,7 @@ export function createApp(options: AppOptions) {
   let turn: AbortController | null = null;
   let preview: PreviewState = { state: "idle" };
   let previewJob: { stop(): void } | null = null;
+  let update: string | null = null;
   // Bumped on every reset, so a turn that is still winding down can't write into the next chat.
   let chat = 0;
   const approvals = new Map<string, { request: ApprovalRequest; settle: (allow: boolean) => void }>();
@@ -62,6 +64,8 @@ export function createApp(options: AppOptions) {
       busy: turn !== null,
       approvals: [...approvals.values()].map((entry) => entry.request),
       resolve,
+      version: options.version,
+      update,
       workspaceDir: options.workspaceDir,
       preview,
     };
@@ -271,6 +275,12 @@ export function createApp(options: AppOptions) {
     },
     handleMessage,
     refreshResolve,
+    /** A newer release the UI offers, or null. */
+    setUpdate(version: string | null) {
+      if (version === update) return;
+      update = version;
+      sendMeta();
+    },
     mediaFile: (id: string) => options.history?.mediaFile(id) ?? null,
     previewFile: (name: string) => options.preview?.file(name) ?? null,
     playableTimeline: async (id: string | null, commit: string | null) => {

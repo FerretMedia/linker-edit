@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
-import type { ResolveMcpConfig } from "../config.ts";
+import { APP_ROOT, type ResolveMcpConfig } from "../config.ts";
 import { needsApproval } from "../policy.ts";
 import { RESOLVE_MCP_NAME } from "../rules.ts";
 import { describeChanges, timelineStrips } from "./diff.ts";
@@ -51,7 +51,8 @@ export interface History {
   mediaFile(id: string): { path: string; type: string } | null;
 }
 
-const SNAPSHOT_SCRIPT = path.join(import.meta.dirname, "snapshot.py");
+// Read from the package folder, so the bundled server finds it too.
+const SNAPSHOT_SCRIPT = path.join(APP_ROOT, "server", "history", "snapshot.py");
 
 export function readResolveSnapshot(mcp: ResolveMcpConfig): Promise<RawSnapshot> {
   return new Promise((resolve, reject) => {
