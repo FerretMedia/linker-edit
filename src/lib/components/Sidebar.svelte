@@ -2,6 +2,7 @@
   import {
     ArchiveArrowUp,
     Archive,
+    AudioLines,
     ChevronRight,
     Clapperboard,
     Cloud,
@@ -16,7 +17,7 @@
     SquarePen,
     Trash,
   } from "@lucide/svelte";
-  import type { ProjectSummary, ResolveStatus, ThreadSummary } from "#shared/protocol.ts";
+  import type { ProjectSummary, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
   import RowMenu from "./RowMenu.svelte";
 
@@ -24,6 +25,7 @@
     resolve,
     version,
     update,
+    transcription,
     projects,
     threadId,
     onSelect,
@@ -40,6 +42,7 @@
     resolve: ResolveStatus;
     version: string;
     update: string | null;
+    transcription: TranscriptionStatus;
     projects: ProjectSummary[];
     threadId: string | null;
     onSelect: (threadId: string) => void;
@@ -90,6 +93,23 @@
   });
 
   // The project open in Resolve when no Linker-Edit project has it yet.
+  const transcribing = $derived.by(() => {
+    switch (transcription.state) {
+      case "idle":
+        return null;
+      case "preparing":
+        return {
+          title: transcription.percent === null ? transcription.step : `${transcription.step} · ${transcription.percent}%`,
+          detail: "Only the first time",
+        };
+      case "transcribing":
+        return {
+          title: "Transcribing",
+          detail: transcription.total > 1 ? `${transcription.file} (${transcription.done + 1} of ${transcription.total})` : transcription.file,
+        };
+    }
+  });
+
   const unlinkedOpen = $derived(
     resolve.state === "connected" && resolve.project && !projects.some((project) => project.open) ? resolve.project : null,
   );
@@ -280,6 +300,16 @@
       {/if}
     {/each}
   </nav>
+
+  {#if transcribing}
+    <div class="mx-2 flex items-start gap-2.5 px-2.5 py-2" title={transcribing.detail}>
+      <AudioLines class="mt-0.5 size-3.5 shrink-0 text-primary" />
+      <span class="min-w-0 flex-1">
+        <span class="block truncate text-xs font-medium">{transcribing.title}</span>
+        <span class="mt-0.5 block truncate text-2xs text-muted-foreground">{transcribing.detail}</span>
+      </span>
+    </div>
+  {/if}
 
   {#if update}
     <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">

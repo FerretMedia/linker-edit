@@ -74,7 +74,43 @@ function sendFile(req: http.IncomingMessage, res: http.ServerResponse, file: str
   fs.createReadStream(file, { start, end }).on("error", () => res.destroy()).pipe(res);
 }
 
-export function createServer(app: App, distDir: string): http.Server {
+function readJson(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk: string) => (body += chunk));
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+/** POST /api/transcribe from the agents' MCP server. Any web page can POST to localhost, hence the token. */
+function handleTranscribe(app: App, apiToken: string, req: http.IncomingMessage, res: http.ServerResponse) {
+  const json = (status: number, body: unknown) =>
+    res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
+  if (req.method !== "POST" || req.headers.authorization !== `Bearer ${apiToken}`) {
+    json(403, { error: "Not allowed." });
+    return;
+  }
+  readJson(req)
+    .then((body) => {
+      const { files, language } = (body ?? {}) as { files?: unknown; language?: unknown };
+      if (!Array.isArray(files) || !files.every((file) => typeof file === "string")) {
+        throw new Error("files must be a list of file paths.");
+      }
+      return app.transcribe(files, typeof language === "string" ? language : undefined);
+    })
+    .then((text) => json(200, { text }))
+    .catch((error: unknown) => json(400, { error: error instanceof Error ? error.message : String(error) }));
+}
+
+export function createServer(app: App, distDir: string, apiToken: string): http.Server {
   const server = http.createServer((req, res) => {
     let urlPath: string;
     let query: URLSearchParams;
@@ -84,6 +120,10 @@ export function createServer(app: App, distDir: string): http.Server {
       query = url.searchParams;
     } catch {
       res.writeHead(400).end("Bad request");
+      return;
+    }
+    if (urlPath === "/api/transcribe") {
+      handleTranscribe(app, apiToken, req, res);
       return;
     }
     if (urlPath === "/api/timeline") {

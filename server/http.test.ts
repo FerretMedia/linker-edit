@@ -81,7 +81,7 @@ describe("server", () => {
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),
     });
-    server = createServer(app, dist);
+    server = createServer(app, dist, "secret");
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     port = (server.address() as AddressInfo).port;
@@ -103,6 +103,27 @@ describe("server", () => {
         .on("error", reject);
     });
   }
+
+  function post(urlPath: string, body: unknown, token?: string): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const headers = token ? { authorization: `Bearer ${token}` } : {};
+      http
+        .request({ host: "127.0.0.1", port, path: urlPath, method: "POST", headers }, (res) => {
+          let text = "";
+          res.on("data", (chunk) => (text += chunk));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text }));
+        })
+        .on("error", reject)
+        .end(JSON.stringify(body));
+    });
+  }
+
+  it("takes transcribe calls only with the agents' token", async () => {
+    const files = { files: ["C:\\Footage\\a.mov"] };
+    expect((await post("/api/transcribe", files)).status).toBe(403);
+    expect((await post("/api/transcribe", files, "guess")).status).toBe(403);
+    expect(await post("/api/transcribe", files, "secret")).toEqual({ status: 400, body: '{"error":"Transcription is off."}' });
+  });
 
   it("answers a malformed URL with 400 and keeps serving", async () => {
     expect((await get("/%")).status).toBe(400);

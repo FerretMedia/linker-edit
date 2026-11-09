@@ -2,6 +2,7 @@ import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ApprovalMode } from "../../shared/protocol.ts";
+import { linkerMcpCommand } from "../transcribe/mcp.ts";
 import { CONTEXT_OVERFLOW_NOTICE, createClaudeSession, type RunQuery } from "./claude.ts";
 import { readFixture, replayQuery } from "./replay.ts";
 import { collectingSink, FIXTURES, testConfig } from "./testing.ts";
@@ -90,6 +91,7 @@ describe("Claude session", () => {
     expect(claude.resumeId()).toBe(init!.session_id);
     expect(seen[0]!.mcpServers).toEqual({
       resolve: { type: "stdio", command: testConfig.resolveMcp.python, args: [testConfig.resolveMcp.serverScript], env: testConfig.resolveMcp.env },
+      linker: { type: "stdio", ...linkerMcpCommand(testConfig) },
     });
   });
 

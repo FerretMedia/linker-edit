@@ -229,6 +229,12 @@ export interface ContextUsage {
 /** Below this, rereading a chat after its cache expired is cheap, so compacting isn't suggested. As in T3 Code. */
 export const COMPACT_SUGGESTION_MIN_TOKENS = 200_000;
 
+/** Speech-to-text work on this machine. Percent is null while unpacking; Whisper itself reports no progress. */
+export type TranscriptionStatus =
+  | { state: "idle" }
+  | { state: "preparing"; step: string; percent: number | null }
+  | { state: "transcribing"; file: string; done: number; total: number };
+
 export interface AppMeta {
   projects: ProjectSummary[];
   /** The thread this client is looking at; null when there are no projects. */
@@ -251,6 +257,7 @@ export interface AppMeta {
   blocked: { message: string; canOpen: boolean } | null;
   /** Linker-Edit is opening this project in Resolve. */
   opening: string | null;
+  transcription: TranscriptionStatus;
 }
 
 export interface AppState extends AppMeta {
