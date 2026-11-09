@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
-import type { ResolveMcpConfig } from "../config.ts";
+import { APP_ROOT, type ResolveMcpConfig } from "../config.ts";
 
 /** What render.py prints, one per line. */
 export type PreviewEvent =
@@ -18,7 +18,7 @@ export interface PreviewRenderer {
   file(name: string): string | null;
 }
 
-const SCRIPT = path.join(import.meta.dirname, "render.py");
+const SCRIPT = path.join(APP_ROOT, "server", "preview", "render.py");
 const PREVIEW_FILE = /^preview-\d+\.mp4$/;
 
 export function createPreviewRenderer(options: { dir: string; mcp: ResolveMcpConfig }): PreviewRenderer {

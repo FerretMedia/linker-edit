@@ -121,6 +121,8 @@
   <div class="flex h-full">
     <Sidebar
       resolve={app.resolve}
+      version={app.version}
+      update={app.update}
       {chatTitle}
       busy={app.busy}
       onNewChat={() => server.send({ type: "new_chat" })}

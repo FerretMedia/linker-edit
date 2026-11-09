@@ -47,6 +47,7 @@ function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve" 
   const sessions: Provider[] = [];
   const prompts: string[] = [];
   const app = createApp({
+    version: "0.0.0",
     workspaceDir: "/work",
     createSession: (provider): ProviderSession => {
       sessions.push(provider);
