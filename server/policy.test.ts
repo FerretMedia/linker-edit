@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.ts";
-import { isReadAction, needsApproval } from "./policy.ts";
+import { isProjectSwitch, isReadAction, needsApproval } from "./policy.ts";
 
 describe("needsApproval", () => {
   it.each([
@@ -47,6 +47,24 @@ describe("needsApproval", () => {
     ["mcp__resolve__timeline", { action: "rename_timeline_report" }, true],
   ])("%s %j → %s", (tool, input, expected) => {
     expect(needsApproval(tool, input)).toBe(expected);
+  });
+});
+
+describe("isProjectSwitch", () => {
+  it.each([
+    ["mcp__resolve__project_manager", { action: "load" }, true],
+    ["mcp__resolve__project_manager", { action: "close" }, true],
+    ["mcp__resolve__project_manager", { action: "create" }, true],
+    ["mcp__resolve__project_manager_cloud", { action: "load" }, true],
+    ["mcp__resolve__project_manager_cloud", {}, true],
+    ["mcp__resolve__project_manager_database", { action: "set_current" }, true],
+    ["mcp__resolve__project_manager", { action: "get_current" }, false],
+    ["mcp__resolve__project_manager", { action: "save" }, false],
+    ["mcp__resolve__project_manager_database", { action: "list" }, false],
+    ["mcp__resolve__timeline", { action: "load" }, false],
+    ["mcp__other__project_manager", { action: "load" }, false],
+  ])("%s %j → %s", (tool, input, expected) => {
+    expect(isProjectSwitch(tool, input)).toBe(expected);
   });
 });
 

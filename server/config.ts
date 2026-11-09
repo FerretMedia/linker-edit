@@ -11,6 +11,9 @@ export const HOME_DIR = path.join(os.homedir(), "LinkerEdit");
 /** Optional overrides, read from linker-edit.config.json in HOME_DIR. */
 interface UserConfig {
   port?: number;
+  /** Where new projects get their folders, and the project list lives. */
+  projectsDir?: string;
+  /** The working folder from before projects; it becomes the first project. */
   workspaceDir?: string;
   /** Where preview renders go. Kept out of the workspace so they never show in its Git status. */
   previewDir?: string;
@@ -32,6 +35,8 @@ export interface ResolveMcpConfig {
 
 export interface AppConfig {
   port: number;
+  projectsDir: string;
+  /** The agent's working folder. Each project has its own; this one becomes the first project. */
   workspaceDir: string;
   previewDir: string;
   resolveMcp: ResolveMcpConfig;
@@ -115,6 +120,7 @@ export function loadConfig(
 
   return {
     port: user.port ?? 4317,
+    projectsDir: user.projectsDir ?? path.join(HOME_DIR, "projects"),
     workspaceDir: user.workspaceDir ?? path.join(HOME_DIR, "workspace"),
     previewDir: user.previewDir ?? path.join(HOME_DIR, "previews"),
     resolveMcp: {

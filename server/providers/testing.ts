@@ -7,6 +7,7 @@ export const FIXTURES = path.join(import.meta.dirname, "fixtures");
 
 export const testConfig: AppConfig = {
   port: 0,
+  projectsDir: "C:\\projects",
   workspaceDir: "C:\\work",
   previewDir: "C:\\previews",
   resolveMcp: {

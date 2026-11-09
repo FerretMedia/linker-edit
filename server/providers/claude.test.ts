@@ -60,6 +60,16 @@ describe("Claude session", () => {
     });
   });
 
+  it("never lets the agent switch Resolve projects, even in auto mode", async () => {
+    const { calls, runQuery } = scripted([]);
+    await session(runQuery, "auto").send("go", collectingSink().sink, signal());
+    const canUseTool = calls[0]!.options.canUseTool!;
+    const ask = (tool: string, action: string) =>
+      canUseTool(tool, { action }, { signal: signal(), suggestions: [], toolUseID: "t" } as unknown as Parameters<typeof canUseTool>[2]);
+    expect(await ask("mcp__resolve__project_manager", "load")).toMatchObject({ behavior: "deny" });
+    expect(await ask("mcp__resolve__project_manager", "get_current")).toMatchObject({ behavior: "allow" });
+  });
+
   it("asks nothing in auto mode", async () => {
     const { sink, approvals } = collectingSink();
     await session(replayQuery(TURN, 0), "auto").send("check", sink, signal());
