@@ -10,6 +10,9 @@ export const testConfig: AppConfig = {
   projectsDir: "C:\\projects",
   workspaceDir: "C:\\work",
   previewDir: "C:\\previews",
+  transcriptsDir: "C:\\transcripts",
+  toolsDir: "C:\\tools",
+  apiToken: "test-token",
   resolveMcp: {
     python: "C:\\mcp\\.venv\\Scripts\\python.exe",
     serverScript: "C:\\mcp\\src\\server.py",

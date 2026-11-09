@@ -187,6 +187,7 @@
       resolve={app.resolve}
       version={app.version}
       update={app.update}
+      transcription={app.transcription}
       projects={app.projects}
       threadId={app.threadId}
       onSelect={selectThread}
