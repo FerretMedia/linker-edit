@@ -27,12 +27,93 @@ export type ResolveStatus =
       product: string;
       version: string;
       project: string | null;
+      /** Resolve's unique id for the open project; null when none is open or Resolve doesn't say. */
+      projectId: string | null;
+      /** The project library the open project lives in. */
+      database: ResolveDatabase | null;
       timeline: string | null;
     }
   | { state: "not_running" }
   | { state: "unreachable"; hint: string }
   | { state: "blocked"; hint: string }
   | { state: "setup_needed"; hint: string };
+
+/** A project library as Resolve's GetCurrentDatabase() reports it. */
+export interface ResolveDatabase {
+  /** "Disk" or "PostgreSQL" in Resolve's documentation; anything else is treated as a cloud library. */
+  type: string;
+  name: string;
+  /** PostgreSQL server address. */
+  host?: string;
+}
+
+/**
+ * Which Resolve project a Linker-Edit project belongs to. Only what is the same on every machine,
+ * so it can be committed and shared; see LocalLink for the rest.
+ */
+export interface ResolveLink {
+  kind: "local" | "network" | "cloud";
+  name: string;
+  /** Resolve's unique project id once Linker-Edit has seen the project open; null before. */
+  projectId: string | null;
+}
+
+export type CloudSyncMode = "none" | "proxy_only" | "proxy_and_orig";
+
+/** This machine's side of a link: where to find the project, never committed. */
+export interface LocalLink {
+  database?: ResolveDatabase;
+  /** Project Manager folders down to the project. */
+  folder?: string[];
+  /** Where a cloud project's media goes on this machine. Resolve needs one to open it. */
+  mediaPath?: string;
+  syncMode?: CloudSyncMode;
+}
+
+export interface ThreadSummary {
+  id: string;
+  title: string;
+  /** ISO 8601. */
+  updatedAt: string;
+  archived: boolean;
+  busy: boolean;
+  /** An approval is waiting for the user. */
+  waiting: boolean;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  /** The project's working folder: its edit history, notes and exports. */
+  dir: string;
+  /** Null until the project's first turn with Resolve open, or until it is linked by hand. */
+  link: ResolveLink | null;
+  local: LocalLink;
+  /** Its Resolve project is the one open in Resolve now. */
+  open: boolean;
+  /** Newest first, archived ones included. */
+  threads: ThreadSummary[];
+}
+
+/** A project in the Resolve database that is open now, for adding it to Linker-Edit. */
+export interface LibraryProject {
+  name: string;
+  folder: string[];
+}
+
+export interface ResolveLibrary {
+  database: ResolveDatabase | null;
+  databases: ResolveDatabase[];
+  projects: LibraryProject[];
+}
+
+/** Where a new project comes from. */
+export type ProjectSource =
+  | { kind: "open" }
+  | { kind: "library"; name: string; folder: string[]; database: ResolveDatabase | null }
+  | { kind: "cloud"; name: string; mediaPath: string; syncMode: CloudSyncMode }
+  /** A working folder that already has a linker-edit.json, such as a teammate's cloned history. */
+  | { kind: "folder"; dir: string };
 
 export interface ApprovalRequest {
   id: string;
@@ -77,6 +158,8 @@ export interface HistoryEntry {
   prompt: string | null;
   actions: string[];
   changes: string[];
+  /** The Linker-Edit thread the agent's turn ran in; null for other saves. */
+  thread: string | null;
   timelines: TimelineStrip[];
 }
 
@@ -147,17 +230,27 @@ export interface ContextUsage {
 export const COMPACT_SUGGESTION_MIN_TOKENS = 200_000;
 
 export interface AppMeta {
+  projects: ProjectSummary[];
+  /** The thread this client is looking at; null when there are no projects. */
+  threadId: string | null;
+  projectId: string | null;
   provider: Provider;
   approvalMode: ApprovalMode;
+  /** This thread's turn is running. */
   busy: boolean;
   approvals: ApprovalRequest[];
   resolve: ResolveStatus;
   version: string;
   /** A newer Linker-Edit on npm, or null. */
   update: string | null;
-  workspaceDir: string;
+  /** The thread's project folder. */
+  workspaceDir: string | null;
   preview: PreviewState;
   context: ContextUsage | null;
+  /** Why a message in this thread can't go to the agent right now; null when it can. */
+  blocked: { message: string; canOpen: boolean } | null;
+  /** Linker-Edit is opening this project in Resolve. */
+  opening: string | null;
 }
 
 export interface AppState extends AppMeta {
@@ -170,7 +263,6 @@ export type ClientMessage =
   /** Summarizes the chat so far to free context. Claude only. */
   | { type: "compact" }
   | { type: "stop" }
-  | { type: "new_chat" }
   | { type: "set_provider"; provider: Provider }
   | { type: "set_approval_mode"; mode: ApprovalMode }
   | { type: "approve"; id: string; allow: boolean }
@@ -178,10 +270,28 @@ export type ClientMessage =
   | { type: "load_history" }
   /** Without a timeline id, renders Resolve's current timeline. */
   | { type: "render_preview"; timelineId?: string }
-  | { type: "stop_preview" };
+  | { type: "stop_preview" }
+  | { type: "select_thread"; threadId: string }
+  | { type: "new_thread"; projectId: string }
+  | { type: "rename_thread"; threadId: string; title: string }
+  | { type: "archive_thread"; threadId: string; archived: boolean }
+  | { type: "delete_thread"; threadId: string }
+  | { type: "add_project"; source: ProjectSource }
+  | { type: "update_project"; projectId: string; name?: string; mediaPath?: string; syncMode?: CloudSyncMode }
+  /** Links the project to the one open in Resolve now. */
+  | { type: "relink_project"; projectId: string }
+  /** Takes the project out of Linker-Edit. Its folder and its Resolve project stay. */
+  | { type: "remove_project"; projectId: string }
+  /** Saves the project open in Resolve, then opens this one. */
+  | { type: "open_in_resolve"; projectId: string }
+  | { type: "load_library" };
 
 export type ServerMessage =
   | { type: "snapshot"; state: AppState }
   | { type: "meta"; meta: AppMeta }
-  | { type: "item"; item: ChatItem }
-  | { type: "history"; entries: HistoryEntry[] };
+  | { type: "item"; threadId: string; item: ChatItem }
+  | { type: "history"; projectId: string; entries: HistoryEntry[] }
+  | { type: "library"; library: ResolveLibrary | { error: string } }
+  /** The message wasn't sent; it goes back in the composer. */
+  | { type: "refused"; threadId: string; text: string }
+  | { type: "toast"; text: string; tone: "info" | "error" };

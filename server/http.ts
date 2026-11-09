@@ -90,7 +90,7 @@ export function createServer(app: App, distDir: string): http.Server {
       const json = (status: number, body: unknown) =>
         res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
       app
-        .playableTimeline(query.get("id") || null, query.get("commit") || null)
+        .playableTimeline(query.get("project") || null, query.get("id") || null, query.get("commit") || null)
         .then((timeline) => (timeline ? json(200, timeline) : json(404, { error: "That timeline isn't in Resolve or in that save." })))
         .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
       return;
@@ -118,10 +118,11 @@ export function createServer(app: App, distDir: string): http.Server {
 
   const wss = new WebSocketServer({ server, path: "/ws", verifyClient: (info: { origin?: string }) => isAllowedOrigin(info.origin) });
   wss.on("connection", (socket) => {
-    const disconnect = app.connect({ send: (data) => socket.send(data) });
+    const client = { send: (data: string) => socket.send(data) };
+    const disconnect = app.connect(client);
     socket.on("message", (data) => {
       try {
-        app.handleMessage(JSON.parse(String(data)) as ClientMessage);
+        app.handleMessage(client, JSON.parse(String(data)) as ClientMessage);
       } catch (error) {
         console.error("Bad client message", error);
       }

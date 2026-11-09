@@ -114,6 +114,7 @@ current = call(project, "GetCurrentTimeline")
 timelines = [project.GetTimelineByIndex(i) for i in range(1, int(project.GetTimelineCount() or 0) + 1)]
 print(json.dumps({
     "project": project.GetName(),
+    "project_id": call(project, "GetUniqueId"),
     "current_timeline": call(current, "GetName") if current else None,
     "timelines": [timeline_of(t) for t in timelines if t],
 }))

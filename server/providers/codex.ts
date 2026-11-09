@@ -1,5 +1,6 @@
 import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOptions } from "@openai/codex-sdk";
 import type { AppConfig } from "../config.ts";
+import { CODEX_DISABLED_RESOLVE_TOOLS } from "../policy.ts";
 import { RESOLVE_MCP_NAME } from "../rules.ts";
 import { truncate, type ProviderSession, type TurnSink } from "./types.ts";
 
@@ -69,6 +70,7 @@ export function codexOptions(config: AppConfig): CodexOptions {
           env: Object.fromEntries(Object.entries(config.resolveMcp.env).map(([key, value]) => [key, slashes(value)])),
           // The MCP marks its tools destructive; with approvalPolicy "never" Codex would refuse every call.
           default_tools_approval_mode: "approve",
+          disabled_tools: CODEX_DISABLED_RESOLVE_TOOLS,
         },
       },
     },

@@ -7,6 +7,7 @@
   import { nearestCut, type PreviewTarget } from "#lib/player.ts";
 
   let {
+    projectId,
     target,
     preview,
     resolve,
@@ -16,6 +17,8 @@
     onStop,
     onClose,
   }: {
+    /** The project whose edit history earlier versions come from. */
+    projectId: string | null;
     target: PreviewTarget;
     preview: PreviewState;
     resolve: ResolveStatus;
@@ -61,6 +64,7 @@
     // Loads the timeline's clip list from the server whenever the target changes or a reload is asked for.
     void reloads;
     const params = new URLSearchParams();
+    if (projectId) params.set("project", projectId);
     if (target.id) params.set("id", target.id);
     if (target.commit) params.set("commit", target.commit);
     const controller = new AbortController();

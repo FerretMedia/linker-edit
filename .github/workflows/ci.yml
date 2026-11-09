@@ -101,7 +101,7 @@ jobs:
           # A stand-in davinci-resolve-mcp install, so the first run doesn't clone the real one.
           touch "$RUNNER_TEMP/mcp/src/server.py"
           cat > "$RUNNER_TEMP/config.json" <<EOF
-          { "port": 4390, "workspaceDir": "$RUNNER_TEMP/workspace", "resolveMcpDir": "$RUNNER_TEMP/mcp", "python": "$(command -v python3)" }
+          { "port": 4390, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "resolveMcpDir": "$RUNNER_TEMP/mcp", "python": "$(command -v python3)" }
           EOF
           cd "$app"
           npm init -y > /dev/null

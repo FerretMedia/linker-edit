@@ -5,12 +5,25 @@ import { describe, expect, it } from "vitest";
 import { checkResolve, parseProbeOutput } from "./resolveStatus.ts";
 
 describe("parseProbeOutput", () => {
-  const connected = { state: "connected", product: "DaVinci Resolve Studio", version: "21.1.2", project: "Doc", timeline: null };
+  const connected = {
+    state: "connected",
+    product: "DaVinci Resolve Studio",
+    version: "21.1.2",
+    project: "Doc",
+    projectId: "a1b2",
+    database: { type: "Disk", name: "Local Database" },
+    timeline: null,
+  };
   const probed = JSON.stringify({ ...connected, page: "edit" });
 
   it.each([
     ["a connection", probed, connected],
     ["a connection after module warnings", `DeprecationWarning: imp\r\n${probed}\r\n`, connected],
+    [
+      "a connection without a project id or database",
+      JSON.stringify({ state: "connected", project: "Doc", timeline: null, page: "edit" }),
+      { project: "Doc", projectId: null, database: null },
+    ],
     ["a dialog or the Project Manager in front", JSON.stringify({ ...connected, page: null }), { state: "blocked" }],
     ["a missing scripting module", '{"state": "no_module", "detail": "DLL load failed"}', { state: "setup_needed" }],
     ["a refused connection", '{"state": "unreachable"}', { state: "unreachable" }],

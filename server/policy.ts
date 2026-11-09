@@ -52,3 +52,27 @@ export function needsApproval(toolName: string, input: Record<string, unknown>):
   }
   return true;
 }
+
+// Each thread belongs to one Resolve project, so only the user switches projects, in Linker-Edit.
+const PROJECT_SWITCHES: Record<string, ReadonlySet<string> | "all"> = {
+  project_manager: new Set(["create", "load", "close", "delete", "import_project", "restore"]),
+  project_manager_cloud: "all",
+  project_manager_database: new Set(["set_current"]),
+};
+
+/**
+ * Resolve MCP tools Codex doesn't get at all: it has no per-call hook to deny only their switching
+ * actions. project_manager stays for its reads; the rules and the save after a turn cover its loads.
+ */
+export const CODEX_DISABLED_RESOLVE_TOOLS = ["project_manager_cloud", "project_manager_database"];
+
+export const PROJECT_SWITCH_DENIED =
+  "Linker-Edit doesn't let agents open, close, create or switch Resolve projects or databases. Ask the user to switch projects in Linker-Edit's sidebar.";
+
+/** Would this call open, close or switch Resolve's project or database? Denied in every mode. */
+export function isProjectSwitch(toolName: string, input: Record<string, unknown>): boolean {
+  if (!toolName.startsWith(RESOLVE_PREFIX)) return false;
+  const actions = PROJECT_SWITCHES[toolName.slice(RESOLVE_PREFIX.length)];
+  if (!actions) return false;
+  return actions === "all" || (typeof input.action === "string" && actions.has(input.action));
+}
