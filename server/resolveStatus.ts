@@ -11,7 +11,13 @@ except Exception as e:
     print(json.dumps({"state": "no_module", "detail": str(e)})); sys.exit()
 r = d.scriptapp("Resolve")
 if not r:
-    print(json.dumps({"state": "unreachable"})); sys.exit()
+    import socket
+    try:
+        socket.create_connection(("127.0.0.1", 49152), 2).close()
+        listening = True
+    except OSError:
+        listening = False
+    print(json.dumps({"state": "stuck" if listening else "unreachable"})); sys.exit()
 out = {"state": "connected", "product": r.GetProductName(), "version": r.GetVersionString(), "project": None, "projectId": None, "database": None, "timeline": None, "page": r.GetCurrentPage()}
 pm = r.GetProjectManager()
 try:
@@ -36,6 +42,11 @@ print(json.dumps(out))
 
 const BLOCKED_HINT =
   "Resolve answers but refuses edits while the Project Manager or a dialog, such as an update prompt, is open. Open a project and close the dialog in Resolve, then refresh.";
+
+// Resolve's scripting port accepts the connection but nothing answers. Seen on Studio 21.1.2 after its
+// update prompt: scripting stayed dead after the prompt closed, until Resolve restarted.
+const STUCK_HINT =
+  "Resolve is running but doesn't answer scripts. An update prompt or another dialog usually causes this, and Resolve can stay stuck after it closes. Close any dialog in Resolve and refresh. If that doesn't help, save your work and restart Resolve.";
 
 const UNREACHABLE_HINT =
   "Resolve is running but refuses scripting. Use DaVinci Resolve Studio, set Preferences → System → General → External scripting using: Local, then restart Resolve.";
@@ -85,6 +96,7 @@ export function parseProbeOutput(stdout: string): ResolveStatus {
       if (page === null) return { state: "blocked", hint: BLOCKED_HINT };
       return { projectId: null, database: null, ...status } as unknown as ResolveStatus;
     }
+    if (result.state === "stuck") return { state: "blocked", hint: STUCK_HINT };
     if (result.state === "no_module") {
       return { state: "setup_needed", hint: `Resolve scripting module failed to load: ${result.detail}` };
     }
