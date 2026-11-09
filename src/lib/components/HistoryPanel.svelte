@@ -8,11 +8,14 @@
 
   let {
     entries,
+    threadId,
     onClose,
     onRestore,
     onPreview,
   }: {
     entries: HistoryEntry[] | null;
+    /** The thread open beside the history; its own saves are marked. */
+    threadId: string | null;
     onClose: () => void;
     onRestore: (entry: HistoryEntry) => void;
     onPreview: (timelineId: string, commit: string) => void;
@@ -133,6 +136,9 @@
                 <time datetime={entry.date}>{timeFormat.format(new Date(entry.date))}</time>
                 <span aria-hidden="true">·</span>
                 <span class="font-mono">{entry.commit}</span>
+                {#if entry.thread && entry.thread === threadId}
+                  <span class="rounded border px-1 leading-4">This thread</span>
+                {/if}
               </p>
 
               {#if strips.length || rest.length}

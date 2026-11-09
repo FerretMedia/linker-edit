@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
-import type { AppState, ClientMessage, HistoryEntry, Provider, ServerMessage } from "../shared/protocol.ts";
+import type { AppState, ClientMessage, HistoryEntry, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type AppOptions } from "./app.ts";
-import type { ChatStore, SavedChat } from "./chatStore.ts";
-import type { AgentTurn } from "./history/history.ts";
+import type { AgentTurn, History } from "./history/history.ts";
+import type { SavedProject, SavedThread } from "./projects/store.ts";
+import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
 
@@ -13,12 +14,18 @@ type Script = (sink: TurnSink, signal: AbortSignal) => Promise<void>;
 function testClient() {
   let state: AppState | null = null;
   const histories: HistoryEntry[][] = [];
+  const refused: string[] = [];
+  const toasts: string[] = [];
   const waiters: { check: () => boolean; resolve: () => void }[] = [];
   return {
     histories,
+    refused,
+    toasts,
     send(data: string) {
       const message = JSON.parse(data) as ServerMessage;
       if (message.type === "history") histories.push(message.entries);
+      if (message.type === "refused") refused.push(message.text);
+      if (message.type === "toast") toasts.push(message.text);
       state = applyServerMessage(state, message);
       for (const waiter of [...waiters]) {
         if (waiter.check()) {
@@ -44,31 +51,39 @@ function setup(...scripts: Script[]) {
   return setupWith({}, ...scripts);
 }
 
-function memoryStore(chat: SavedChat | null = null): ChatStore & { chat: SavedChat | null } {
+function connected(project: string | null, projectId: string | null = null): ResolveStatus {
   return {
-    chat,
-    load() {
-      return this.chat;
-    },
-    save(saved) {
-      this.chat = structuredClone(saved);
-    },
+    state: "connected",
+    product: "DaVinci Resolve Studio",
+    version: "21",
+    project,
+    projectId,
+    database: { type: "Disk", name: "Local Database" },
+    timeline: null,
   };
 }
+
+type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects">> & {
+  store?: ReturnType<typeof memoryProjectStore>;
+  history?: History;
+};
 
 /**
  * Sessions get a provider id on their first send, like the real ones. Claude's compact() sends
  * "/compact" and runs the next script, so compactions read top to bottom with the turns.
  */
-function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve" | "preview" | "store">>, ...scripts: Script[]) {
+function setupWith(options: HarnessOptions, ...scripts: Script[]) {
   const sessions: Provider[] = [];
   const resumeIds: (string | undefined)[] = [];
   const prompts: string[] = [];
+  const dirs: string[] = [];
+  const store = options.store ?? memoryProjectStore([{ project: workspaceProject }]);
   const app = createApp({
-    workspaceDir: "/work",
-    createSession: (provider, _approvalMode, resumeId): ProviderSession => {
+    store,
+    createSession: (provider, _approvalMode, dir, resumeId): ProviderSession => {
       sessions.push(provider);
       resumeIds.push(resumeId);
+      dirs.push(dir);
       let id = resumeId ?? null;
       const name = `${provider}-${sessions.length}`;
       const send: ProviderSession["send"] = (text, sink, signal) => {
@@ -85,15 +100,52 @@ function setupWith(options: Partial<Pick<AppOptions, "history" | "checkResolve" 
       };
     },
     checkResolve: options.checkResolve ?? (async () => ({ state: "not_running" })),
-    history: options.history,
+    createHistory: options.history ? () => options.history! : undefined,
     preview: options.preview,
-    store: options.store,
+    resolveProjects: options.resolveProjects,
   });
   const client = testClient();
-  app.connect(client);
-  const send = (message: ClientMessage) => app.handleMessage(message);
+  const disconnect = app.connect(client);
+  const send = (message: ClientMessage) => app.handleMessage(client, message);
   const turnDone = () => client.until((state) => !state.busy);
-  return { app, client, send, turnDone, sessions, resumeIds, prompts };
+  /** Every turn is over, including one in a thread the client moved away from or deleted. */
+  const allDone = () => client.until(() => !app.busy());
+  return { app, client, disconnect, send, turnDone, allDone, sessions, resumeIds, prompts, dirs, store };
+}
+
+/** A history that records what it was asked to save. */
+function fakeHistory(overrides: Partial<History> = {}): History & { records: (AgentTurn | undefined)[]; commits: string[] } {
+  const records: (AgentTurn | undefined)[] = [];
+  const commits: string[] = [];
+  return {
+    records,
+    commits,
+    record: async (turn) => {
+      records.push(turn);
+      return turn ? { commit: "abc1234", changes: [] } : null;
+    },
+    recentContext: async () => "",
+    log: async () => [],
+    timeline: async () => null,
+    mediaFile: () => null,
+    commitProjectFile: async (message) => void commits.push(message),
+    ...overrides,
+  };
+}
+
+function savedThread(fields: Partial<SavedThread> = {}): SavedThread {
+  return {
+    id: "thread-1",
+    title: "cut it",
+    provider: "claude",
+    resumeId: null,
+    items: [],
+    context: null,
+    createdAt: "2026-11-09T10:00:00.000Z",
+    updatedAt: "2026-11-09T10:00:00.000Z",
+    archivedAt: null,
+    ...fields,
+  };
 }
 
 function gate() {
@@ -177,22 +229,24 @@ describe("app approvals", () => {
     expect(answers).toEqual([true]);
   });
 
-  it.each<ClientMessage>([{ type: "stop" }, { type: "new_chat" }, { type: "set_provider", provider: "codex" }])(
-    "denies pending approvals on %j",
-    async (message) => {
-      const { client, send, turnDone, answers } = await awaitingApproval();
-      send(message);
-      expect(client.state.approvals).toEqual([]);
-      await turnDone();
-      expect(answers).toEqual([false]);
-    },
-  );
+  it.each<[string, (threadId: string) => ClientMessage]>([
+    ["stop", () => ({ type: "stop" })],
+    ["set_provider", () => ({ type: "set_provider", provider: "codex" })],
+    ["archive_thread", (threadId) => ({ type: "archive_thread", threadId, archived: true })],
+    ["delete_thread", (threadId) => ({ type: "delete_thread", threadId })],
+  ])("denies pending approvals on %s", async (_name, message) => {
+    const { client, send, allDone, answers } = await awaitingApproval();
+    send(message(client.state.threadId!));
+    expect(client.state.approvals).toEqual([]);
+    await allDone();
+    expect(answers).toEqual([false]);
+  });
 });
 
 describe("app chats", () => {
-  it("keeps a turn that outlives its chat out of the next one", async () => {
+  it("keeps a turn that outlives its deleted thread out of every thread", async () => {
     const answers: boolean[] = [];
-    const { client, send, turnDone } = setup(async (sink) => {
+    const { client, send, allDone, store } = setup(async (sink) => {
       answers.push(await sink.requestApproval("Write", {}));
       sink.upsert({ id: "late", kind: "assistant", text: "late reply" });
       sink.notice("late notice");
@@ -200,11 +254,14 @@ describe("app chats", () => {
     });
     send({ type: "send", text: "go" });
     await client.until((state) => state.approvals.length > 0);
-    send({ type: "new_chat" });
-    await turnDone();
+    const deleted = client.state.threadId!;
+    send({ type: "delete_thread", threadId: deleted });
+    await allDone();
     expect(answers).toEqual([false, false]);
+    expect(client.state.threadId).not.toBe(deleted);
     expect(client.state.items).toEqual([]);
     expect(client.state.approvals).toEqual([]);
+    expect(store.threads.get("workspace")!.size).toBe(0);
   });
 
   it("starts a fresh session when the provider changes, and only then", async () => {
@@ -274,8 +331,8 @@ describe("app chats", () => {
 });
 
 describe("app restarts", () => {
-  it("keeps the chat and continues the provider's conversation", async () => {
-    const store = memoryStore();
+  it("keeps the thread and continues the provider's conversation", async () => {
+    const store = memoryProjectStore([{ project: workspaceProject }]);
     const first = setupWith({ store }, async (sink) => {
       sink.upsert({ id: "a", kind: "assistant", text: "Built AI - Cut." });
       sink.context({ usedTokens: 40_000, maxTokens: 1_000_000, cacheExpiresAt: "2026-11-08T12:00:00.000Z" });
@@ -287,16 +344,24 @@ describe("app restarts", () => {
     const second = setupWith({ store }, async () => {});
     expect(second.client.state).toEqual({ ...first.client.state, resolve: { state: "checking" } });
     expect(second.resumeIds).toEqual(["claude-1"]);
+    expect(second.dirs).toEqual(["/work"]);
     second.send({ type: "send", text: "shorter" });
     await second.turnDone();
     expect(second.prompts).toEqual(["shorter"]);
 
-    second.send({ type: "new_chat" });
-    expect(store.chat).toMatchObject({ items: [], context: null, resumeId: null });
+    // A new thread starts empty and isn't saved until it has a message; asking again reuses it.
+    second.send({ type: "new_thread", projectId: "workspace" });
+    const fresh = second.client.state.threadId;
+    expect(second.client.state).toMatchObject({ items: [], context: null });
+    second.send({ type: "new_thread", projectId: "workspace" });
+    expect(second.client.state.threadId).toBe(fresh);
+    expect([...store.threads.get("workspace")!.values()]).toMatchObject([{ title: "cut it", resumeId: "claude-1" }]);
   });
 
   it("starts a new conversation with a summary when the earlier one can't be continued", async () => {
-    const store = memoryStore({ provider: "claude", resumeId: "gone", items: [{ id: "1", kind: "user", text: "cut it" }], context: null });
+    const store = memoryProjectStore([
+      { project: workspaceProject, threads: [savedThread({ resumeId: "gone", items: [{ id: "1", kind: "user", text: "cut it" }] })] },
+    ]);
     const { client, send, turnDone, resumeIds, prompts } = setupWith(
       { store },
       async () => {
@@ -312,7 +377,7 @@ describe("app restarts", () => {
     expect(client.state.items.filter((item) => item.kind === "notice")).toMatchObject([
       { tone: "info", text: expect.stringContaining("Couldn't continue the earlier conversation (No conversation found)") },
     ]);
-    expect(store.chat?.resumeId).toBe("claude-2");
+    expect(store.threads.get("workspace")!.get("thread-1")?.resumeId).toBe("claude-2");
   });
 });
 
@@ -325,33 +390,26 @@ const EARLIER_CUT: HistoryEntry = {
   prompt: "Earlier cut",
   actions: [],
   changes: [],
+  thread: null,
   timelines: [],
 };
 
 describe("app edit history", () => {
   function withHistory(...scripts: Script[]) {
-    const records: (AgentTurn | undefined)[] = [];
-    const harness = setupWith(
-      {
-        checkResolve: async () => ({ state: "connected", product: "DaVinci Resolve Studio", version: "21", project: "Doc", timeline: null }),
-        history: {
-          record: async (turn) => {
-            records.push(turn);
-            return turn ? { commit: "abc1234", changes: ['"AI - Cut": new timeline, 3 clips, 0:10'] } : null;
-          },
-          recentContext: async () => "9f8e7d6 2026-11-07 10:00 Claude: Earlier cut",
-          log: async () => [{ ...EARLIER_CUT, commit: `c${records.length}` }],
-          timeline: async () => null,
-          mediaFile: () => null,
-        },
+    const history = fakeHistory({
+      record: async (turn) => {
+        history.records.push(turn);
+        return turn ? { commit: "abc1234", changes: ['"AI - Cut": new timeline, 3 clips, 0:10'] } : null;
       },
-      ...scripts,
-    );
-    return { ...harness, records };
+      recentContext: async () => "9f8e7d6 2026-11-07 10:00 Claude: Earlier cut",
+      log: async () => [{ ...EARLIER_CUT, commit: `c${history.records.length}` }],
+    });
+    const harness = setupWith({ checkResolve: async () => connected("Doc", "doc-id"), history }, ...scripts);
+    return { ...harness, records: history.records, commits: history.commits };
   }
 
   it("saves before every turn and after a turn that changed Resolve, with what the agent did", async () => {
-    const { app, client, send, turnDone, records, prompts } = withHistory(
+    const { app, client, send, turnDone, records, prompts, store, commits } = withHistory(
       async (sink) => {
         sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty", params: { name: "AI - Cut" } }, status: "running" });
         sink.upsert({ id: "r", kind: "tool", name: "mcp__resolve__timeline", input: { action: "list" }, status: "done" });
@@ -370,14 +428,28 @@ describe("app edit history", () => {
 
     expect(records).toEqual([
       undefined,
-      { provider: "claude", prompt: "cut it", actions: ['timeline.create_empty {"name":"AI - Cut"}'], summary: "Built AI - Cut." },
+      {
+        provider: "claude",
+        prompt: "cut it",
+        actions: ['timeline.create_empty {"name":"AI - Cut"}'],
+        summary: "Built AI - Cut.",
+        thread: client.state.threadId,
+      },
       undefined,
     ]);
     expect(prompts[0]).toMatch(/^<edit_history>\n.*\n9f8e7d6 2026-11-07 10:00 Claude: Earlier cut\n<\/edit_history>\n\ncut it$/);
     expect(prompts[1]).toBe("what is on it?");
+    // The project had no Resolve project yet: its first turn links it to the one open.
     expect(client.state.items.filter((item) => item.kind === "notice")).toMatchObject([
+      { tone: "info", text: 'Linked this project to the Resolve project "Doc" in the local database "Local Database".' },
       { tone: "info", text: 'Saved to edit history (abc1234): "AI - Cut": new timeline, 3 clips, 0:10' },
     ]);
+    expect(store.projects.get("workspace")).toMatchObject({
+      link: { kind: "local", name: "Doc", projectId: "doc-id" },
+      local: { database: { type: "Disk", name: "Local Database" } },
+    });
+    expect(commits).toEqual(['Link to Resolve project "Doc"']);
+    expect(client.state.projects[0]).toMatchObject({ name: "Doc", open: true });
   });
 
   it("sends the history on request and to every client after each save", async () => {
@@ -391,18 +463,21 @@ describe("app edit history", () => {
     expect(client.histories.map((entries) => entries.map((entry) => entry.commit))).toEqual([["c0"], ["c2"]]);
   });
 
-  it("still saves a turn's Resolve changes after its chat was reset", async () => {
+  it.each<[string, (threadId: string) => ClientMessage]>([
+    ["its thread was deleted", (threadId) => ({ type: "delete_thread", threadId })],
+    ["its project was removed", () => ({ type: "remove_project", projectId: "workspace" })],
+  ])("still saves a turn's Resolve changes after %s", async (_name, message) => {
     const { open, opened } = gate();
-    const { app, client, send, turnDone, records } = withHistory(async (sink) => {
+    const { app, client, send, allDone, records } = withHistory(async (sink) => {
       sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "running" });
       await opened;
     });
     await app.refreshResolve();
     send({ type: "send", text: "cut it" });
     await client.until((state) => state.items.some((item) => item.id === "w"));
-    send({ type: "new_chat" });
+    send(message(client.state.threadId!));
     open();
-    await turnDone();
+    await allDone();
     expect(records.at(-1)).toMatchObject({ prompt: "cut it", actions: ["timeline.create_empty"] });
   });
 });
@@ -427,14 +502,8 @@ describe("app preview", () => {
     const { app, client, send, turnDone } = setupWith(
       {
         preview: renderer,
-        checkResolve: async () => ({ state: "connected", product: "DaVinci Resolve Studio", version: "21", project: "Doc", timeline: null }),
-        history: {
-          record: async (turn) => (turn ? { commit: "abc1234", changes: [] } : null),
-          recentContext: async () => "",
-          log: async () => [],
-          timeline: async () => null,
-          mediaFile: () => null,
-        },
+        checkResolve: async () => connected("Doc"),
+        history: fakeHistory(),
       },
       async (sink) => {
         sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "done" });
@@ -472,5 +541,199 @@ describe("app preview", () => {
     send({ type: "render_preview" });
     renders[1]!.emit({ event: "error", message: "Resolve has no timeline open." });
     expect(client.state.preview).toEqual({ state: "error", message: "Resolve has no timeline open." });
+  });
+});
+
+describe("app projects", () => {
+  const linked = (name: string, projectId: string | null, fields: Partial<SavedProject> = {}): SavedProject => ({
+    id: name.toLowerCase(),
+    dir: `/projects/${name}`,
+    name: null,
+    link: { kind: "local", name, projectId },
+    local: {},
+    ...fields,
+  });
+
+  /** Resolve's status, changed by the test as the user switches projects in Resolve. */
+  function resolveWith(status: ResolveStatus) {
+    const current = { status };
+    return { current, checkResolve: async () => current.status };
+  }
+
+  it("refuses a turn while Resolve has another project open, and runs it once the project is open", async () => {
+    const resolve = resolveWith(connected("Promo", "promo-id"));
+    const { app, client, send, turnDone, prompts } = setupWith(
+      { store: memoryProjectStore([{ project: linked("Interview", "int-id") }]), checkResolve: resolve.checkResolve },
+      async () => {},
+    );
+    await app.refreshResolve();
+    expect(client.state.blocked).toEqual({
+      message: 'Resolve has "Promo" open, not this project\'s "Interview". Open "Interview" in Resolve to continue.',
+      canOpen: false,
+    });
+    expect(client.state.projects[0]).toMatchObject({ name: "Interview", open: false });
+
+    send({ type: "send", text: "cut it" });
+    await client.until(() => client.refused.length > 0);
+    expect(client.refused).toEqual(["cut it"]);
+    expect(client.toasts).toEqual([client.state.blocked!.message]);
+    expect(prompts).toEqual([]);
+    expect(client.state.items).toEqual([]);
+
+    resolve.current.status = connected("Interview", "int-id");
+    send({ type: "send", text: "cut it" });
+    await client.until((state) => state.items.length > 0);
+    await turnDone();
+    expect(prompts).toEqual(["cut it"]);
+    expect(client.state.blocked).toBeNull();
+  });
+
+  it("won't link a new project to a Resolve project another project has", async () => {
+    const store = memoryProjectStore([{ project: linked("Doc", "doc-id") }, { project: { ...workspaceProject } }]);
+    const { app, client, send } = setupWith({ store, checkResolve: async () => connected("Doc", "doc-id") });
+    await app.refreshResolve();
+    expect(client.state.projectId).toBe("doc");
+    send({ type: "new_thread", projectId: "workspace" });
+    expect(client.state.blocked?.message).toBe(
+      'Resolve has "Doc" open, which belongs to the project "Doc". Switch to that project, or open another one in Resolve.',
+    );
+    send({ type: "send", text: "cut it" });
+    await client.until(() => client.refused.length > 0);
+    expect(store.projects.get("workspace")?.link).toBeNull();
+  });
+
+  it("lets one thread work in Resolve at a time", async () => {
+    const { open, opened } = gate();
+    const { client, send, allDone, prompts } = setup(
+      () => opened,
+      async () => {},
+    );
+    send({ type: "send", text: "first" });
+    await client.until((state) => state.items.length > 0);
+    send({ type: "new_thread", projectId: "workspace" });
+    expect(client.state.blocked).toEqual({ message: 'Claude is working in "first". One thread works in Resolve at a time.', canOpen: false });
+    send({ type: "send", text: "second" });
+    expect(client.refused).toEqual(["second"]);
+    open();
+    await allDone();
+    send({ type: "send", text: "second" });
+    await allDone();
+    expect(prompts).toEqual(["first", "second"]);
+  });
+
+  it("learns the project's id when it is open, and follows a rename in Resolve", async () => {
+    const resolve = resolveWith(connected("Doc", "doc-id"));
+    const history = fakeHistory();
+    const store = memoryProjectStore([{ project: linked("Doc", null) }]);
+    const { app, client } = setupWith({ store, history, checkResolve: resolve.checkResolve });
+    await app.refreshResolve();
+    expect(store.projects.get("doc")?.link).toEqual({ kind: "local", name: "Doc", projectId: "doc-id" });
+
+    resolve.current.status = connected("Doc v2", "doc-id");
+    await app.refreshResolve();
+    expect(store.projects.get("doc")?.link).toEqual({ kind: "local", name: "Doc v2", projectId: "doc-id" });
+    expect(history.commits).toEqual(['Link to Resolve project "Doc"', 'Resolve project renamed to "Doc v2"']);
+    expect(client.state.projects[0]).toMatchObject({ name: "Doc v2", open: true });
+  });
+
+  it("adds projects from Resolve, its database and Blackmagic Cloud, once each", async () => {
+    const store = memoryProjectStore([{ project: { ...workspaceProject } }]);
+    const { app, client, send } = setupWith({ store, checkResolve: async () => connected("Promo", "promo-id") });
+    await app.refreshResolve();
+
+    send({ type: "add_project", source: { kind: "open" } });
+    expect(client.state.projectId).toBe("project-1");
+    expect(client.state.projects[1]).toMatchObject({
+      name: "Promo",
+      link: { kind: "local", name: "Promo", projectId: "promo-id" },
+      local: { database: { type: "Disk", name: "Local Database" } },
+      open: true,
+    });
+    send({ type: "add_project", source: { kind: "open" } });
+    expect(client.toasts).toEqual(['"Promo" is already in Linker-Edit.']);
+
+    send({ type: "add_project", source: { kind: "cloud", name: "Client X", mediaPath: " ", syncMode: "proxy_only" } });
+    expect(client.toasts.at(-1)).toBe("A cloud project needs its name and a media folder.");
+    send({ type: "add_project", source: { kind: "cloud", name: "Client X", mediaPath: "D:\\Cloud\\Client X", syncMode: "proxy_only" } });
+    send({
+      type: "add_project",
+      source: { kind: "library", name: "Old", folder: ["2025"], database: { type: "PostgreSQL", name: "Team", host: "10.0.0.5" } },
+    });
+    expect(client.state.projects.slice(2)).toMatchObject([
+      { name: "Client X", link: { kind: "cloud", projectId: null }, local: { mediaPath: "D:\\Cloud\\Client X", syncMode: "proxy_only" } },
+      { name: "Old", link: { kind: "network" }, local: { folder: ["2025"], database: { name: "Team" } } },
+    ]);
+    expect(store.projects.size).toBe(4);
+  });
+
+  it("opens a project in Resolve, and says when it couldn't", async () => {
+    const resolve = resolveWith(connected("Promo", "promo-id"));
+    const opens: string[] = [];
+    let fail = false;
+    const resolveProjects: AppOptions["resolveProjects"] = {
+      library: async () => ({ database: null, databases: [], projects: [] }),
+      open: async (link) => {
+        opens.push(link.name);
+        if (fail) throw new Error("Resolve couldn't find or open the project.");
+        resolve.current.status = connected("Interview", "int-id");
+        return { project: { name: "Interview", id: "int-id" }, database: { type: "Disk", name: "Local Database" }, folder: ["Clients"] };
+      },
+    };
+    const store = memoryProjectStore([{ project: linked("Interview", null) }]);
+    const { app, client, send } = setupWith({ store, checkResolve: resolve.checkResolve, resolveProjects });
+    await app.refreshResolve();
+    expect(client.state.blocked?.canOpen).toBe(true);
+
+    fail = true;
+    send({ type: "open_in_resolve", projectId: "interview" });
+    expect(client.state.opening).toBe("interview");
+    await client.until((state) => state.opening === null);
+    expect(client.toasts).toEqual(['Couldn\'t open "Interview" in Resolve: Resolve couldn\'t find or open the project.']);
+
+    fail = false;
+    send({ type: "open_in_resolve", projectId: "interview" });
+    await client.until((state) => state.opening === null && state.blocked === null);
+    expect(opens).toEqual(["Interview", "Interview"]);
+    expect(store.projects.get("interview")).toMatchObject({
+      link: { projectId: "int-id" },
+      local: { folder: ["Clients"], database: { name: "Local Database" } },
+    });
+  });
+
+  it("renames, archives, unarchives and deletes threads", async () => {
+    const store = memoryProjectStore([
+      { project: { ...workspaceProject }, threads: [savedThread({ items: [{ id: "1", kind: "user", text: "cut it" }] })] },
+    ]);
+    const { client, send } = setupWith({ store });
+    expect(client.state.threadId).toBe("thread-1");
+    const summary = () => client.state.projects[0]!.threads.find((thread) => thread.id === "thread-1");
+
+    send({ type: "rename_thread", threadId: "thread-1", title: "  Rough cut  " });
+    expect(summary()).toMatchObject({ title: "Rough cut", archived: false });
+    send({ type: "archive_thread", threadId: "thread-1", archived: true });
+    expect(summary()).toMatchObject({ archived: true });
+    expect(client.state.threadId).not.toBe("thread-1");
+    expect(store.threads.get("workspace")!.get("thread-1")).toMatchObject({ title: "Rough cut", archivedAt: expect.any(String) });
+
+    send({ type: "archive_thread", threadId: "thread-1", archived: false });
+    expect(summary()).toMatchObject({ archived: false });
+    // Archiving a thread with nothing in it just drops it.
+    const empty = client.state.threadId!;
+    send({ type: "archive_thread", threadId: empty, archived: true });
+    expect(client.state.projects[0]!.threads.map((thread) => thread.id)).not.toContain(empty);
+
+    send({ type: "delete_thread", threadId: "thread-1" });
+    expect(summary()).toBeUndefined();
+    expect(store.threads.get("workspace")!.size).toBe(0);
+  });
+
+  it("removes a project from Linker-Edit only, moving its viewers to another project", async () => {
+    const store = memoryProjectStore([{ project: linked("Doc", "doc-id") }, { project: { ...workspaceProject } }]);
+    const { client, send } = setupWith({ store });
+    expect(client.state.projectId).toBe("doc");
+    send({ type: "remove_project", projectId: "doc" });
+    expect(client.state.projects.map((project) => project.id)).toEqual(["workspace"]);
+    expect(client.state.projectId).toBe("workspace");
+    expect([...store.projects.keys()]).toEqual(["workspace"]);
   });
 });

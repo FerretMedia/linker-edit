@@ -73,6 +73,7 @@ describe("edit history", () => {
       prompt: "Make a tighter cut\nwith only clip b",
       actions: ['timeline.create_empty {"name":"AI - Tight"}'],
       summary: "Built AI - Tight with clip b.",
+      thread: "thread-1",
     });
     expect(saved).toMatchObject({ changes: ['"AI - Tight": new timeline, 1 clip, 0:02'] });
     expect(git("log", "-1", "--format=%an%n%B")).toBe(
@@ -91,6 +92,8 @@ describe("edit history", () => {
         "",
         "Agent summary:",
         "Built AI - Tight with clip b.",
+        "",
+        "Thread: thread-1",
         "",
         "",
       ].join("\n"),
@@ -127,7 +130,7 @@ describe("edit history", () => {
       ),
     );
     expect(await history.log()).toMatchObject([
-      { agent: null, subject: "Changes made in Resolve", prompt: null, actions: [], changes: ['"AI - Tight": timeline removed'], timelines: [] },
+      { agent: null, subject: "Changes made in Resolve", prompt: null, thread: null, actions: [], changes: ['"AI - Tight": timeline removed'], timelines: [] },
       {
         author: "Claude",
         agent: "claude",
@@ -135,11 +138,34 @@ describe("edit history", () => {
         prompt: "Make a tighter cut\nwith only clip b",
         actions: ['timeline.create_empty {"name":"AI - Tight"}'],
         changes: ['"AI - Tight": new timeline, 1 clip, 0:02'],
+        thread: "thread-1",
         timelines: [{ name: "AI - Tight", state: "new", tiles: [{ kind: "clip", name: "clip b", media: "m-b", image: false, change: null }] }],
         date: expect.stringMatching(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/),
       },
       { agent: null, changes: ['"Interview": new timeline, 2 clips, 0:04'], timelines: [{ name: "Interview", state: "new" }] },
     ]);
+  });
+
+  it("refuses to save another Resolve project into this history, and commits the project file", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-history-"));
+    const snapshot: RawSnapshot = {
+      project: "Promo",
+      project_id: "p-2",
+      current_timeline: null,
+      timelines: [rawTimeline("t1", "Cut", [item("a", 86400)])],
+    };
+    const history = createHistory({
+      dir,
+      readSnapshot: async () => snapshot,
+      checkProject: (open) => (open.id === "p-1" ? null : `Resolve has "${open.name}" open.`),
+    });
+    await expect(history.record()).rejects.toThrow('Resolve has "Promo" open.');
+    expect(fs.existsSync(path.join(dir, "resolve"))).toBe(false);
+
+    fs.writeFileSync(path.join(dir, "linker-edit.json"), "{}\n");
+    await history.commitProjectFile("Link to Resolve project Doc");
+    await history.commitProjectFile("Link to Resolve project Doc");
+    expect(execFileSync("git", ["log", "--format=%s"], { cwd: dir, encoding: "utf8" })).toBe("Link to Resolve project Doc\n");
   });
 
   it("saves nothing for a project without timelines", async () => {

@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createApp } from "./app.ts";
+import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import { byteRange, createServer, isAllowedOrigin, staticFile } from "./http.ts";
 
 describe("isAllowedOrigin", () => {
@@ -75,7 +76,7 @@ describe("server", () => {
 
   beforeAll(async () => {
     const app = createApp({
-      workspaceDir: root,
+      store: memoryProjectStore([{ project: { ...workspaceProject, dir: root } }]),
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),
     });
