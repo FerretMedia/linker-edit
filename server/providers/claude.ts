@@ -2,7 +2,8 @@ import { query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
 import { isProjectSwitch, needsApproval, PROJECT_SWITCH_DENIED } from "../policy.ts";
-import { EDITING_RULES, RESOLVE_MCP_NAME } from "../rules.ts";
+import { EDITING_RULES, LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
+import { linkerMcpCommand } from "../transcribe/mcp.ts";
 import { shortenToolOutput } from "./shorten.ts";
 import { truncate, type ProviderSession, type TurnSink } from "./types.ts";
 
@@ -67,7 +68,7 @@ export function createClaudeSession(
       case "system":
         if (message.subtype === "init") {
           for (const server of message.mcp_servers) {
-            if (server.name === RESOLVE_MCP_NAME && server.status !== "connected") {
+            if ((server.name === RESOLVE_MCP_NAME || server.name === LINKER_MCP_NAME) && server.status !== "connected") {
               sink.notice(`MCP server "${server.name}" is ${server.status}.`, "error");
             }
           }
@@ -148,6 +149,7 @@ export function createClaudeSession(
             args: [config.resolveMcp.serverScript],
             env: config.resolveMcp.env,
           },
+          [LINKER_MCP_NAME]: { type: "stdio", ...linkerMcpCommand(config) },
         },
         ...(config.autoCompactWindow === undefined ? {} : { settings: { autoCompactWindow: config.autoCompactWindow } }),
         hooks: {

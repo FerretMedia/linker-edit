@@ -1,4 +1,4 @@
-import { RESOLVE_MCP_NAME } from "./rules.ts";
+import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "./rules.ts";
 
 const READ_ONLY_TOOLS = new Set([
   "Read",
@@ -41,6 +41,8 @@ function isGitRead(command: string): boolean {
 /** In "ask" mode: does this tool call need the user's OK before it runs? */
 export function needsApproval(toolName: string, input: Record<string, unknown>): boolean {
   if (READ_ONLY_TOOLS.has(toolName)) return false;
+  // Transcribing reads media and writes only to Linker-Edit's own transcript folder.
+  if (toolName === `mcp__${LINKER_MCP_NAME}__transcribe`) return false;
   // Claude Code on Windows runs shell commands through PowerShell instead of Bash.
   const shell = toolName === "Bash" || toolName === "PowerShell";
   if (shell && typeof input.command === "string" && isGitRead(input.command)) return false;

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -25,6 +26,12 @@ interface UserConfig {
   env?: Record<string, string>;
   /** Tokens at which Claude compacts the chat by itself, 100000 to 1000000. Claude Code decides when unset. */
   autoCompactWindow?: number;
+  /** Where transcripts of media files are kept. */
+  transcriptsDir?: string;
+  /** Where the speech engine and its models are downloaded. */
+  toolsDir?: string;
+  /** Your own whisper-cli, instead of the one Linker-Edit downloads (Windows) or finds on PATH. */
+  whisperCli?: string;
 }
 
 export interface ResolveMcpConfig {
@@ -39,6 +46,11 @@ export interface AppConfig {
   /** The agent's working folder. Each project has its own; this one becomes the first project. */
   workspaceDir: string;
   previewDir: string;
+  transcriptsDir: string;
+  toolsDir: string;
+  whisperCli?: string;
+  /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
+  apiToken: string;
   resolveMcp: ResolveMcpConfig;
   autoCompactWindow?: number;
 }
@@ -123,6 +135,10 @@ export function loadConfig(
     projectsDir: user.projectsDir ?? path.join(HOME_DIR, "projects"),
     workspaceDir: user.workspaceDir ?? path.join(HOME_DIR, "workspace"),
     previewDir: user.previewDir ?? path.join(HOME_DIR, "previews"),
+    transcriptsDir: user.transcriptsDir ?? path.join(HOME_DIR, "transcripts"),
+    toolsDir: user.toolsDir ?? path.join(HOME_DIR, "tools"),
+    ...(user.whisperCli ? { whisperCli: user.whisperCli } : {}),
+    apiToken: randomBytes(24).toString("hex"),
     resolveMcp: {
       python,
       serverScript: path.join(mcpDir, "src", "server.py"),

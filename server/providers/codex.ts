@@ -1,7 +1,8 @@
 import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOptions } from "@openai/codex-sdk";
 import type { AppConfig } from "../config.ts";
 import { CODEX_DISABLED_RESOLVE_TOOLS } from "../policy.ts";
-import { RESOLVE_MCP_NAME } from "../rules.ts";
+import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
+import { linkerMcpCommand } from "../transcribe/mcp.ts";
 import { truncate, type ProviderSession, type TurnSink } from "./types.ts";
 
 function mcpResultText(item: Extract<ThreadItem, { type: "mcp_tool_call" }>): string | undefined {
@@ -61,6 +62,7 @@ function handleItem(item: ThreadItem, sink: TurnSink, turn: number) {
 const slashes = (value: string) => value.replaceAll("\\", "/");
 
 export function codexOptions(config: AppConfig): CodexOptions {
+  const linker = linkerMcpCommand(config);
   return {
     config: {
       mcp_servers: {
@@ -71,6 +73,14 @@ export function codexOptions(config: AppConfig): CodexOptions {
           // The MCP marks its tools destructive; with approvalPolicy "never" Codex would refuse every call.
           default_tools_approval_mode: "approve",
           disabled_tools: CODEX_DISABLED_RESOLVE_TOOLS,
+        },
+        [LINKER_MCP_NAME]: {
+          command: slashes(linker.command),
+          args: linker.args.map(slashes),
+          env: linker.env,
+          default_tools_approval_mode: "approve",
+          // A first transcription downloads the engine; Codex gives up on a tool after 60 seconds by default.
+          tool_timeout_sec: 3600,
         },
       },
     },
