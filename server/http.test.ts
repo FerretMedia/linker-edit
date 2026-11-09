@@ -75,6 +75,7 @@ describe("server", () => {
 
   beforeAll(async () => {
     const app = createApp({
+      version: "0.0.0",
       workspaceDir: root,
       createSession: () => ({ send: async () => {} }),
       checkResolve: async () => ({ state: "not_running" }),
