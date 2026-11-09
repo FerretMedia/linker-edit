@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Optional overrides, read from linker-edit.config.json in the app folder. */
+/** Config, workspace and the davinci-resolve-mcp install live here, outside the app folder npx replaces. */
+export const HOME_DIR = path.join(os.homedir(), "LinkerEdit");
+
+/** Optional overrides, read from linker-edit.config.json in HOME_DIR. */
 interface UserConfig {
   port?: number;
   /** Where new projects get their folders, and the project list lives. */
@@ -96,7 +99,7 @@ function venvBaseHome(python: string): string | undefined {
 
 /** LINKER_EDIT_CONFIG points at another config file, so tests can run on their own port and workspace. */
 export function loadConfig(
-  file = process.env.LINKER_EDIT_CONFIG ?? path.join(APP_ROOT, "linker-edit.config.json"),
+  file = process.env.LINKER_EDIT_CONFIG ?? path.join(HOME_DIR, "linker-edit.config.json"),
   platform: NodeJS.Platform = process.platform,
 ): AppConfig {
   const user = readUserConfig(file);
@@ -104,7 +107,7 @@ export function loadConfig(
   if (window !== undefined && !(Number.isInteger(window) && window >= 100_000 && window <= 1_000_000)) {
     throw new Error(`autoCompactWindow in ${file} must be a whole number from 100000 to 1000000.`);
   }
-  const mcpDir = user.resolveMcpDir ?? path.resolve(APP_ROOT, "..", "davinci-resolve-mcp");
+  const mcpDir = user.resolveMcpDir ?? path.join(HOME_DIR, "davinci-resolve-mcp");
   const python =
     user.python ??
     (platform === "win32"
@@ -117,9 +120,9 @@ export function loadConfig(
 
   return {
     port: user.port ?? 4317,
-    projectsDir: user.projectsDir ?? path.join(os.homedir(), "LinkerEdit", "projects"),
-    workspaceDir: user.workspaceDir ?? path.join(os.homedir(), "LinkerEdit", "workspace"),
-    previewDir: user.previewDir ?? path.join(os.homedir(), "LinkerEdit", "previews"),
+    projectsDir: user.projectsDir ?? path.join(HOME_DIR, "projects"),
+    workspaceDir: user.workspaceDir ?? path.join(HOME_DIR, "workspace"),
+    previewDir: user.previewDir ?? path.join(HOME_DIR, "previews"),
     resolveMcp: {
       python,
       serverScript: path.join(mcpDir, "src", "server.py"),
@@ -127,4 +130,13 @@ export function loadConfig(
     },
     ...(window === undefined ? {} : { autoCompactWindow: window }),
   };
+}
+
+export function loadConfigOrExit(): AppConfig {
+  try {
+    return loadConfig();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
 }

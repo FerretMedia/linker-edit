@@ -24,6 +24,7 @@ import type { ResolveProjects } from "./resolveProjects.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 
 export interface AppOptions {
+  version: string;
   store: ProjectStore;
   /** resumeId continues a conversation from before a restart; dir is the project's working folder. */
   createSession: (provider: Provider, approvalMode: () => ApprovalMode, dir: string, resumeId?: string) => ProviderSession;
@@ -60,6 +61,7 @@ export function createApp(options: AppOptions) {
   let resolve: ResolveStatus = { state: "checking" };
   let preview: PreviewState = { state: "idle" };
   let previewJob: { stop(): void } | null = null;
+  let update: string | null = null;
   // Resolve has one project open and does one thing at a time: one turn, open or render app-wide.
   let turnOwner: string | null = null;
   let opening: string | null = null;
@@ -247,6 +249,8 @@ export function createApp(options: AppOptions) {
       busy: entry?.thread.busy ?? false,
       approvals: entry?.thread.approvals() ?? [],
       resolve,
+      version: options.version,
+      update,
       workspaceDir: project?.saved.dir ?? null,
       preview,
       context: entry?.thread.context ?? null,
@@ -605,6 +609,12 @@ export function createApp(options: AppOptions) {
     },
     handleMessage,
     refreshResolve,
+    /** A newer release the UI offers, or null. */
+    setUpdate(version: string | null) {
+      if (version === update) return;
+      update = version;
+      sendMeta();
+    },
     mediaFile(id: string) {
       for (const project of projects.values()) {
         const file = project.history?.mediaFile(id);

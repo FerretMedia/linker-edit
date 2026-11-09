@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
-import type { ResolveMcpConfig } from "../config.ts";
+import { APP_ROOT, type ResolveMcpConfig } from "../config.ts";
 import { needsApproval } from "../policy.ts";
 import { PROJECT_FILE } from "../projects/store.ts";
 import { RESOLVE_MCP_NAME } from "../rules.ts";
@@ -62,7 +62,8 @@ export interface History {
  */
 export type ProjectCheck = (open: { name: string; id: string | null }) => string | null;
 
-const SNAPSHOT_SCRIPT = path.join(import.meta.dirname, "snapshot.py");
+// Read from the package folder, so the bundled server finds it too.
+const SNAPSHOT_SCRIPT = path.join(APP_ROOT, "server", "history", "snapshot.py");
 
 export function readResolveSnapshot(mcp: ResolveMcpConfig): Promise<RawSnapshot> {
   return new Promise((resolve, reject) => {
@@ -92,6 +93,8 @@ function git(cwd: string, args: string[], input?: string): Promise<{ code: numbe
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.on("error", reject);
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    // git can exit before it reads stdin. Its exit code reports any failure, so a broken pipe is no error.
+    child.stdin.on("error", () => {});
     child.stdin.end(input ?? "");
   });
 }

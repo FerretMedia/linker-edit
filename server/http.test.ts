@@ -76,6 +76,7 @@ describe("server", () => {
 
   beforeAll(async () => {
     const app = createApp({
+      version: "0.0.0",
       store: memoryProjectStore([{ project: { ...workspaceProject, dir: root } }]),
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),

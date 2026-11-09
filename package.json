@@ -1,7 +1,6 @@
 {
   "name": "linker-edit",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.0.0",
   "type": "module",
   "description": "Open-source AI for video editing and creative work. Claude and Codex edit your DaVinci Resolve project directly.",
   "license": "MIT",
@@ -9,6 +8,16 @@
     "type": "git",
     "url": "https://github.com/FerretMedia/linker-edit.git"
   },
+  "bin": {
+    "linker-edit": "dist/linker-edit.js"
+  },
+  "files": [
+    "build",
+    "dist",
+    "server/**/*.py",
+    "NOTICE",
+    "linker-edit.config.example.json"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -18,8 +27,9 @@
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"node --watch server/index.ts\" \"vite dev\"",
-    "build": "vite build",
+    "build": "vite build && rolldown -c",
     "start": "node server/index.ts",
+    "setup": "node server/cli.ts setup",
     "prepare": "svelte-kit sync || echo \"\"",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
@@ -44,6 +54,7 @@
     "@types/ws": "^8.18.2",
     "concurrently": "^10.0.6",
     "cookie": "^2.0.1",
+    "rolldown": "^1.2.16",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",
     "tailwindcss": "^4.3.4",

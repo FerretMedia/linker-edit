@@ -240,6 +240,9 @@ export interface AppMeta {
   busy: boolean;
   approvals: ApprovalRequest[];
   resolve: ResolveStatus;
+  version: string;
+  /** A newer Linker-Edit on npm, or null. */
+  update: string | null;
   /** The thread's project folder. */
   workspaceDir: string | null;
   preview: PreviewState;

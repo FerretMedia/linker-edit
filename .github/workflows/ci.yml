@@ -4,10 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release workflow runs these checks before it publishes.
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run; main and releases check every commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  typecheck:
+    name: Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -16,7 +28,103 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # The Resolve action snapshot needs a davinci-resolve-mcp checkout and is skipped here.
+
+  # Windows too: it's where most Resolve users are, and where path handling breaks.
+  # The Resolve action snapshot needs a davinci-resolve-mcp install and is skipped here.
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - run: npm test
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Resolve Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # Downloads Chromium only on a cache miss; the system libraries it needs always install.
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # Installs the npm package the way users get it and starts it, so a broken bundle or a missing file never ships.
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm pack
+      - name: Install and start the package
+        run: |
+          app="$RUNNER_TEMP/app"
+          mkdir -p "$app" "$RUNNER_TEMP/mcp/src"
+          # A stand-in davinci-resolve-mcp install, so the first run doesn't clone the real one.
+          touch "$RUNNER_TEMP/mcp/src/server.py"
+          cat > "$RUNNER_TEMP/config.json" <<EOF
+          { "port": 4390, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "resolveMcpDir": "$RUNNER_TEMP/mcp", "python": "$(command -v python3)" }
+          EOF
+          cd "$app"
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/linker-edit-*.tgz
+          npx linker-edit --version
+          LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" npx linker-edit > "$RUNNER_TEMP/server.log" 2>&1 &
+          server=$!
+          curl --silent --fail --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4390/ | grep -q "<html" || { cat "$RUNNER_TEMP/server.log"; exit 1; }
+          kill "$server"
+          cat "$RUNNER_TEMP/server.log"
+
+  # The one check to require before merging. It fails when any job above fails, is cancelled or is
+  # skipped, so adding or splitting jobs needs no change to the merge rules. Add every job to `needs`.
+  check:
+    name: Check
+    if: ${{ always() }}
+    needs: [typecheck, test, e2e, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null

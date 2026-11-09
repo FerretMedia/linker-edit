@@ -79,6 +79,7 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
   const dirs: string[] = [];
   const store = options.store ?? memoryProjectStore([{ project: workspaceProject }]);
   const app = createApp({
+    version: "0.0.0",
     store,
     createSession: (provider, _approvalMode, dir, resumeId): ProviderSession => {
       sessions.push(provider);

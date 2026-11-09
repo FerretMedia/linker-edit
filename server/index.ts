@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
 import { createApp } from "./app.ts";
-import { APP_ROOT, loadConfig } from "./config.ts";
+import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
 import { createPreviewRenderer } from "./preview/preview.ts";
@@ -12,20 +12,16 @@ import { replayQuery } from "./providers/replay.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
+import { isNewer, latestVersion, VERSION } from "./updates.ts";
 
-let config: ReturnType<typeof loadConfig>;
-try {
-  config = loadConfig();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-}
+const config = loadConfigOrExit();
 
 // Set to a recorded Claude turn (JSONL) to replay it instead of calling Claude: free turns for UI work.
 const replay = process.env.LINKER_EDIT_REPLAY;
 if (replay) console.log(`Replaying ${replay} instead of calling Claude`);
 
 const app = createApp({
+  version: VERSION,
   store: fileProjectStore({ root: config.projectsDir, legacyDir: config.workspaceDir }),
   createSession: (provider, approvalMode, dir, resumeId) => {
     const projectConfig = { ...config, workspaceDir: dir };
@@ -43,7 +39,8 @@ const app = createApp({
   prepareFolder: prepareWorkspace,
 });
 
-const server = createServer(app, path.join(APP_ROOT, "build"));
+export const url = `http://127.0.0.1:${config.port}`;
+export const server = createServer(app, path.join(APP_ROOT, "build"));
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
@@ -55,10 +52,18 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 });
 
 server.listen(config.port, "127.0.0.1", () => {
-  console.log(`Linker-Edit server on http://127.0.0.1:${config.port}`);
+  console.log(`Linker-Edit ${VERSION} on ${url}`);
   console.log(`Projects: ${config.projectsDir}`);
   void app.refreshResolve();
   setInterval(() => {
     if (!app.busy()) void app.refreshResolve();
   }, 15_000);
 });
+
+// A checkout runs as 0.0.0 and has nothing to update to.
+if (VERSION !== "0.0.0") {
+  const checkForUpdate = () =>
+    void latestVersion().then((latest) => app.setUpdate(latest && isNewer(latest, VERSION) ? latest : null));
+  checkForUpdate();
+  setInterval(checkForUpdate, 24 * 60 * 60 * 1000);
+}

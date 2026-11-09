@@ -36,38 +36,42 @@ Priorities come from real use. If something here matters to you, or is missing, 
 - **DaVinci Resolve Studio** with Preferences → System → General → *External scripting using* set to **Local**. Restart Resolve after changing it. The free edition blocks external scripting.
 - **Node.js 24+**
 - **Claude Code** (`claude`, logged in) and/or **Codex** (`codex`, logged in).
-- A **davinci-resolve-mcp** checkout with a Python 3.10–3.12 virtualenv, next to this folder by default:
-
-  ```sh
-  git clone https://github.com/samuelgursky/davinci-resolve-mcp ../davinci-resolve-mcp
-  cd ../davinci-resolve-mcp && uv venv --python 3.12 && uv pip install -r requirements.txt
-  ```
+- **[Git](https://git-scm.com)** and **[uv](https://docs.astral.sh/uv/)**, which Linker-Edit uses to install [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) and Python for it.
 
 ## Run
 
 ```sh
-npm install
-npm run dev
+npx linker-edit@latest
 ```
 
-Open http://localhost:5317 and check that the Resolve status at the bottom of the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
+The first run installs davinci-resolve-mcp into `~/LinkerEdit/davinci-resolve-mcp`. Then Linker-Edit opens http://127.0.0.1:4317 in your browser. Check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
 
-`npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead.
+When a new version is out, the sidebar says so. Stop Linker-Edit (Ctrl+C) and run `npx linker-edit@latest` again. Your projects, history and settings stay in `~/LinkerEdit`.
 
 ## Configuration
 
-The defaults work for a standard install. To override them, copy `linker-edit.config.example.json` to `linker-edit.config.json`:
+The defaults work for a standard install. To override them, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
 
 | Key | Default |
 |---|---|
 | `projectsDir` | `~/LinkerEdit/projects`, where new projects get their folders |
 | `workspaceDir` | `~/LinkerEdit/workspace`, the working folder from before projects; it becomes your first project |
 | `previewDir` | `~/LinkerEdit/previews`, where preview renders go |
-| `resolveMcpDir` | `../davinci-resolve-mcp` |
+| `resolveMcpDir` | `~/LinkerEdit/davinci-resolve-mcp` |
 | `python` | the checkout's `.venv` Python |
 | `env` | Resolve scripting paths for your OS |
 | `port` | `4317` |
 | `autoCompactWindow` | unset: Claude Code decides. Tokens at which Claude compacts the chat by itself, from `100000` to `1000000` |
+
+## Development
+
+```sh
+npm install
+npm run setup   # installs davinci-resolve-mcp, once
+npm run dev
+```
+
+Open http://localhost:5317. `npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead. Releases are described in [RELEASING.md](RELEASING.md).
 
 ## How approvals work
 
