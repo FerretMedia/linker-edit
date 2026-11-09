@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import * as fs from "node:fs";
 import type { ResolveStatus } from "../shared/protocol.ts";
 import type { ResolveMcpConfig } from "./config.ts";
+import { isResolveMcpInstalled } from "./setup.ts";
 
 const PROBE = `
 import json, sys
@@ -64,10 +64,10 @@ export async function checkResolve(
   mcp: ResolveMcpConfig,
   isRunning: () => Promise<boolean> = isResolveRunning,
 ): Promise<ResolveStatus> {
-  if (!fs.existsSync(mcp.python) || !fs.existsSync(mcp.serverScript)) {
+  if (!isResolveMcpInstalled(mcp)) {
     return {
       state: "setup_needed",
-      hint: `davinci-resolve-mcp not found (expected ${mcp.serverScript} and its .venv). See the README.`,
+      hint: `davinci-resolve-mcp not found (expected ${mcp.serverScript} and its .venv). Run \`npx linker-edit@latest setup\`, then refresh.`,
     };
   }
   if (!(await isRunning())) return { state: "not_running" };

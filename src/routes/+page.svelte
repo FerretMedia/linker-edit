@@ -185,6 +185,8 @@
   <div class="flex h-full">
     <Sidebar
       resolve={app.resolve}
+      version={app.version}
+      update={app.update}
       projects={app.projects}
       threadId={app.threadId}
       onSelect={selectThread}
