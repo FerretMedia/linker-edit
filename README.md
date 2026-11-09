@@ -16,6 +16,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
+- **Long chats stay affordable.** A context meter, compaction, chats that survive restarts, and switching between Claude and Codex mid-chat.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
 
 ## Where it's going
@@ -58,6 +59,7 @@ The defaults work for a standard install. To override them, create `~/LinkerEdit
 | `python` | the checkout's `.venv` Python |
 | `env` | Resolve scripting paths for your OS |
 | `port` | `4317` |
+| `autoCompactWindow` | unset: Claude Code decides. Tokens at which Claude compacts the chat by itself, from `100000` to `1000000` |
 
 ## Development
 
@@ -93,6 +95,18 @@ Ask "what did you change?" or "undo the last change". The agent reads this histo
 
 You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.
 
+## Long chats
+
+Everything said and every Resolve result stays in the agent's context for the rest of a chat, and each turn rereads it. Linker-Edit keeps that in check:
+
+- **Context meter.** With Claude, the ring next to the send button shows how full the context is. Click it for the token count and **Compact now**, which replaces the chat so far with a summary. You can keep chatting afterwards.
+- **Compact on return.** Claude keeps a recent chat cached for about an hour on a subscription (5 minutes with an API key). If you come back to a chat over 200,000 tokens after that, a **Compact** chip shows next to the send button: sending then summarizes the chat first, so all of it isn't reread at full price. Click the chip to switch to **Full** and send with the whole chat.
+- **Long Resolve results are shortened.** With Claude, a Resolve result over about 5,000 tokens, such as every item on a long timeline, has its lists cut down before the agent reads it. The agent is told to ask for a narrower part if it needs more.
+- **Chats survive restarts.** The open chat is kept in `.linker-edit/` in the working folder, which Git ignores, and the agent continues the same conversation. If it can't (say Claude's session was deleted), it starts a new one with a summary of the chat.
+- **Switching agent keeps the chat.** The new agent gets a short summary of it with your next message: what was asked, what was said, and what changed in Resolve. It doesn't get the other agent's full context.
+
+Codex has no context meter or compaction here: its SDK doesn't report how full the context is or run `/compact`. Its results aren't shortened either.
+
 ## Preview
 
 **Preview** in the top right plays a timeline beside the chat, in two ways:
@@ -108,7 +122,7 @@ Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previo
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
-- `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It costs tokens; run it before releases and after MCP updates. `--dry-run` only checks that it can see the project.
+- `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after MCP updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing
 
