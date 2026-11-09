@@ -5,6 +5,7 @@ import * as path from "node:path";
 import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
 import type { ResolveMcpConfig } from "../config.ts";
 import { needsApproval } from "../policy.ts";
+import { PROJECT_FILE } from "../projects/store.ts";
 import { RESOLVE_MCP_NAME } from "../rules.ts";
 import { describeChanges, timelineStrips } from "./diff.ts";
 import { mediaType, playableTimeline } from "./playable.ts";
@@ -31,6 +32,8 @@ export interface AgentTurn {
   actions: string[];
   /** The agent's last reply. */
   summary: string;
+  /** The Linker-Edit thread the turn ran in. */
+  thread?: string;
 }
 
 export interface Saved {
@@ -49,7 +52,15 @@ export interface History {
   timeline(id: string | null, commit: string | null): Promise<PlayableTimeline | null>;
   /** A media file the browser can show or play; null for other formats and unknown ids. */
   mediaFile(id: string): { path: string; type: string } | null;
+  /** Commits the project's linker-edit.json when it changed, so the link travels with the history. */
+  commitProjectFile(message: string): Promise<void>;
 }
+
+/**
+ * Says why Resolve's open project isn't the one this history belongs to, or null when it is. A save
+ * refuses to write another project's timelines into this history.
+ */
+export type ProjectCheck = (open: { name: string; id: string | null }) => string | null;
 
 const SNAPSHOT_SCRIPT = path.join(import.meta.dirname, "snapshot.py");
 
@@ -133,6 +144,7 @@ export function commitMessage(changes: string[], turn?: AgentTurn): string {
     `Resolve actions:\n${turn.actions.length ? bullets(turn.actions) : "- none"}`,
     changeBlock,
     ...(summary ? [`Agent summary:\n${summary}`] : []),
+    ...(turn.thread ? [`Thread: ${turn.thread}`] : []),
   ].join("\n\n") + "\n";
 }
 
@@ -148,6 +160,7 @@ function section(body: string, title: string): string[] {
 function parseEntry([commit = "", date = "", author = "", email = "", body = ""]: string[]): HistoryEntry {
   const agent = (Object.keys(AGENT_NAMES) as Provider[]).find((provider) => email === `${provider}@linker-edit.local`) ?? null;
   const prompt = /^Prompt: ([\s\S]*?)\n\nResolve actions:/m.exec(body)?.[1] ?? null;
+  const thread = /\n\nThread: (\S+)\s*$/.exec(body)?.[1] ?? null;
   return {
     commit,
     date,
@@ -157,6 +170,7 @@ function parseEntry([commit = "", date = "", author = "", email = "", body = ""]
     prompt,
     actions: section(body, "Resolve actions"),
     changes: section(body, "Changes"),
+    thread,
     timelines: [],
   };
 }
@@ -242,7 +256,11 @@ function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: Store
   fs.writeFileSync(path.join(projectDir, "media.json"), jsonRows("media", mediaEntries(snapshot)));
 }
 
-export function createHistory(options: { dir: string; readSnapshot: () => Promise<RawSnapshot> }): History {
+export function createHistory(options: {
+  dir: string;
+  readSnapshot: () => Promise<RawSnapshot>;
+  checkProject?: ProjectCheck;
+}): History {
   const { dir } = options;
   let identity: Promise<string[]> | null = null;
   // Media seen in live snapshots, so the quick preview finds media no save has recorded yet.
@@ -265,6 +283,8 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
   async function save(turn?: AgentTurn): Promise<Saved | null> {
     const fallbackIdentity = await prepare();
     const snapshot = await options.readSnapshot();
+    const refusal = options.checkProject?.({ name: snapshot.project, id: snapshot.project_id ?? null });
+    if (refusal) throw new Error(refusal);
     const projectDir = path.join(dir, HISTORY_ROOT, timelineFolders([snapshot.project])[0]!);
     const before = readStored(projectDir);
     const after = snapshot.timelines.map(storedTimeline);
@@ -377,7 +397,20 @@ export function createHistory(options: { dir: string; readSnapshot: () => Promis
       .join("\n");
   }
 
+  async function commitProjectFile(message: string) {
+    const fallbackIdentity = await prepare();
+    if (!fs.existsSync(path.join(dir, PROJECT_FILE))) return;
+    await gitOk(dir, ["add", "--", PROJECT_FILE]);
+    if ((await git(dir, ["diff", "--cached", "--quiet", "--", PROJECT_FILE])).code === 0) return;
+    await gitOk(dir, [...fallbackIdentity, "commit", "-q", "--no-verify", "-F", "-", "--", PROJECT_FILE], `${message}\n`);
+  }
+
   return {
+    commitProjectFile(message) {
+      const result = queue.then(() => commitProjectFile(message));
+      queue = result.catch(() => {});
+      return result;
+    },
     record(turn) {
       const result = queue.then(() => save(turn));
       queue = result.catch(() => {});

@@ -12,10 +12,23 @@ except Exception as e:
 r = d.scriptapp("Resolve")
 if not r:
     print(json.dumps({"state": "unreachable"})); sys.exit()
-out = {"state": "connected", "product": r.GetProductName(), "version": r.GetVersionString(), "project": None, "timeline": None, "page": r.GetCurrentPage()}
-p = r.GetProjectManager().GetCurrentProject()
+out = {"state": "connected", "product": r.GetProductName(), "version": r.GetVersionString(), "project": None, "projectId": None, "database": None, "timeline": None, "page": r.GetCurrentPage()}
+pm = r.GetProjectManager()
+try:
+    db = pm.GetCurrentDatabase() or {}
+    if db.get("DbName"):
+        out["database"] = {"type": db.get("DbType") or "", "name": db["DbName"]}
+        if db.get("IpAddress"):
+            out["database"]["host"] = db["IpAddress"]
+except Exception:
+    pass
+p = pm.GetCurrentProject()
 if p:
     out["project"] = p.GetName()
+    try:
+        out["projectId"] = p.GetUniqueId() or None
+    except Exception:
+        pass
     t = p.GetCurrentTimeline()
     out["timeline"] = t.GetName() if t else None
 print(json.dumps(out))
@@ -70,7 +83,7 @@ export function parseProbeOutput(stdout: string): ResolveStatus {
       const { page, ...status } = result;
       // No page means Resolve is on the Project Manager or behind a modal dialog.
       if (page === null) return { state: "blocked", hint: BLOCKED_HINT };
-      return status as unknown as ResolveStatus;
+      return { projectId: null, database: null, ...status } as unknown as ResolveStatus;
     }
     if (result.state === "no_module") {
       return { state: "setup_needed", hint: `Resolve scripting module failed to load: ${result.detail}` };

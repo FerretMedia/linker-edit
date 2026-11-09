@@ -1,4 +1,4 @@
-import type { ClipChange, Provider } from "#shared/protocol.ts";
+import type { ClipChange, CloudSyncMode, Provider, ResolveLink } from "#shared/protocol.ts";
 
 const RESOLVE_PREFIX = "mcp__resolve__";
 
@@ -57,3 +57,27 @@ export const CHANGE_STYLE: Record<ClipChange, { ring: string; dot: string }> = {
   changed: { ring: "ring-violet-500", dot: "bg-violet-500" },
   removed: { ring: "ring-destructive", dot: "bg-destructive" },
 };
+
+export const LIBRARY_LABEL: Record<ResolveLink["kind"], string> = {
+  local: "Local database",
+  network: "Network database",
+  cloud: "Blackmagic Cloud",
+};
+
+/** How much of a cloud project's media Resolve downloads to this computer. */
+export const SYNC_MODES: { value: CloudSyncMode; label: string }[] = [
+  { value: "proxy_only", label: "Proxies only" },
+  { value: "proxy_and_orig", label: "Proxies and original media" },
+  { value: "none", label: "No media" },
+];
+
+/** "5m", "3h", "2d" ago, for thread rows; recomputed when the list changes, not on a timer. */
+export function ago(date: Date, now: Date): string {
+  const minutes = Math.round((now.getTime() - date.getTime()) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  return days < 7 ? `${days}d` : `${Math.round(days / 7)}w`;
+}

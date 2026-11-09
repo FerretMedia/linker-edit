@@ -7,10 +7,10 @@ import * as path from "node:path";
 const port = 4399;
 const dir = path.join(os.tmpdir(), "linker-edit-e2e");
 const configFile = path.join(dir, "linker-edit.config.json");
-// Fresh each run: the server keeps the chat in the workspace across restarts.
+// Fresh each run: the server keeps its projects and threads across restarts.
 fs.rmSync(dir, { recursive: true, force: true });
 fs.mkdirSync(dir, { recursive: true });
-fs.writeFileSync(configFile, JSON.stringify({ port, workspaceDir: path.join(dir, "workspace") }));
+fs.writeFileSync(configFile, JSON.stringify({ port, workspaceDir: path.join(dir, "workspace"), projectsDir: path.join(dir, "projects") }));
 
 export default defineConfig({
   testDir: "e2e",

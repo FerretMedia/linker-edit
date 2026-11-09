@@ -11,6 +11,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 ## What works today
 
 - **Chat with Claude or Codex** about your open Resolve project. They read it and edit it directly through [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp).
+- **Projects and threads.** Each Resolve project gets its own threads and edit history in the sidebar, whether it lives on this computer, on a network database or in Blackmagic Cloud.
 - **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
@@ -49,7 +50,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5317 and check that the status pill in the header is green, then ask away. A good first prompt is "Describe the open project and its timelines".
+Open http://localhost:5317 and check that the Resolve status at the bottom of the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
 
 `npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead.
 
@@ -59,7 +60,8 @@ The defaults work for a standard install. To override them, copy `linker-edit.co
 
 | Key | Default |
 |---|---|
-| `workspaceDir` | `~/LinkerEdit/workspace`, the agent's working folder for notes and exports |
+| `projectsDir` | `~/LinkerEdit/projects`, where new projects get their folders |
+| `workspaceDir` | `~/LinkerEdit/workspace`, the working folder from before projects; it becomes your first project |
 | `previewDir` | `~/LinkerEdit/previews`, where preview renders go |
 | `resolveMcpDir` | `../davinci-resolve-mcp` |
 | `python` | the checkout's `.venv` Python |
@@ -74,18 +76,40 @@ The defaults work for a standard install. To override them, copy `linker-edit.co
   - Reading the edit history (`git log`, `git show`, `git diff`, `git status`) runs immediately.
   - Any other Resolve action, and any file edit, shows Allow/Deny.
 - **Claude, with it off:** everything runs.
-- **Codex:** runs without per-call approvals, because its SDK has no approval hook. Its file writes are sandboxed to the workspace folder.
+- **Codex:** runs without per-call approvals, because its SDK has no approval hook. Its file writes are sandboxed to the project's folder.
+- **Never:** agents can't open, close, create or switch Resolve projects or databases, in any mode. You switch projects in Linker-Edit. Codex doesn't get Resolve's cloud and database tools at all; it can still reach `project_manager`'s load, so it is told not to, and a turn that switched projects anyway isn't saved to the wrong history.
+
+## Projects and threads
+
+A **project** is one Resolve project with its own folder: its edit history, the agent's notes and exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
+
+Resolve has one project open at a time, so Linker-Edit follows it:
+
+- A thread only runs when its project is the one open in Resolve. When another project is open, the composer says so, and **Open in Resolve** saves the project Resolve has open and opens this one. You can also switch in Resolve yourself.
+- One thread works in Resolve at a time. The others wait until it's done.
+- When Resolve has a project open that isn't in Linker-Edit yet, the sidebar offers to add it.
+
+**Adding a project** (the **+** next to Projects):
+
+- **Open in Resolve:** the project Resolve has open now.
+- **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
+- **Cloud:** a Blackmagic Cloud project, by its name and a folder for its media on this computer. Resolve can't list cloud projects to other apps, so if it's open in Resolve, use **Open in Resolve** instead.
+- **Folder:** a project folder from another computer, such as a teammate's edit history you cloned.
+
+A project with no Resolve project yet links itself to the one open in Resolve with its first message. To link it to another one later, open that one in Resolve and use **Project settings**. Projects stay linked when you rename them in Resolve.
+
+Each project folder has a `linker-edit.json` that says which Resolve project it belongs to. It's committed with the edit history, so a teammate who clones it gets the link. What differs per computer, such as the database name and the cloud media folder, stays in `.linker-edit/local.json`, which Git ignores. Removing a project from Linker-Edit keeps its folder.
 
 ## Edit history
 
-The workspace folder is a Git repository. Linker-Edit saves the open Resolve project in it:
+Each project folder is a Git repository. Linker-Edit saves the open Resolve project in it:
 
 - **After every turn in which the agent changed Resolve.** The commit is authored by Claude or Codex and holds your prompt, the Resolve actions and a summary such as `"AI - Rough cut": 3 clips removed, length 4:02 → 3:41`.
-- **Before every turn, if you changed something in Resolve yourself.** The agent can tell your edits from its own.
+- **Before every turn, if you changed something in Resolve yourself.** The agent can tell your edits from its own. In a Blackmagic Cloud project, these saves are labelled as changes made outside Linker-Edit, since a collaborator may have made them.
 
 Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.json`, `markers.json` and `metadata.json`, one clip per line, so `git log -p` reads like an edit decision list. Media is never stored.
 
-**History** in the top right lists every save, newest first, with what changed per timeline. **Restore** on a save writes the undo request into the composer for you to send.
+**History** in the top right lists the project's saves, newest first, with what changed per timeline; saves made in the open thread are marked. **Restore** on a save writes the undo request into the composer for you to send.
 
 Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
 
@@ -98,7 +122,7 @@ Everything said and every Resolve result stays in the agent's context for the re
 - **Context meter.** With Claude, the ring next to the send button shows how full the context is. Click it for the token count and **Compact now**, which replaces the chat so far with a summary. You can keep chatting afterwards.
 - **Compact on return.** Claude keeps a recent chat cached for about an hour on a subscription (5 minutes with an API key). If you come back to a chat over 200,000 tokens after that, a **Compact** chip shows next to the send button: sending then summarizes the chat first, so all of it isn't reread at full price. Click the chip to switch to **Full** and send with the whole chat.
 - **Long Resolve results are shortened.** With Claude, a Resolve result over about 5,000 tokens, such as every item on a long timeline, has its lists cut down before the agent reads it. The agent is told to ask for a narrower part if it needs more.
-- **Chats survive restarts.** The open chat is kept in `.linker-edit/` in the working folder, which Git ignores, and the agent continues the same conversation. If it can't (say Claude's session was deleted), it starts a new one with a summary of the chat.
+- **Threads survive restarts.** Each thread is kept in `.linker-edit/threads/` in its project folder, which Git ignores, and the agent continues the same conversation. If it can't (say Claude's session was deleted), it starts a new one with a summary of the chat.
 - **Switching agent keeps the chat.** The new agent gets a short summary of it with your next message: what was asked, what was said, and what changed in Resolve. It doesn't get the other agent's full context.
 
 Codex has no context meter or compaction here: its SDK doesn't report how full the context is or run `/compact`. Its results aren't shortened either.

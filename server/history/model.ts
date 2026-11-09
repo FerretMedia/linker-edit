@@ -4,6 +4,8 @@
 /** What snapshot.py prints. */
 export interface RawSnapshot {
   project: string;
+  /** Resolve's unique id for the project. */
+  project_id?: string | null;
   current_timeline: string | null;
   timelines: RawTimeline[];
 }
