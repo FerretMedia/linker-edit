@@ -4,12 +4,16 @@
 
   let {
     resolve,
+    version,
+    update,
     chatTitle,
     busy,
     onNewChat,
     onRefreshResolve,
   }: {
     resolve: ResolveStatus;
+    version: string;
+    update: string | null;
     chatTitle: string;
     busy: boolean;
     onNewChat: () => void;
@@ -46,6 +50,7 @@
       <Clapperboard class="size-3.5" strokeWidth={2.25} />
     </span>
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
+    <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : version}</span>
   </div>
 
   <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2">
@@ -72,6 +77,15 @@
       {/if}
     </div>
   </nav>
+
+  {#if update}
+    <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
+      <span class="block text-xs font-medium">Linker-Edit {update} is out</span>
+      <span class="mt-0.5 block text-2xs text-muted-foreground">
+        Stop this one, then run <code class="font-mono">npx linker-edit@latest</code>.
+      </span>
+    </div>
+  {/if}
 
   <button
     type="button"
