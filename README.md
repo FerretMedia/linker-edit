@@ -14,6 +14,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Projects and threads.** Each Resolve project gets its own threads and edit history in the sidebar, whether it lives on this computer, on a network database or in Blackmagic Cloud.
 - **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
+- **Transcripts.** The agent hears what's said in your footage, in most languages, on your own GPU, with a time for every word.
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
@@ -62,6 +63,9 @@ The defaults work for a standard install. To override them, create `~/LinkerEdit
 | `env` | Resolve scripting paths for your OS |
 | `port` | `4317` |
 | `autoCompactWindow` | unset: Claude Code decides. Tokens at which Claude compacts the chat by itself, from `100000` to `1000000` |
+| `transcriptsDir` | `~/LinkerEdit/transcripts` |
+| `toolsDir` | `~/LinkerEdit/tools`, the speech engine and its models |
+| `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows and looks on PATH elsewhere |
 
 ## Development
 
@@ -140,6 +144,16 @@ Codex has no context meter or compaction here: its SDK doesn't report how full t
 
 Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previous or next cut, F full screen, M mute.
 
+## Transcripts
+
+Ask for anything that depends on what's said, such as "transcribe the interview clips" or "cut the bits where I mention pricing". The agent transcribes the clips it needs with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`large-v3-turbo`) on this machine. Nothing is uploaded, and it costs nothing.
+
+- **First use downloads the speech engine** into `~/LinkerEdit/tools`: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. The sidebar shows the progress. On macOS and Linux, install whisper.cpp first (`brew install whisper-cpp` on a Mac) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
+- **It's fast.** On an RTX 2060, a 3-minute clip takes about 9 seconds, model loading included.
+- **Each transcript is kept** in `~/LinkerEdit/transcripts`, as text and as JSON with per-word times, until the clip's file changes. Asking again is instant.
+- **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.
+- **Transcripts in Resolve itself:** ask for it, and the agent uses Resolve's own transcription instead. It stores the transcript on the clip, where you can edit by text. It never adds subtitles to a timeline unless you ask.
+
 ## Testing
 
 - `npm test`: unit tests. Free and offline. They include a list of every davinci-resolve-mcp action that runs without approval (`server/__snapshots__/resolve-read-actions.txt`). After updating the MCP, review that diff before accepting it with `npx vitest -u`.
@@ -160,4 +174,4 @@ For anything larger, please open an issue before writing the code, so we can agr
 
 ## Credits
 
-MIT licensed. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
+MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio decoding by [FFmpeg](https://ffmpeg.org) through `ffmpeg-static` (GPL), both run as separate programs. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.

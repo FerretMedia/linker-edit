@@ -107,6 +107,8 @@ jobs:
           npm init -y > /dev/null
           npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/linker-edit-*.tgz
           npx linker-edit --version
+          # Agents start the "linker" MCP server from the package's own bundle.
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node node_modules/linker-edit/dist/linker-mcp.js | grep -q '"transcribe"'
           LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" npx linker-edit > "$RUNNER_TEMP/server.log" 2>&1 &
           server=$!
           curl --silent --fail --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4390/ | grep -q "<html" || { cat "$RUNNER_TEMP/server.log"; exit 1; }

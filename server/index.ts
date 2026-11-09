@@ -12,6 +12,8 @@ import { replayQuery } from "./providers/replay.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
+import { prepareTools } from "./transcribe/tools.ts";
+import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
 
 const config = loadConfigOrExit();
@@ -37,10 +39,14 @@ const app = createApp({
   preview: createPreviewRenderer({ dir: config.previewDir, mcp: config.resolveMcp }),
   resolveProjects: createResolveProjects(config.resolveMcp),
   prepareFolder: prepareWorkspace,
+  transcriber: createTranscriber({
+    dir: config.transcriptsDir,
+    prepare: (onProgress) => prepareTools(config.toolsDir, config.whisperCli, onProgress),
+  }),
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
-export const server = createServer(app, path.join(APP_ROOT, "build"));
+export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken);
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {

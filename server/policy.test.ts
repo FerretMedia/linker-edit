@@ -28,6 +28,7 @@ describe("needsApproval", () => {
     ["Agent", {}, true],
     // Other MCP servers are never trusted as reads.
     ["mcp__gmail__search_threads", { action: "list" }, true],
+    ["mcp__linker__transcribe", { files: ["D:\\Footage\\interview.mov"] }, false],
     // Resolve: the action decides.
     ["mcp__resolve__knowledge", { action: "anything" }, false],
     ["mcp__resolve__timeline", { action: "list" }, false],

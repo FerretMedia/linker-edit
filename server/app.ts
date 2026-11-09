@@ -22,6 +22,7 @@ import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { ResolveProjects } from "./resolveProjects.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
+import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
 
 export interface AppOptions {
   version: string;
@@ -37,6 +38,8 @@ export interface AppOptions {
   resolveProjects?: ResolveProjects;
   /** Gets a project folder ready for agents, such as its AGENTS.md. */
   prepareFolder?: (dir: string) => void;
+  /** Speech to text for the agents' transcribe tool. */
+  transcriber?: Transcriber;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -256,6 +259,7 @@ export function createApp(options: AppOptions) {
       context: entry?.thread.context ?? null,
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
       opening,
+      transcription: options.transcriber?.status() ?? { state: "idle" },
     };
   }
 
@@ -266,6 +270,7 @@ export function createApp(options: AppOptions) {
   function sendMeta() {
     for (const [client, view] of clients) send(client, { type: "meta", meta: metaFor(view.threadId) });
   }
+  options.transcriber?.onStatus(sendMeta);
 
   function sendSnapshot(client: Client) {
     const view = clients.get(client);
@@ -629,5 +634,10 @@ export function createApp(options: AppOptions) {
       return history.timeline(id, commit);
     },
     busy: resolveBusy,
+    /** For the agents' MCP server: the transcripts as text, or what went wrong per file. */
+    transcribe: async (files: string[], language?: string) => {
+      if (!options.transcriber) throw new Error("Transcription is off.");
+      return describeResults(await options.transcriber.transcribe(files, language));
+    },
   };
 }
