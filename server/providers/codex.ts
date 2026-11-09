@@ -85,12 +85,15 @@ export function codexThreadOptions(config: AppConfig): ThreadOptions {
   };
 }
 
-export function createCodexSession(config: AppConfig): ProviderSession {
+// No context meter or compaction: the SDK reports tokens summed over a turn, not the context size,
+// and runs no slash commands.
+export function createCodexSession(config: AppConfig, resumeId?: string): ProviderSession {
   const codex = new Codex(codexOptions(config));
-  let thread: Thread | undefined;
+  let thread: Thread | undefined = resumeId ? codex.resumeThread(resumeId, codexThreadOptions(config)) : undefined;
   let turn = 0;
 
   return {
+    resumeId: () => thread?.id ?? null,
     async send(text, sink, signal) {
       thread ??= codex.startThread(codexThreadOptions(config));
       turn += 1;

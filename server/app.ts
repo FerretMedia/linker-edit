@@ -6,11 +6,14 @@ import type {
   ApprovalRequest,
   ChatItem,
   ClientMessage,
+  ContextUsage,
   PreviewState,
   Provider,
   ResolveStatus,
   ServerMessage,
 } from "../shared/protocol.ts";
+import type { ChatStore } from "./chatStore.ts";
+import { handoffSummary, withHandoff } from "./handoff.ts";
 import { resolveWriteAction, withHistoryContext, type AgentTurn, type History } from "./history/history.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ItemPatch, ProviderSession, TurnSink } from "./providers/types.ts";
@@ -18,13 +21,18 @@ import type { ItemPatch, ProviderSession, TurnSink } from "./providers/types.ts"
 export interface AppOptions {
   version: string;
   workspaceDir: string;
-  createSession: (provider: Provider, approvalMode: () => ApprovalMode) => ProviderSession;
+  /** resumeId continues a conversation from before a restart. */
+  createSession: (provider: Provider, approvalMode: () => ApprovalMode, resumeId?: string) => ProviderSession;
   checkResolve: () => Promise<ResolveStatus>;
   /** Saves Resolve's state to the workspace's Git history around turns that change it. */
   history?: History;
   /** Renders timelines through Resolve for the preview panel. */
   preview?: PreviewRenderer;
+  /** Keeps the open chat across restarts. */
+  store?: ChatStore;
 }
+
+const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 
 export interface Client {
   send(data: string): void;
@@ -34,10 +42,12 @@ export type App = ReturnType<typeof createApp>;
 
 /** All app state lives here; clients get a snapshot on connect and patches after. */
 export function createApp(options: AppOptions) {
-  let provider: Provider = "claude";
+  const saved = options.store?.load() ?? null;
+  let provider: Provider = saved?.provider ?? "claude";
   let approvalMode: ApprovalMode = "ask";
   let resolve: ResolveStatus = { state: "checking" };
-  let items: ChatItem[] = [];
+  let items: ChatItem[] = saved?.items ?? [];
+  let context: ContextUsage | null = saved?.context ?? null;
   let turn: AbortController | null = null;
   let preview: PreviewState = { state: "idle" };
   let previewJob: { stop(): void } | null = null;
@@ -45,11 +55,17 @@ export function createApp(options: AppOptions) {
   // Bumped on every reset, so a turn that is still winding down can't write into the next chat.
   let chat = 0;
   const approvals = new Map<string, { request: ApprovalRequest; settle: (allow: boolean) => void }>();
-  let session = newSession();
+  let session = newSession(saved?.resumeId ?? undefined);
+  // Until a turn of it succeeds: the provider may have dropped the conversation since.
+  let resumed = saved?.resumeId != null;
   const clients = new Set<Client>();
 
-  function newSession(): ProviderSession {
-    return options.createSession(provider, () => approvalMode);
+  function newSession(resumeId?: string): ProviderSession {
+    return options.createSession(provider, () => approvalMode, resumeId);
+  }
+
+  function save() {
+    options.store?.save({ provider, resumeId: session.resumeId(), items, context });
   }
 
   function broadcast(message: ServerMessage) {
@@ -68,6 +84,7 @@ export function createApp(options: AppOptions) {
       update,
       workspaceDir: options.workspaceDir,
       preview,
+      context,
     };
   }
 
@@ -87,17 +104,28 @@ export function createApp(options: AppOptions) {
     approvals.clear();
   }
 
-  async function runTurn(text: string) {
+  /** A new session knows nothing yet: it gets the edit history, and a summary of the chat when one is going. */
+  async function primeNewSession(text: string, earlier: ChatItem[]): Promise<string> {
+    const prompt = withHandoff(handoffSummary(earlier), text);
+    if (!options.history) return prompt;
+    return withHistoryContext(await options.history.recentContext().catch(() => ""), prompt);
+  }
+
+  /** A null text only compacts the chat. */
+  async function runTurn(text: string | null, compactFirst = false) {
     // Resolve does one thing at a time: a render switches timelines and pages while it runs.
     if (turn || previewJob) return;
+    if (text === null && !(session.compact && session.resumeId())) return;
     const controller = new AbortController();
     turn = controller;
     const turnChat = chat;
     const turnProvider = provider;
+    const turnSession = session;
     const live = () => turnChat === chat;
-    const firstInChat = !items.some((item) => item.kind === "user");
-    upsert({ id: randomUUID(), kind: "user", text });
+    const earlier = [...items];
+    if (text !== null) upsert({ id: randomUUID(), kind: "user", text });
     sendMeta();
+    let produced = false;
 
     // Kept outside the chat items, so a turn's Resolve writes are still saved if its chat is reset.
     const tools = new Map<string, { name?: string; input?: unknown }>();
@@ -105,6 +133,7 @@ export function createApp(options: AppOptions) {
 
     const sink: TurnSink = {
       upsert: (patch) => {
+        produced = true;
         if (patch.kind === "tool" || tools.has(patch.id)) {
           const tool = tools.get(patch.id) ?? {};
           tools.set(patch.id, { name: patch.name ?? tool.name, input: patch.input ?? tool.input });
@@ -123,6 +152,12 @@ export function createApp(options: AppOptions) {
           sendMeta();
         });
       },
+      context: (usage) => {
+        if (live() && session === turnSession) {
+          context = usage;
+          sendMeta();
+        }
+      },
     };
 
     async function saveHistory(agentTurn?: AgentTurn) {
@@ -139,17 +174,33 @@ export function createApp(options: AppOptions) {
       }
     }
 
+    const { signal } = controller;
+    const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
     try {
-      let prompt = text;
-      if (options.history) {
-        if (resolve.state === "connected") await saveHistory();
-        if (firstInChat) prompt = withHistoryContext(await options.history.recentContext().catch(() => ""), text);
+      if (text === null) {
+        await turnSession.compact!(sink, signal);
+      } else {
+        if (options.history && resolve.state === "connected") await saveHistory();
+        if (compactFirst && turnSession.compact && turnSession.resumeId() && !signal.aborted) {
+          // A failed compaction shouldn't cost the user their message.
+          await turnSession.compact(sink, signal).catch((error: unknown) => {
+            if (!signal.aborted) sink.notice(`Couldn't compact the chat: ${message(error)}`, "error");
+          });
+        }
+        const prompt = turnSession.resumeId() ? text : await primeNewSession(text, earlier);
+        try {
+          if (!signal.aborted) await turnSession.send(prompt, sink, signal);
+        } catch (error) {
+          if (!resumed || produced || signal.aborted || !live() || session !== turnSession) throw error;
+          session = newSession();
+          resumed = false;
+          sink.notice(`Couldn't continue the earlier conversation (${message(error)}), so a new one started with a summary of this chat.`);
+          await session.send(await primeNewSession(text, earlier), sink, signal);
+        }
+        if (session === turnSession) resumed = false;
       }
-      if (!controller.signal.aborted) await session.send(prompt, sink, controller.signal);
     } catch (error) {
-      if (!controller.signal.aborted) {
-        sink.notice(error instanceof Error ? error.message : String(error), "error");
-      }
+      if (!signal.aborted) sink.notice(message(error), "error");
     } finally {
       if (controller.signal.aborted) sink.notice("Stopped.");
       for (const item of items) {
@@ -157,11 +208,12 @@ export function createApp(options: AppOptions) {
       }
       settleAllApprovals(false);
       const actions = [...tools.values()].flatMap(({ name, input }) => resolveWriteAction(name, input) ?? []);
-      if (options.history && actions.length) {
+      if (options.history && text !== null && actions.length) {
         await saveHistory({ provider: turnProvider, prompt: text, actions, summary: reply });
       }
       turn = null;
       sendMeta();
+      save();
       void refreshResolve();
     }
   }
@@ -175,8 +227,30 @@ export function createApp(options: AppOptions) {
     stopTurn();
     chat += 1;
     items = [];
+    context = null;
     session = newSession();
+    resumed = false;
     broadcast(snapshot());
+    save();
+  }
+
+  /** The chat goes on; the new agent gets a summary of it with the next message. */
+  function switchProvider(next: Provider) {
+    stopTurn();
+    provider = next;
+    session = newSession();
+    resumed = false;
+    context = null;
+    if (items.some((item) => item.kind === "user")) {
+      upsert({
+        id: randomUUID(),
+        kind: "notice",
+        text: `Switched to ${PROVIDER_NAME[next]}. It gets a summary of this chat with your next message.`,
+        tone: "info",
+      });
+    }
+    sendMeta();
+    save();
   }
 
   // History is shared by everyone looking at this workspace, so every client gets each update.
@@ -223,7 +297,10 @@ export function createApp(options: AppOptions) {
   function handleMessage(message: ClientMessage) {
     switch (message.type) {
       case "send":
-        if (message.text.trim()) void runTurn(message.text.trim());
+        if (message.text.trim()) void runTurn(message.text.trim(), message.compactFirst === true);
+        break;
+      case "compact":
+        void runTurn(null);
         break;
       case "stop":
         stopTurn();
@@ -233,10 +310,7 @@ export function createApp(options: AppOptions) {
         resetChat();
         break;
       case "set_provider":
-        if (message.provider !== provider) {
-          provider = message.provider;
-          resetChat();
-        }
+        if (message.provider !== provider) switchProvider(message.provider);
         break;
       case "set_approval_mode":
         approvalMode = message.mode;
