@@ -27,6 +27,7 @@ describe("parseProbeOutput", () => {
     ["a dialog or the Project Manager in front", JSON.stringify({ ...connected, page: null }), { state: "blocked" }],
     ["a missing scripting module", '{"state": "no_module", "detail": "DLL load failed"}', { state: "setup_needed" }],
     ["a refused connection", '{"state": "unreachable"}', { state: "unreachable" }],
+    ["a scripting port that never answers", '{"state": "stuck"}', { state: "blocked", hint: expect.stringContaining("restart Resolve") }],
     ["a crash or timeout", "", { state: "unreachable" }],
     ["a traceback", "Traceback (most recent call last):\n  ...", { state: "unreachable" }],
   ])("reads %s", (_name, stdout, expected) => {
