@@ -29,3 +29,7 @@ The first publish needs a token, because npm only lets you set up trusted publis
 ## Updating davinci-resolve-mcp
 
 The version Linker-Edit installs is `RESOLVE_MCP_VERSION` in `server/setup.ts`. To move it, update a local checkout to the new tag, run `npm test` and review the changed list of actions that run without approval, then run `npm run test:live`. Setup only installs davinci-resolve-mcp when it's missing, so existing installs keep their copy until `~/LinkerEdit/davinci-resolve-mcp` is deleted.
+
+## Merging
+
+The CI job `Check` passes only when every other CI job passed: typecheck, unit tests on Linux and Windows, e2e, and installing and starting the packed npm package. It's the one check to require for `main`, so adding or splitting jobs never needs a change to the merge rules.

@@ -82,6 +82,8 @@ function git(cwd: string, args: string[], input?: string): Promise<{ code: numbe
     child.stderr.on("data", (chunk) => (stderr += chunk));
     child.on("error", reject);
     child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    // git can exit before it reads stdin. Its exit code reports any failure, so a broken pipe is no error.
+    child.stdin.on("error", () => {});
     child.stdin.end(input ?? "");
   });
 }
