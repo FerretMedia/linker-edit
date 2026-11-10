@@ -11,6 +11,13 @@ export default defineConfig([
     external,
     output: { file: "dist/linker-edit.js", format: "esm", codeSplitting: false },
   },
+  // The desktop window, which Electron runs.
+  {
+    input: "desktop/main.ts",
+    platform: "node",
+    external,
+    output: { file: "dist/desktop.js", format: "esm", codeSplitting: false },
+  },
   // The agents' "linker" MCP server runs as its own process.
   {
     input: "server/transcribe/mcpServer.ts",

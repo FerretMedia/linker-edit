@@ -18,7 +18,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
-- **Remote access over Tailscale.** Edit from your laptop or another PC while Resolve and the agents run on your edit machine.
+- **Use it from your other computers.** Over your own Tailscale, the app on a laptop or another PC drives the agents and Resolve on your edit machine.
 - **Long chats stay affordable.** A context meter, compaction, chats that survive restarts, and switching between Claude and Codex mid-chat.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
 
@@ -46,7 +46,7 @@ Priorities come from real use. If something here matters to you, or is missing, 
 npx linker-edit@latest
 ```
 
-The first run installs davinci-resolve-mcp into `~/LinkerEdit/davinci-resolve-mcp`. Then Linker-Edit opens http://127.0.0.1:4317 in your browser. Check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
+The first run installs davinci-resolve-mcp into `~/LinkerEdit/davinci-resolve-mcp`. Then Linker-Edit opens in its own window. Closing the window stops it; `npx linker-edit@latest --browser` opens it in your browser at http://127.0.0.1:4317 instead. Check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
 
 When a new version is out, the sidebar says so. Stop Linker-Edit (Ctrl+C) and run `npx linker-edit@latest` again. Your projects, history and settings stay in `~/LinkerEdit`.
 
@@ -77,7 +77,7 @@ npm run setup   # installs davinci-resolve-mcp, once
 npm run dev
 ```
 
-Open http://localhost:5317. `npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead. Releases are described in [RELEASING.md](RELEASING.md).
+Open http://localhost:5317, or run `npm run dev:desktop` to get the app window as well. `npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead. Releases are described in [RELEASING.md](RELEASING.md).
 
 ## How approvals work
 
@@ -158,11 +158,13 @@ Ask for anything that depends on what's said, such as "transcribe the interview 
 
 ## Remote access
 
-Use Linker-Edit from another computer, such as a laptop on the couch or a PC at the office, while Resolve, your footage and the agents stay on your edit machine. It goes over [Tailscale](https://tailscale.com), so nothing is opened to the internet.
+Chat from another computer, such as a laptop on the couch or a PC at the office, while Resolve, your footage and the agents stay on your edit machine. It goes over your own [Tailscale](https://tailscale.com) network, so nothing is opened to the internet.
 
 1. Install Tailscale on both computers and log in to the same account.
-2. On the edit machine, click the globe next to the version in the sidebar, then **Turn on**.
-3. Open the address it shows, like `https://studio.tail1234.ts.net:8443`, in a browser on the other computer.
+2. On the edit machine, open the computer menu at the top of the sidebar, choose **Remote access…**, then **Turn on**.
+3. On the other computer, run Linker-Edit too, open the same computer menu and pick the edit machine. Everything you send now goes to the edit machine; pick **this computer** to go back.
+
+Only your own computers show up in that menu, and only once remote access is on and Linker-Edit is running on them. The address in the dialog, like `https://studio.tail1234.ts.net:8443`, also works in a browser on your devices, such as a tablet.
 
 - **Only your devices get in.** Linker-Edit lets in devices logged in to the Tailscale account that owns the edit machine. Other people on a shared tailnet and tagged devices are turned away.
 - **The first time, Tailscale may ask you to allow it.** If Tailscale Serve or HTTPS certificates are off for your tailnet, the dialog shows Tailscale's link to turn them on. Then click **Turn on** again.

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as os from "node:os";
 import * as path from "node:path";
 import type {
   AppMeta,
@@ -264,6 +265,7 @@ export function createApp(options: AppOptions) {
       opening,
       transcription: options.transcriber?.status() ?? { state: "idle" },
       remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
+      computer: os.hostname(),
     };
   }
 
@@ -618,6 +620,7 @@ export function createApp(options: AppOptions) {
   }
 
   return {
+    version: options.version,
     connect(client: Client): () => void {
       clients.set(client, { threadId: defaultThread() });
       sendSnapshot(client);

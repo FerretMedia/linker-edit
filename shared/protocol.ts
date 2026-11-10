@@ -246,6 +246,21 @@ export type RemoteAccess =
   /** Only devices logged in to Tailscale as owner get in. */
   | { state: "on"; url: string; owner: string };
 
+/** Another of the user's computers that runs Linker-Edit with remote access on. */
+export interface Computer {
+  name: string;
+  url: string;
+  version: string;
+}
+
+/** GET /api/computers: this computer's name, and the user's other computers found over Tailscale. */
+export interface Computers {
+  name: string;
+  others: Computer[];
+  /** Added by the desktop app: this computer's own Linker-Edit address. */
+  home?: string;
+}
+
 export interface AppMeta {
   projects: ProjectSummary[];
   /** The thread this client is looking at; null when there are no projects. */
@@ -270,6 +285,8 @@ export interface AppMeta {
   opening: string | null;
   transcription: TranscriptionStatus;
   remote: RemoteAccess;
+  /** The name of the computer this Linker-Edit runs on. */
+  computer: string;
 }
 
 export interface AppState extends AppMeta {

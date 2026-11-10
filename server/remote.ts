@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import type { IncomingHttpHeaders } from "node:http";
 import * as path from "node:path";
-import type { RemoteAccess } from "../shared/protocol.ts";
+import type { Computer, RemoteAccess } from "../shared/protocol.ts";
 
 export interface TailscaleResult {
   code: number;
@@ -83,8 +83,37 @@ type Tailnet = { ok: true; host: string; owner: string; httpsCerts: boolean } | 
 interface StatusJson {
   BackendState?: string;
   Self?: { DNSName?: string; UserID?: number; CapMap?: Record<string, unknown> | null };
+  Peer?: Record<string, { HostName?: string; DNSName?: string; UserID?: number; Online?: boolean }>;
   User?: Record<string, { LoginName?: string }>;
 }
+
+/** The user's own devices that are online now, by MagicDNS name. Other people's shared devices are left out. */
+export function ownPeers(statusJson: string): { name: string; host: string }[] {
+  let status: StatusJson;
+  try {
+    status = JSON.parse(statusJson) as StatusJson;
+  } catch {
+    return [];
+  }
+  if (status.BackendState !== "Running" || status.Self?.UserID === undefined) return [];
+  return Object.values(status.Peer ?? {}).flatMap((peer) => {
+    const host = peer.DNSName?.replace(/\.$/, "").toLowerCase();
+    return peer.UserID === status.Self!.UserID && peer.Online && host ? [{ name: peer.HostName || host.split(".")[0]!, host }] : [];
+  });
+}
+
+/** Linker-Edit's answer at a remote address, or null when nothing (or something else) answers. */
+export type Probe = (url: string) => Promise<{ name: string; version: string } | null>;
+
+const probeLinkerEdit: Probe = async (url) => {
+  try {
+    const response = await fetch(`${url}/api/hello`, { signal: AbortSignal.timeout(5000) });
+    const hello = (await response.json()) as { app?: string; name?: string; version?: string };
+    return response.ok && hello.app === "linker-edit" ? { name: hello.name ?? "", version: hello.version ?? "" } : null;
+  } catch {
+    return null;
+  }
+};
 
 export function parseStatus(result: TailscaleResult | null): Tailnet {
   if (!result) return { ok: false, hint: `Install Tailscale on this computer and the other one, and log in to the same account: ${DOWNLOAD}` };
@@ -146,6 +175,7 @@ export interface RemoteAccessOptions {
   /** The HTTPS port on the tailnet. */
   servePort: number;
   run?: RunTailscale;
+  probe?: Probe;
 }
 
 export type RemoteAccessService = ReturnType<typeof createRemoteAccess>;
@@ -224,5 +254,18 @@ export function createRemoteAccess(options: RemoteAccessOptions) {
     refresh: () => (switching ? Promise.resolve() : refresh()),
     setEnabled,
     gate: () => gate,
+    /** The user's other computers where Linker-Edit answers with remote access on. */
+    async computers(): Promise<Computer[]> {
+      const status = await run(["status", "--json"], 10_000);
+      const probe = options.probe ?? probeLinkerEdit;
+      const found = await Promise.all(
+        ownPeers(status?.stdout ?? "").map(async (peer) => {
+          const url = remoteUrl(peer.host, options.servePort);
+          const hello = await probe(url);
+          return hello ? { name: hello.name || peer.name, url, version: hello.version } : null;
+        }),
+      );
+      return found.filter((computer) => computer !== null);
+    },
   };
 }
