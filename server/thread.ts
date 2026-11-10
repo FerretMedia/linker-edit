@@ -47,6 +47,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
   let updatedAt = saved.updatedAt;
   let archivedAt = saved.archivedAt;
   let turn: AbortController | null = null;
+  // The running turn's sink, for approvals asked outside the provider session, as by the Resolve guard.
+  let activeSink: TurnSink | null = null;
   // Set once the thread is deleted, so a turn that is still winding down can't write into it.
   let disposed = false;
   const approvals = new Map<string, { request: ApprovalRequest; settle: (allow: boolean) => void }>();
@@ -150,6 +152,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       },
     };
 
+    activeSink = sink;
+
     async function saveHistory(agentTurn?: AgentTurn) {
       try {
         const saved = await host.history()!.record(agentTurn);
@@ -195,6 +199,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     } catch (error) {
       if (!signal.aborted) sink.notice(message(error), "error");
     } finally {
+      activeSink = null;
       if (controller.signal.aborted) sink.notice("Stopped.");
       for (const item of items) {
         if (item.kind === "tool" && item.status === "running") sink.upsert({ id: item.id, status: "error" });
@@ -290,6 +295,9 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       return true;
     },
     settleAllApprovals,
+    /** Asks the user during this thread's turn; false when no turn is running. */
+    requestApproval: (tool: string, input: unknown): Promise<boolean> =>
+      activeSink ? activeSink.requestApproval(tool, input) : Promise.resolve(false),
     rename(next: string) {
       title = next.trim().slice(0, 120) || title;
       host.changed();

@@ -79,15 +79,16 @@ describe("Codex session", () => {
     expect(items().map((item) => item.kind === "notice" && item.text)).toEqual(["usage limit reached", "stream closed"]);
   });
 
-  it("gives Codex forward-slash paths, which its --config parsing needs, and no project-switching tools", () => {
+  it("gives Codex forward-slash paths, which its --config parsing needs, and Resolve only behind the guard", () => {
     createCodexSession(testConfig);
     const options = fake.options.at(-1) as CodexOptions;
     expect(JSON.stringify(options.config)).not.toContain("\\\\");
     expect(options.config).toMatchObject({
       mcp_servers: {
         resolve: {
-          command: "C:/mcp/.venv/Scripts/python.exe",
-          args: ["C:/mcp/src/server.py"],
+          command: process.execPath.replaceAll("\\", "/"),
+          args: [expect.stringMatching(/\/agents\/resolveGuard\.ts$/), "C:/mcp/.venv/Scripts/python.exe", "C:/mcp/src/server.py"],
+          env: { LINKER_EDIT_TOKEN: "test-token" },
           disabled_tools: ["project_manager_cloud", "project_manager_database"],
         },
       },

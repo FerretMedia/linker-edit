@@ -38,6 +38,9 @@ function createWindow(): BrowserWindow {
     webPreferences: { preload: path.join(import.meta.dirname, "..", "desktop", "preload.cjs"), contextIsolation: true, sandbox: true },
   });
   const contents = window.webContents;
+  // The app needs no camera, microphone, location or notifications, not even on another computer's page.
+  const PERMISSIONS = new Set(["fullscreen", "clipboard-sanitized-write"]);
+  contents.session.setPermissionRequestHandler((_contents, permission, callback) => callback(PERMISSIONS.has(permission)));
 
   // Links such as Tailscale's admin pages open in the browser, never in the app.
   contents.setWindowOpenHandler(({ url }) => {

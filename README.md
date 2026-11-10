@@ -86,8 +86,8 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
   - Reading the edit history (`git log`, `git show`, `git diff`, `git status`) runs immediately.
   - Any other Resolve action, and any file edit, shows Allow/Deny.
 - **Claude, with it off:** everything runs.
-- **Codex:** runs without per-call approvals, because its SDK has no approval hook. Its file writes are sandboxed to the project's folder.
-- **Never:** agents can't open, close, create or switch Resolve projects or databases, in any mode. You switch projects in Linker-Edit. Codex doesn't get Resolve's cloud and database tools at all; it can still reach `project_manager`'s load, so it is told not to, and a turn that switched projects anyway isn't saved to the wrong history.
+- **Codex, with "Ask before changes" on:** the same Allow/Deny for Resolve actions. Its shell commands and file edits don't ask; they run sandboxed to the project's folder.
+- **Never:** agents can't open, close, create, delete or switch Resolve projects or databases, in any mode. You switch projects in Linker-Edit.
 
 ## Projects and threads
 

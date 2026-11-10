@@ -19,10 +19,12 @@ import type {
 import type { History, ProjectCheck } from "./history/history.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
+import { decideToolCall, type ToolDecision } from "./policy.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
 import type { ResolveProjects } from "./resolveProjects.ts";
+import { RESOLVE_MCP_NAME } from "./rules.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
 
@@ -546,11 +548,14 @@ export function createApp(options: AppOptions) {
         current?.thread.stop();
         break;
       case "set_provider":
+        if (!(message.provider in PROVIDER_NAME)) break;
         lastProvider = message.provider;
         current?.thread.setProvider(message.provider);
         sendMeta();
         break;
       case "set_approval_mode":
+        // Anything but "ask" would let every call run.
+        if (message.mode !== "ask" && message.mode !== "auto") break;
         approvalMode = message.mode;
         if (approvalMode === "auto") for (const { thread } of threads.values()) thread.settleAllApprovals(true);
         sendMeta();
@@ -648,6 +653,13 @@ export function createApp(options: AppOptions) {
       return history.timeline(id, commit);
     },
     busy: resolveBusy,
+    /** A Resolve call from the guard in front of Codex's MCP server; only the thread working in Resolve may make one. */
+    resolveCall(tool: string, input: Record<string, unknown>): Promise<ToolDecision> {
+      const owner = turnOwner ? threads.get(turnOwner)?.thread : undefined;
+      if (!owner?.busy) return Promise.resolve({ allow: false, message: "No Linker-Edit turn is running, so Resolve calls are refused." });
+      const name = `mcp__${RESOLVE_MCP_NAME}__${tool}`;
+      return decideToolCall(name, input, approvalMode, () => owner.requestApproval(name, input));
+    },
     /** For the agents' MCP server: the transcripts as text, or what went wrong per file. */
     transcribe: async (files: string[], language?: string) => {
       if (!options.transcriber) throw new Error("Transcription is off.");

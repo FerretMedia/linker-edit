@@ -1,9 +1,9 @@
 import { query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
-import { isProjectSwitch, needsApproval, PROJECT_SWITCH_DENIED } from "../policy.ts";
+import { decideToolCall } from "../policy.ts";
 import { EDITING_RULES, LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
-import { linkerMcpCommand } from "../transcribe/mcp.ts";
+import { linkerMcpCommand } from "../agents/commands.ts";
 import { shortenToolOutput } from "./shorten.ts";
 import { truncate, type ProviderSession, type TurnSink } from "./types.ts";
 
@@ -170,12 +170,8 @@ export function createClaudeSession(
         },
         permissionMode: "default",
         canUseTool: async (toolName, input) => {
-          if (isProjectSwitch(toolName, input)) return { behavior: "deny", message: PROJECT_SWITCH_DENIED };
-          if (approvalMode() === "ask" && needsApproval(toolName, input)) {
-            const allowed = await sink.requestApproval(toolName, input);
-            if (!allowed) return { behavior: "deny", message: "The user declined this action." };
-          }
-          return { behavior: "allow", updatedInput: input };
+          const decision = await decideToolCall(toolName, input, approvalMode(), () => sink.requestApproval(toolName, input));
+          return decision.allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: decision.message };
         },
       },
     });
