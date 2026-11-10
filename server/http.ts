@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { WebSocketServer } from "ws";
 import type { ClientMessage } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
+import { requestSource, type RemoteGate } from "./remote.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -110,8 +111,14 @@ function handleTranscribe(app: App, apiToken: string, req: http.IncomingMessage,
     .catch((error: unknown) => json(400, { error: error instanceof Error ? error.message : String(error) }));
 }
 
-export function createServer(app: App, distDir: string, apiToken: string): http.Server {
+/** gate lets the user's own devices in through Tailscale Serve while remote access is on. */
+export function createServer(app: App, distDir: string, apiToken: string, gate: () => RemoteGate | null = () => null): http.Server {
   const server = http.createServer((req, res) => {
+    // Also turns away pages on other sites whose name was pointed at 127.0.0.1 (DNS rebinding).
+    if (!requestSource(req.headers, gate())) {
+      res.writeHead(403).end("Not allowed. Remote access is only for devices logged in to this computer's Tailscale account.");
+      return;
+    }
     let urlPath: string;
     let query: URLSearchParams;
     try {
@@ -156,7 +163,21 @@ export function createServer(app: App, distDir: string, apiToken: string): http.
     fs.createReadStream(file).pipe(res);
   });
 
-  const wss = new WebSocketServer({ server, path: "/ws", verifyClient: (info: { origin?: string }) => isAllowedOrigin(info.origin) });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    verifyClient: (info: { origin?: string; req: http.IncomingMessage }) => {
+      const current = gate();
+      switch (requestSource(info.req.headers, current)) {
+        case "local":
+          return isAllowedOrigin(info.origin);
+        case "remote":
+          return info.origin === `https://${current!.host}`;
+        default:
+          return false;
+      }
+    },
+  });
   wss.on("connection", (socket) => {
     const client = { send: (data: string) => socket.send(data) };
     const disconnect = app.connect(client);

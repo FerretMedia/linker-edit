@@ -7,6 +7,7 @@
     Clapperboard,
     Cloud,
     FolderOpen,
+    Globe,
     HardDrive,
     MonitorUp,
     Pencil,
@@ -17,7 +18,7 @@
     SquarePen,
     Trash,
   } from "@lucide/svelte";
-  import type { ProjectSummary, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
+  import type { ProjectSummary, RemoteAccess, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
   import RowMenu from "./RowMenu.svelte";
 
@@ -26,6 +27,7 @@
     version,
     update,
     transcription,
+    remote,
     projects,
     threadId,
     onSelect,
@@ -38,11 +40,13 @@
     onProjectSettings,
     onOpenInResolve,
     onRefreshResolve,
+    onRemoteAccess,
   }: {
     resolve: ResolveStatus;
     version: string;
     update: string | null;
     transcription: TranscriptionStatus;
+    remote: RemoteAccess;
     projects: ProjectSummary[];
     threadId: string | null;
     onSelect: (threadId: string) => void;
@@ -55,6 +59,7 @@
     onProjectSettings: (projectId: string) => void;
     onOpenInResolve: (projectId: string) => void;
     onRefreshResolve: () => void;
+    onRemoteAccess: () => void;
   } = $props();
 
   const COLLAPSED_KEY = "linker-edit.collapsed-projects";
@@ -207,6 +212,18 @@
     </span>
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
     <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : version}</span>
+    <button
+      type="button"
+      class="relative -mr-1.5 flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      aria-label={remote.state === "on" ? "Remote access: on" : "Remote access"}
+      title={remote.state === "on" ? `Remote access is on: ${remote.url}` : "Remote access"}
+      onclick={onRemoteAccess}
+    >
+      <Globe class="size-3.5" />
+      {#if remote.state === "on"}
+        <span class="absolute top-1 right-1 size-1.5 rounded-full bg-success"></span>
+      {/if}
+    </button>
   </div>
 
   <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">

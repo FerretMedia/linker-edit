@@ -235,6 +235,17 @@ export type TranscriptionStatus =
   | { state: "preparing"; step: string; percent: number | null }
   | { state: "transcribing"; file: string; done: number; total: number };
 
+/** Opening this app from the user's other devices through Tailscale Serve. */
+export type RemoteAccess =
+  | { state: "checking" }
+  /** Tailscale isn't installed, running or logged in here; hint says what to do. */
+  | { state: "unavailable"; hint: string }
+  /** problem is why turning it on failed or can't work yet, which may include a link. */
+  | { state: "off"; url: string; problem: string | null }
+  | { state: "switching"; url: string }
+  /** Only devices logged in to Tailscale as owner get in. */
+  | { state: "on"; url: string; owner: string };
+
 export interface AppMeta {
   projects: ProjectSummary[];
   /** The thread this client is looking at; null when there are no projects. */
@@ -258,6 +269,7 @@ export interface AppMeta {
   /** Linker-Edit is opening this project in Resolve. */
   opening: string | null;
   transcription: TranscriptionStatus;
+  remote: RemoteAccess;
 }
 
 export interface AppState extends AppMeta {
@@ -291,7 +303,9 @@ export type ClientMessage =
   | { type: "remove_project"; projectId: string }
   /** Saves the project open in Resolve, then opens this one. */
   | { type: "open_in_resolve"; projectId: string }
-  | { type: "load_library" };
+  | { type: "load_library" }
+  | { type: "refresh_remote_access" }
+  | { type: "set_remote_access"; enabled: boolean };
 
 export type ServerMessage =
   | { type: "snapshot"; state: AppState }
