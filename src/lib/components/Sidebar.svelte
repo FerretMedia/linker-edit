@@ -17,8 +17,9 @@
     SquarePen,
     Trash,
   } from "@lucide/svelte";
-  import type { ProjectSummary, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
+  import type { ProjectSummary, RemoteAccess, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
+  import ComputerPicker from "./ComputerPicker.svelte";
   import RowMenu from "./RowMenu.svelte";
 
   let {
@@ -26,6 +27,8 @@
     version,
     update,
     transcription,
+    remote,
+    computer,
     projects,
     threadId,
     onSelect,
@@ -38,11 +41,14 @@
     onProjectSettings,
     onOpenInResolve,
     onRefreshResolve,
+    onRemoteAccess,
   }: {
     resolve: ResolveStatus;
     version: string;
     update: string | null;
     transcription: TranscriptionStatus;
+    remote: RemoteAccess;
+    computer: string;
     projects: ProjectSummary[];
     threadId: string | null;
     onSelect: (threadId: string) => void;
@@ -55,6 +61,7 @@
     onProjectSettings: (projectId: string) => void;
     onOpenInResolve: (projectId: string) => void;
     onRefreshResolve: () => void;
+    onRemoteAccess: () => void;
   } = $props();
 
   const COLLAPSED_KEY = "linker-edit.collapsed-projects";
@@ -208,6 +215,8 @@
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
     <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : version}</span>
   </div>
+
+  <ComputerPicker {computer} {remote} {onRemoteAccess} />
 
   <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
     <div class="flex h-7 items-center gap-2 pr-1 pl-2.5 text-xs font-medium text-muted-foreground">

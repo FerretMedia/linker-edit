@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import * as os from "node:os";
 import * as path from "node:path";
 import type {
   AppMeta,
@@ -20,6 +21,7 @@ import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, ty
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
+import type { RemoteAccessService } from "./remote.ts";
 import type { ResolveProjects } from "./resolveProjects.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
@@ -40,6 +42,8 @@ export interface AppOptions {
   prepareFolder?: (dir: string) => void;
   /** Speech to text for the agents' transcribe tool. */
   transcriber?: Transcriber;
+  /** Opening the app from the user's other devices over Tailscale. */
+  remote?: RemoteAccessService;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -260,6 +264,8 @@ export function createApp(options: AppOptions) {
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
       opening,
       transcription: options.transcriber?.status() ?? { state: "idle" },
+      remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
+      computer: os.hostname(),
     };
   }
 
@@ -271,6 +277,7 @@ export function createApp(options: AppOptions) {
     for (const [client, view] of clients) send(client, { type: "meta", meta: metaFor(view.threadId) });
   }
   options.transcriber?.onStatus(sendMeta);
+  options.remote?.onStatus(sendMeta);
 
   function sendSnapshot(client: Client) {
     const view = clients.get(client);
@@ -603,10 +610,17 @@ export function createApp(options: AppOptions) {
       case "load_library":
         void loadLibrary(client);
         break;
+      case "refresh_remote_access":
+        void options.remote?.refresh();
+        break;
+      case "set_remote_access":
+        void options.remote?.setEnabled(message.enabled);
+        break;
     }
   }
 
   return {
+    version: options.version,
     connect(client: Client): () => void {
       clients.set(client, { threadId: defaultThread() });
       sendSnapshot(client);
