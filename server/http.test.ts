@@ -13,18 +13,20 @@ import type { RemoteGate } from "./remote.ts";
 
 describe("isAllowedOrigin", () => {
   it.each([
-    [undefined, true],
-    ["http://localhost:5317", true],
-    ["http://127.0.0.1:4317", true],
-    ["http://[::1]:4317", true],
-    ["https://localhost", true],
-    ["https://evil.example", false],
-    ["http://localhost.evil.example", false],
-    ["http://127.0.0.1.nip.io:4317", false],
-    ["null", false],
-    ["file://", false],
-  ])("%s → %s", (origin, expected) => {
-    expect(isAllowedOrigin(origin)).toBe(expected);
+    [undefined, "127.0.0.1:4317", true],
+    ["http://localhost:5317", "localhost:5317", true],
+    ["http://127.0.0.1:4317", "127.0.0.1:4317", true],
+    ["http://[::1]:4317", "[::1]:4317", true],
+    ["https://localhost", "localhost", true],
+    ["http://localhost:3000", "127.0.0.1:4317", false],
+    ["http://127.0.0.1:3000", "127.0.0.1:4317", false],
+    ["https://evil.example", "127.0.0.1:4317", false],
+    ["http://localhost.evil.example", "localhost.evil.example", false],
+    ["http://127.0.0.1.nip.io:4317", "127.0.0.1.nip.io:4317", false],
+    ["null", "127.0.0.1:4317", false],
+    ["file://", "127.0.0.1:4317", false],
+  ])("%s on %s → %s", (origin, host, expected) => {
+    expect(isAllowedOrigin(origin, host)).toBe(expected);
   });
 });
 
@@ -120,11 +122,17 @@ describe("server", () => {
     });
   }
 
-  it("takes transcribe calls only with the agents' token", async () => {
+  it("takes the agents' calls only with their token", async () => {
     const files = { files: ["C:\\Footage\\a.mov"] };
     expect((await post("/api/transcribe", files)).status).toBe(403);
     expect((await post("/api/transcribe", files, "guess")).status).toBe(403);
     expect(await post("/api/transcribe", files, "secret")).toEqual({ status: 400, body: '{"error":"Transcription is off."}' });
+    const call = { tool: "timeline", input: { action: "create_empty" } };
+    expect((await post("/api/resolve-call", call)).status).toBe(403);
+    expect(await post("/api/resolve-call", call, "secret")).toEqual({
+      status: 200,
+      body: '{"allow":false,"message":"No Linker-Edit turn is running, so Resolve calls are refused."}',
+    });
   });
 
   it("answers a malformed URL with 400 and keeps serving", async () => {
@@ -154,15 +162,15 @@ describe("server", () => {
     }
   });
 
-  it("refuses WebSocket connections from other websites", async () => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: "https://evil.example" });
+  it.each(["https://evil.example", "http://localhost:3000"])("refuses WebSocket connections from %s", async (origin) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin });
     const [request, response] = (await once(socket, "unexpected-response")) as [http.ClientRequest, http.IncomingMessage];
     expect(response.statusCode).toBe(401);
     request.destroy();
   });
 
   it("sends the app's own pages a snapshot", async () => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: "http://localhost:5317" });
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: `http://127.0.0.1:${port}` });
     const [data] = (await once(socket, "message")) as [Buffer];
     expect(JSON.parse(String(data))).toMatchObject({ type: "snapshot", state: { busy: false, items: [] } });
     socket.close();

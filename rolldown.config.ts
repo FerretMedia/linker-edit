@@ -25,4 +25,11 @@ export default defineConfig([
     external,
     output: { file: "dist/linker-mcp.js", format: "esm", codeSplitting: false },
   },
+  // The guard in front of Codex's Resolve MCP server.
+  {
+    input: "server/agents/resolveGuard.ts",
+    platform: "node",
+    external,
+    output: { file: "dist/resolve-guard.js", format: "esm", codeSplitting: false },
+  },
 ]);

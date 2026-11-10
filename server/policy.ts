@@ -1,3 +1,4 @@
+import type { ApprovalMode } from "../shared/protocol.ts";
 import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "./rules.ts";
 
 const READ_ONLY_TOOLS = new Set([
@@ -77,4 +78,20 @@ export function isProjectSwitch(toolName: string, input: Record<string, unknown>
   const actions = PROJECT_SWITCHES[toolName.slice(RESOLVE_PREFIX.length)];
   if (!actions) return false;
   return actions === "all" || (typeof input.action === "string" && actions.has(input.action));
+}
+
+export type ToolDecision = { allow: true } | { allow: false; message: string };
+
+/** One policy for every provider: project switches are denied, and in "ask" mode changes wait for the user. */
+export async function decideToolCall(
+  toolName: string,
+  input: Record<string, unknown>,
+  mode: ApprovalMode,
+  ask: () => Promise<boolean>,
+): Promise<ToolDecision> {
+  if (isProjectSwitch(toolName, input)) return { allow: false, message: PROJECT_SWITCH_DENIED };
+  if (mode === "ask" && needsApproval(toolName, input) && !(await ask())) {
+    return { allow: false, message: "The user declined this action." };
+  }
+  return { allow: true };
 }

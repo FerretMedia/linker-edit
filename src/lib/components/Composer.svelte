@@ -40,8 +40,7 @@
   let textarea: HTMLTextAreaElement;
   export const focus = () => textarea.focus();
 
-  const askLocked = $derived(provider === "codex");
-  const asking = $derived(approvalMode === "ask" && !askLocked);
+  const asking = $derived(approvalMode === "ask");
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -66,12 +65,11 @@
     <button
       type="button"
       class="flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-60"
-      disabled={askLocked}
-      title={askLocked
-        ? "Codex runs without per-call approvals"
-        : asking
-          ? "Changes wait for your OK. Click to let everything run."
-          : "Everything runs. Click to approve changes first."}
+      title={asking
+        ? provider === "codex"
+          ? "Resolve changes wait for your OK. Codex's shell commands and file edits run sandboxed in the project folder. Click to let everything run."
+          : "Changes wait for your OK. Click to let everything run."
+        : "Everything runs. Click to approve changes first."}
       onclick={() => onSetApprovalMode(asking ? "auto" : "ask")}
     >
       {#if asking}

@@ -22,13 +22,16 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
  * Browsers let any website open a WebSocket to localhost, and this socket drives an agent that runs
- * commands. Only pages served from this machine may connect; non-browser clients send no Origin.
+ * commands. Only this app's own pages may connect: same origin as the request, which also turns away
+ * other apps served on localhost. Non-browser clients send no Origin.
  */
-export function isAllowedOrigin(origin: string | undefined): boolean {
+export function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
   if (origin === undefined) return true;
   try {
     const url = new URL(origin);
-    return (url.protocol === "http:" || url.protocol === "https:") && LOOPBACK_HOSTS.has(url.hostname);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") && LOOPBACK_HOSTS.has(url.hostname) && url.host === host?.toLowerCase()
+    );
   } catch {
     return false;
   }
@@ -93,8 +96,11 @@ function readJson(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
-/** POST /api/transcribe from the agents' MCP server. Any web page can POST to localhost, hence the token. */
-function handleTranscribe(app: App, apiToken: string, req: http.IncomingMessage, res: http.ServerResponse) {
+/**
+ * POST routes for processes started for the agents, such as their MCP servers. Any web page can POST to
+ * localhost, hence the token.
+ */
+function handleAgentCall(apiToken: string, req: http.IncomingMessage, res: http.ServerResponse, run: (body: Record<string, unknown>) => Promise<unknown>) {
   const json = (status: number, body: unknown) =>
     res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
   if (req.method !== "POST" || req.headers.authorization !== `Bearer ${apiToken}`) {
@@ -102,15 +108,21 @@ function handleTranscribe(app: App, apiToken: string, req: http.IncomingMessage,
     return;
   }
   readJson(req)
-    .then((body) => {
-      const { files, language } = (body ?? {}) as { files?: unknown; language?: unknown };
-      if (!Array.isArray(files) || !files.every((file) => typeof file === "string")) {
-        throw new Error("files must be a list of file paths.");
-      }
-      return app.transcribe(files, typeof language === "string" ? language : undefined);
-    })
-    .then((text) => json(200, { text }))
+    .then((body) => run(body && typeof body === "object" ? (body as Record<string, unknown>) : {}))
+    .then((result) => json(200, result))
     .catch((error: unknown) => json(400, { error: error instanceof Error ? error.message : String(error) }));
+}
+
+async function transcribe(app: App, { files, language }: Record<string, unknown>) {
+  if (!Array.isArray(files) || !files.every((file) => typeof file === "string")) {
+    throw new Error("files must be a list of file paths.");
+  }
+  return { text: await app.transcribe(files, typeof language === "string" ? language : undefined) };
+}
+
+async function resolveCall(app: App, { tool, input }: Record<string, unknown>) {
+  if (typeof tool !== "string") throw new Error("tool must be a tool name.");
+  return app.resolveCall(tool, input && typeof input === "object" ? (input as Record<string, unknown>) : {});
 }
 
 export interface RemoteRoutes {
@@ -154,7 +166,11 @@ export function createServer(app: App, distDir: string, apiToken: string, remote
       return;
     }
     if (urlPath === "/api/transcribe") {
-      handleTranscribe(app, apiToken, req, res);
+      handleAgentCall(apiToken, req, res, (body) => transcribe(app, body));
+      return;
+    }
+    if (urlPath === "/api/resolve-call") {
+      handleAgentCall(apiToken, req, res, (body) => resolveCall(app, body));
       return;
     }
     if (urlPath === "/api/timeline") {
@@ -192,7 +208,7 @@ export function createServer(app: App, distDir: string, apiToken: string, remote
       const current = gate();
       switch (requestSource(info.req.headers, current)) {
         case "local":
-          return isAllowedOrigin(info.origin);
+          return isAllowedOrigin(info.origin, info.req.headers.host);
         case "remote":
           return info.origin === `https://${current!.host}`;
         default:
