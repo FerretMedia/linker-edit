@@ -9,6 +9,7 @@ import { fileProjectStore } from "./projects/store.ts";
 import { createClaudeSession } from "./providers/claude.ts";
 import { createCodexSession } from "./providers/codex.ts";
 import { replayQuery } from "./providers/replay.ts";
+import { createRemoteAccess } from "./remote.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
@@ -21,6 +22,8 @@ const config = loadConfigOrExit();
 // Set to a recorded Claude turn (JSONL) to replay it instead of calling Claude: free turns for UI work.
 const replay = process.env.LINKER_EDIT_REPLAY;
 if (replay) console.log(`Replaying ${replay} instead of calling Claude`);
+
+const remote = createRemoteAccess({ port: config.port, servePort: config.tailscalePort });
 
 const app = createApp({
   version: VERSION,
@@ -43,10 +46,11 @@ const app = createApp({
     dir: config.transcriptsDir,
     prepare: (onProgress) => prepareTools(config.toolsDir, config.whisperCli, onProgress),
   }),
+  remote,
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
-export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken);
+export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote);
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
@@ -60,6 +64,11 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 server.listen(config.port, "127.0.0.1", () => {
   console.log(`Linker-Edit ${VERSION} on ${url}`);
   console.log(`Projects: ${config.projectsDir}`);
+  // Tailscale keeps Serve on across restarts, so remote access may already be on.
+  void remote.refresh().then(() => {
+    const status = remote.status();
+    if (status.state === "on") console.log(`Remote access: ${status.url} (for ${status.owner})`);
+  });
   void app.refreshResolve();
   setInterval(() => {
     if (!app.busy()) void app.refreshResolve();

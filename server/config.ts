@@ -32,6 +32,8 @@ interface UserConfig {
   toolsDir?: string;
   /** Your own whisper-cli, instead of the one Linker-Edit downloads (Windows) or finds on PATH. */
   whisperCli?: string;
+  /** The HTTPS port remote access uses on your tailnet. */
+  tailscalePort?: number;
 }
 
 export interface ResolveMcpConfig {
@@ -49,6 +51,7 @@ export interface AppConfig {
   transcriptsDir: string;
   toolsDir: string;
   whisperCli?: string;
+  tailscalePort: number;
   /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
   apiToken: string;
   resolveMcp: ResolveMcpConfig;
@@ -119,6 +122,10 @@ export function loadConfig(
   if (window !== undefined && !(Number.isInteger(window) && window >= 100_000 && window <= 1_000_000)) {
     throw new Error(`autoCompactWindow in ${file} must be a whole number from 100000 to 1000000.`);
   }
+  const tailscalePort = user.tailscalePort ?? 8443;
+  if (!(Number.isInteger(tailscalePort) && tailscalePort > 0 && tailscalePort < 65536)) {
+    throw new Error(`tailscalePort in ${file} must be a port number.`);
+  }
   const mcpDir = user.resolveMcpDir ?? path.join(HOME_DIR, "davinci-resolve-mcp");
   const python =
     user.python ??
@@ -138,6 +145,7 @@ export function loadConfig(
     transcriptsDir: user.transcriptsDir ?? path.join(HOME_DIR, "transcripts"),
     toolsDir: user.toolsDir ?? path.join(HOME_DIR, "tools"),
     ...(user.whisperCli ? { whisperCli: user.whisperCli } : {}),
+    tailscalePort,
     apiToken: randomBytes(24).toString("hex"),
     resolveMcp: {
       python,

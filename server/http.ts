@@ -1,9 +1,12 @@
 import * as fs from "node:fs";
 import * as http from "node:http";
+import * as os from "node:os";
 import * as path from "node:path";
 import { WebSocketServer } from "ws";
 import type { ClientMessage } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
+import type { Computer } from "../shared/protocol.ts";
+import { requestSource, type RemoteGate } from "./remote.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -110,8 +113,22 @@ function handleTranscribe(app: App, apiToken: string, req: http.IncomingMessage,
     .catch((error: unknown) => json(400, { error: error instanceof Error ? error.message : String(error) }));
 }
 
-export function createServer(app: App, distDir: string, apiToken: string): http.Server {
+export interface RemoteRoutes {
+  /** Lets the user's own devices in through Tailscale Serve while remote access is on. */
+  gate: () => RemoteGate | null;
+  computers: () => Promise<Computer[]>;
+}
+
+const noRemote: RemoteRoutes = { gate: () => null, computers: async () => [] };
+
+export function createServer(app: App, distDir: string, apiToken: string, remote: RemoteRoutes = noRemote): http.Server {
+  const gate = remote.gate;
   const server = http.createServer((req, res) => {
+    // Also turns away pages on other sites whose name was pointed at 127.0.0.1 (DNS rebinding).
+    if (!requestSource(req.headers, gate())) {
+      res.writeHead(403).end("Not allowed. Remote access is only for devices logged in to this computer's Tailscale account.");
+      return;
+    }
     let urlPath: string;
     let query: URLSearchParams;
     try {
@@ -122,13 +139,25 @@ export function createServer(app: App, distDir: string, apiToken: string): http.
       res.writeHead(400).end("Bad request");
       return;
     }
+    const json = (status: number, body: unknown) =>
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+    // How the desktop app on the user's other computers recognizes this one.
+    if (urlPath === "/api/hello") {
+      json(200, { app: "linker-edit", name: os.hostname(), version: app.version });
+      return;
+    }
+    if (urlPath === "/api/computers") {
+      remote
+        .computers()
+        .then((others) => json(200, { name: os.hostname(), others }))
+        .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
     if (urlPath === "/api/transcribe") {
       handleTranscribe(app, apiToken, req, res);
       return;
     }
     if (urlPath === "/api/timeline") {
-      const json = (status: number, body: unknown) =>
-        res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
       app
         .playableTimeline(query.get("project") || null, query.get("id") || null, query.get("commit") || null)
         .then((timeline) => (timeline ? json(200, timeline) : json(404, { error: "That timeline isn't in Resolve or in that save." })))
@@ -156,7 +185,21 @@ export function createServer(app: App, distDir: string, apiToken: string): http.
     fs.createReadStream(file).pipe(res);
   });
 
-  const wss = new WebSocketServer({ server, path: "/ws", verifyClient: (info: { origin?: string }) => isAllowedOrigin(info.origin) });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    verifyClient: (info: { origin?: string; req: http.IncomingMessage }) => {
+      const current = gate();
+      switch (requestSource(info.req.headers, current)) {
+        case "local":
+          return isAllowedOrigin(info.origin);
+        case "remote":
+          return info.origin === `https://${current!.host}`;
+        default:
+          return false;
+      }
+    },
+  });
   wss.on("connection", (socket) => {
     const client = { send: (data: string) => socket.send(data) };
     const disconnect = app.connect(client);

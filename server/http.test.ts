@@ -9,6 +9,7 @@ import { WebSocket } from "ws";
 import { createApp } from "./app.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import { byteRange, createServer, isAllowedOrigin, staticFile } from "./http.ts";
+import type { RemoteGate } from "./remote.ts";
 
 describe("isAllowedOrigin", () => {
   it.each([
@@ -73,6 +74,7 @@ describe("staticFile", () => {
 describe("server", () => {
   let server: http.Server;
   let port: number;
+  let gate: RemoteGate | null = null;
 
   beforeAll(async () => {
     const app = createApp({
@@ -81,7 +83,7 @@ describe("server", () => {
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),
     });
-    server = createServer(app, dist, "secret");
+    server = createServer(app, dist, "secret", { gate: () => gate, computers: async () => [] });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     port = (server.address() as AddressInfo).port;
@@ -92,10 +94,10 @@ describe("server", () => {
     server.close();
   });
 
-  function get(urlPath: string): Promise<{ status: number; body: string }> {
+  function get(urlPath: string, headers: http.OutgoingHttpHeaders = {}): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
       http
-        .get({ host: "127.0.0.1", port, path: urlPath }, (res) => {
+        .get({ host: "127.0.0.1", port, path: urlPath, headers }, (res) => {
           let body = "";
           res.on("data", (chunk) => (body += chunk));
           res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
@@ -128,6 +130,28 @@ describe("server", () => {
   it("answers a malformed URL with 400 and keeps serving", async () => {
     expect((await get("/%")).status).toBe(400);
     expect(await get("/")).toEqual({ status: 200, body: "<html>app</html>" });
+  });
+
+  it("lets only the owner's devices in through Tailscale, and only while remote access is on", async () => {
+    const owner = { host: "studio.tail1234.ts.net:8443", "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
+    const connects = async (headers: Record<string, string>, origin: string) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin, headers });
+      const [event] = await Promise.race([once(socket, "open").then(() => ["open"]), once(socket, "unexpected-response").then(() => ["refused"])]);
+      socket.terminate();
+      return event === "open";
+    };
+    expect((await get("/", { host: "evil.example" })).status).toBe(403);
+    expect((await get("/", owner)).status).toBe(403);
+
+    gate = { host: "studio.tail1234.ts.net:8443", owner: "jane@example.com" };
+    try {
+      expect(await get("/", owner)).toEqual({ status: 200, body: "<html>app</html>" });
+      expect((await get("/", { ...owner, "tailscale-user-login": "bob@example.com" })).status).toBe(403);
+      expect(await connects(owner, "https://studio.tail1234.ts.net:8443")).toBe(true);
+      expect(await connects(owner, "https://evil.example")).toBe(false);
+    } finally {
+      gate = null;
+    }
   });
 
   it("refuses WebSocket connections from other websites", async () => {
