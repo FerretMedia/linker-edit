@@ -7,6 +7,7 @@
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
   import PreviewPanel from "#lib/components/PreviewPanel.svelte";
   import ProjectSettingsDialog from "#lib/components/ProjectSettingsDialog.svelte";
+  import RemoteAccessDialog from "#lib/components/RemoteAccessDialog.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
@@ -33,7 +34,7 @@
     if (!(drafts[threadId] ?? "").trim()) setDraft(text, threadId);
   };
 
-  let dialog = $state<{ kind: "add" } | { kind: "settings"; projectId: string } | null>(null);
+  let dialog = $state<{ kind: "add" } | { kind: "settings"; projectId: string } | { kind: "remote" } | null>(null);
   let composer: ReturnType<typeof Composer> | undefined = $state();
   let scroller: HTMLElement | undefined = $state();
   let stickToBottom = true;
@@ -188,6 +189,7 @@
       version={app.version}
       update={app.update}
       transcription={app.transcription}
+      remote={app.remote}
       projects={app.projects}
       threadId={app.threadId}
       onSelect={selectThread}
@@ -203,6 +205,7 @@
       onProjectSettings={(projectId) => (dialog = { kind: "settings", projectId })}
       onOpenInResolve={(projectId) => server.send({ type: "open_in_resolve", projectId })}
       onRefreshResolve={() => server.send({ type: "refresh_resolve" })}
+      onRemoteAccess={() => (dialog = { kind: "remote" })}
     />
 
     <main class="flex min-w-0 flex-1 flex-col">
@@ -383,6 +386,13 @@
       library={server.library}
       onLoadLibrary={loadLibrary}
       onAdd={(source) => server.send({ type: "add_project", source })}
+      onClose={() => (dialog = null)}
+    />
+  {:else if dialog?.kind === "remote"}
+    <RemoteAccessDialog
+      remote={app.remote}
+      onRefresh={() => server.send({ type: "refresh_remote_access" })}
+      onSetEnabled={(enabled) => server.send({ type: "set_remote_access", enabled })}
       onClose={() => (dialog = null)}
     />
   {:else if settingsProject}

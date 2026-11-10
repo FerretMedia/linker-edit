@@ -12,6 +12,7 @@ export const testConfig: AppConfig = {
   previewDir: "C:\\previews",
   transcriptsDir: "C:\\transcripts",
   toolsDir: "C:\\tools",
+  tailscalePort: 8443,
   apiToken: "test-token",
   resolveMcp: {
     python: "C:\\mcp\\.venv\\Scripts\\python.exe",
