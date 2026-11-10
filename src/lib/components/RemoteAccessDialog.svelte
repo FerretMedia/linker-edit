@@ -54,8 +54,8 @@
 
 <Dialog title="Remote access" {onClose}>
   <p class="text-sm text-muted-foreground">
-    Use Linker-Edit from your other computers over <a class="text-primary underline underline-offset-2" href="https://tailscale.com" target="_blank" rel="noreferrer">Tailscale</a>.
-    Resolve and the agents keep running on this computer; only devices logged in to your Tailscale account get in.
+    Let your other computers use this one over <a class="text-primary underline underline-offset-2" href="https://tailscale.com" target="_blank" rel="noreferrer">Tailscale</a>.
+    Resolve and the agents keep running here; only devices logged in to your Tailscale account get in.
   </p>
 
   {#if remote.state === "checking"}
@@ -68,7 +68,9 @@
   {:else}
     {#if url}
       <div class="flex flex-col gap-1 text-xs">
-        <span class="text-muted-foreground">{remote.state === "on" ? "Open this address on your other computer" : "Address once it's on"}</span>
+        <span class="text-muted-foreground">
+          {remote.state === "on" ? "On your other computer, pick this one in Linker-Edit's computer menu, or open" : "Address once it's on"}
+        </span>
         <div class="flex items-center gap-2">
           <p class="min-w-0 flex-1 font-mono text-xs break-all select-all {remote.state === 'on' ? '' : 'text-muted-foreground'}">{url}</p>
           {#if remote.state === "on"}

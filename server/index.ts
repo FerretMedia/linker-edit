@@ -50,7 +50,7 @@ const app = createApp({
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
-export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote.gate);
+export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote);
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {

@@ -14,6 +14,7 @@
   "files": [
     "build",
     "dist",
+    "desktop/preload.cjs",
     "server/**/*.py",
     "NOTICE",
     "linker-edit.config.example.json"
@@ -27,6 +28,7 @@
   },
   "scripts": {
     "dev": "concurrently -k -n server,web -c blue,magenta \"node --watch server/index.ts\" \"vite dev\"",
+    "dev:desktop": "rolldown -c && concurrently -k -n server,web,app -c blue,magenta,green \"node --watch server/index.ts\" \"vite dev\" \"electron dist/desktop.js\"",
     "build": "vite build && rolldown -c",
     "start": "node server/index.ts",
     "setup": "node server/cli.ts setup",
@@ -40,6 +42,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.316",
     "@openai/codex-sdk": "^0.166.0",
+    "electron": "^45.2.3",
     "ffmpeg-static": "^5.3.0",
     "marked": "^18.1.3",
     "ws": "^8.22.1"

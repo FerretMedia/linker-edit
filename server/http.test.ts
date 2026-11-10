@@ -83,7 +83,7 @@ describe("server", () => {
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),
     });
-    server = createServer(app, dist, "secret", () => gate);
+    server = createServer(app, dist, "secret", { gate: () => gate, computers: async () => [] });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     port = (server.address() as AddressInfo).port;

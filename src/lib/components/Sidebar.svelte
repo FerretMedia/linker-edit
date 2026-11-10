@@ -7,7 +7,6 @@
     Clapperboard,
     Cloud,
     FolderOpen,
-    Globe,
     HardDrive,
     MonitorUp,
     Pencil,
@@ -20,6 +19,7 @@
   } from "@lucide/svelte";
   import type { ProjectSummary, RemoteAccess, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
+  import ComputerPicker from "./ComputerPicker.svelte";
   import RowMenu from "./RowMenu.svelte";
 
   let {
@@ -28,6 +28,7 @@
     update,
     transcription,
     remote,
+    computer,
     projects,
     threadId,
     onSelect,
@@ -47,6 +48,7 @@
     update: string | null;
     transcription: TranscriptionStatus;
     remote: RemoteAccess;
+    computer: string;
     projects: ProjectSummary[];
     threadId: string | null;
     onSelect: (threadId: string) => void;
@@ -212,19 +214,9 @@
     </span>
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
     <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : version}</span>
-    <button
-      type="button"
-      class="relative -mr-1.5 flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      aria-label={remote.state === "on" ? "Remote access: on" : "Remote access"}
-      title={remote.state === "on" ? `Remote access is on: ${remote.url}` : "Remote access"}
-      onclick={onRemoteAccess}
-    >
-      <Globe class="size-3.5" />
-      {#if remote.state === "on"}
-        <span class="absolute top-1 right-1 size-1.5 rounded-full bg-success"></span>
-      {/if}
-    </button>
   </div>
+
+  <ComputerPicker {computer} {remote} {onRemoteAccess} />
 
   <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
     <div class="flex h-7 items-center gap-2 pr-1 pl-2.5 text-xs font-medium text-muted-foreground">

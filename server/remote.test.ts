@@ -91,6 +91,31 @@ describe("createRemoteAccess", () => {
     expect(remote.status()).toMatchObject({ state: "unavailable", hint: expect.stringContaining(hint) });
   });
 
+  it("finds only the user's own online computers that run Linker-Edit", async () => {
+    const status = JSON.stringify({
+      BackendState: "Running",
+      Self: { DNSName: "laptop.tail1234.ts.net.", UserID: 7 },
+      Peer: {
+        a: { HostName: "STUDIO", DNSName: "studio.tail1234.ts.net.", UserID: 7, Online: true },
+        b: { HostName: "nas", DNSName: "nas.tail1234.ts.net.", UserID: 7, Online: true },
+        c: { HostName: "old-pc", DNSName: "old-pc.tail1234.ts.net.", UserID: 7, Online: false },
+        d: { HostName: "friend", DNSName: "friend.tail1234.ts.net.", UserID: 8, Online: true },
+      },
+    });
+    const probed: string[] = [];
+    const remote = createRemoteAccess({
+      port: 4317,
+      servePort: 8443,
+      run: async () => ok(status),
+      probe: async (url) => {
+        probed.push(url);
+        return url.includes("studio") ? { name: "STUDIO", version: "2026.1110.0" } : null;
+      },
+    });
+    expect(await remote.computers()).toEqual([{ name: "STUDIO", url: "https://studio.tail1234.ts.net:8443", version: "2026.1110.0" }]);
+    expect(probed).toEqual(["https://studio.tail1234.ts.net:8443", "https://nas.tail1234.ts.net:8443"]);
+  });
+
   it("shows Tailscale's link when Serve waits for the tailnet to allow it", async () => {
     const tailscale = fakeTailscale();
     const run: RunTailscale = async (args, timeout) =>

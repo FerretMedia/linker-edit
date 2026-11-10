@@ -190,6 +190,7 @@
       update={app.update}
       transcription={app.transcription}
       remote={app.remote}
+      computer={app.computer}
       projects={app.projects}
       threadId={app.threadId}
       onSelect={selectThread}

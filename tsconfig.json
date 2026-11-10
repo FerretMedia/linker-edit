@@ -7,5 +7,5 @@
     "noUncheckedIndexedAccess": true,
     "types": ["$app/types", "node"]
   },
-  "include": ["src", "server", "shared", "scripts", "e2e", "*.ts"]
+  "include": ["src", "server", "shared", "desktop", "scripts", "e2e", "*.ts"]
 }
