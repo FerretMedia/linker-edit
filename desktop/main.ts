@@ -4,7 +4,7 @@
 import { execFile, fork, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import type { Computers, DesktopUpdate } from "../shared/protocol.ts";
 
 const APP_DIR = path.join(import.meta.dirname, "..");
@@ -173,6 +173,17 @@ void app.whenReady().then(async () => {
     if (typeof url === "string" && allowed.has(originOf(url) ?? "")) void window.loadURL(url);
   });
   ipcMain.handle("update", () => update);
+  // A folder picked here only means something to this computer's own server, not to another computer's page.
+  const fromHome = (event: IpcMainInvokeEvent) => Boolean(home) && originOf(event.senderFrame?.url ?? "") === originOf(home);
+  ipcMain.handle("can-pick-folder", (event) => fromHome(event));
+  ipcMain.handle("pick-folder", async (event, defaultPath: unknown) => {
+    if (!fromHome(event)) return null;
+    const result = await dialog.showOpenDialog(window, {
+      properties: ["openDirectory", "createDirectory"],
+      ...(typeof defaultPath === "string" && defaultPath ? { defaultPath } : {}),
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   app.on("second-instance", () => {
     if (window.isMinimized()) window.restore();
     window.focus();

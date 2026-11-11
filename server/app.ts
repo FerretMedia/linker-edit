@@ -16,6 +16,7 @@ import type {
   ResolveStatus,
   ServerMessage,
 } from "../shared/protocol.ts";
+import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
@@ -398,7 +399,7 @@ export function createApp(options: AppOptions) {
     if (source.kind === "cloud") {
       return {
         link: { kind: "cloud", name: source.name.trim(), projectId: null },
-        local: { mediaPath: source.mediaPath.trim(), syncMode: source.syncMode },
+        local: { mediaPath: expandHome(source.mediaPath), syncMode: source.syncMode },
       };
     }
     return {
@@ -411,7 +412,7 @@ export function createApp(options: AppOptions) {
     let state: ProjectState;
     if (source.kind === "folder") {
       try {
-        const adopted = store.adopt(source.dir.trim());
+        const adopted = store.adopt(expandHome(source.dir));
         state = addProject(adopted.project, adopted.threads);
       } catch (error) {
         toast(client, errorText(error));
@@ -452,7 +453,7 @@ export function createApp(options: AppOptions) {
     const name = changes.name === undefined ? saved.name : changes.name.trim() || null;
     const local: LocalLink = {
       ...saved.local,
-      ...(changes.mediaPath === undefined ? {} : { mediaPath: changes.mediaPath.trim() }),
+      ...(changes.mediaPath === undefined ? {} : { mediaPath: expandHome(changes.mediaPath) }),
       ...(changes.syncMode === undefined ? {} : { syncMode: changes.syncMode }),
     };
     project.saved = { ...saved, name, local };
@@ -531,6 +532,14 @@ export function createApp(options: AppOptions) {
       send(client, { type: "library", library: await options.resolveProjects.library() });
     } catch (error) {
       send(client, { type: "library", library: { error: errorText(error) } });
+    }
+  }
+
+  async function sendFolders(client: Client, requestId: number, dir: string) {
+    try {
+      send(client, { type: "folders", requestId, listing: await browseFolders(dir) });
+    } catch (error) {
+      send(client, { type: "folders", requestId, listing: { error: errorText(error) } });
     }
   }
 
@@ -614,6 +623,9 @@ export function createApp(options: AppOptions) {
         break;
       case "load_library":
         void loadLibrary(client);
+        break;
+      case "browse_folders":
+        if (typeof message.path === "string") void sendFolders(client, message.requestId, message.path);
         break;
       case "refresh_remote_access":
         void options.remote?.refresh();

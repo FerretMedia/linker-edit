@@ -1,12 +1,15 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { CloudSyncMode, ProjectSummary } from "#shared/protocol.ts";
+  import type { CloudSyncMode, FolderListing, ProjectSummary } from "#shared/protocol.ts";
+  import { trimSeparators } from "#lib/browsePath.ts";
   import { LIBRARY_LABEL, SYNC_MODES } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
+  import FolderPicker from "./FolderPicker.svelte";
 
   let {
     project,
     relinkTo,
+    browseFolders,
     onSave,
     onRelink,
     onRemove,
@@ -15,6 +18,7 @@
     project: ProjectSummary;
     /** The project open in Resolve when no Linker-Edit project has it, to link this one to. */
     relinkTo: string | null;
+    browseFolders: (path: string) => Promise<FolderListing | { error: string }>;
     onSave: (changes: { name?: string; mediaPath?: string; syncMode?: CloudSyncMode }) => void;
     onRelink: () => void;
     onRemove: () => void;
@@ -32,7 +36,7 @@
   const cloud = $derived(project.link?.kind === "cloud");
 
   function save() {
-    onSave({ ...(name.trim() === initialName ? {} : { name }), ...(cloud ? { mediaPath, syncMode } : {}) });
+    onSave({ ...(name.trim() === initialName ? {} : { name }), ...(cloud ? { mediaPath: trimSeparators(mediaPath), syncMode } : {}) });
     onClose();
   }
 
@@ -77,10 +81,10 @@
   </div>
 
   {#if cloud}
-    <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+    <div class="flex flex-col gap-1 text-xs text-muted-foreground">
       Media folder on this computer
-      <input class={field} bind:value={mediaPath} />
-    </label>
+      <FolderPicker bind:value={mediaPath} browse={browseFolders} listOnFocus label="Media folder" />
+    </div>
     <label class="flex flex-col gap-1 text-xs text-muted-foreground">
       Sync
       <select class={field} bind:value={syncMode}>

@@ -126,6 +126,8 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 - **Cloud:** a Blackmagic Cloud project, by its name and a folder for its media on this computer. Resolve can't list cloud projects to other apps, so if it's open in Resolve, use **Open in Resolve** instead.
 - **Folder:** a project folder from another computer, such as a teammate's edit history you cloned.
 
+Folder fields list the folders as you type, like T3 Code's **Add project**. Use ↑/↓ to choose a folder, and Enter or Tab to open it. Enter with no folder chosen picks the path you typed. Project folders are marked **Linker-Edit project**. The folders listed are on the computer running Linker-Edit, even when you use it from another one. In the desktop app on that computer, **Browse…** also opens the system's folder dialog.
+
 A project with no Resolve project yet links itself to the one open in Resolve with its first message. To link it to another one later, open that one in Resolve and use **Project settings**. Projects stay linked when you rename them in Resolve.
 
 Each project folder has a `linker-edit.json` that says which Resolve project it belongs to. It's committed with the edit history, so a teammate who clones it gets the link. What differs per computer, such as the database name and the cloud media folder, stays in `.linker-edit/local.json`, which Git ignores. Removing a project from Linker-Edit keeps its folder.
