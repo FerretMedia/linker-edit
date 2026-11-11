@@ -3,7 +3,6 @@ import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
-import { PROJECT_SWITCH_DENIED, type ToolDecision } from "./policy.ts";
 import type { SavedProject, SavedThread } from "./projects/store.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
@@ -64,7 +63,7 @@ function connected(project: string | null, projectId: string | null = null): Res
   };
 }
 
-type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects">> & {
+type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools">> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
 };
@@ -105,6 +104,7 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
     createHistory: options.history ? () => options.history! : undefined,
     preview: options.preview,
     resolveProjects: options.resolveProjects,
+    resolveTools: options.resolveTools,
   });
   const client = testClient();
   const disconnect = app.connect(client);
@@ -207,7 +207,7 @@ describe("app approvals", () => {
   async function awaitingApproval() {
     const answers: boolean[] = [];
     const harness = setup(async (sink) => {
-      answers.push(await sink.requestApproval("mcp__resolve__timeline", { action: "create_empty" }));
+      answers.push(await sink.requestApproval("mcp__linker__create_timeline", { name: "Cut" }));
     });
     harness.send({ type: "send", text: "build it" });
     await harness.client.until((state) => state.approvals.length > 0);
@@ -217,33 +217,51 @@ describe("app approvals", () => {
   it.each([true, false])("passes the user's answer (%s) to the provider", async (allow) => {
     const { client, send, turnDone, answers } = await awaitingApproval();
     const [request] = client.state.approvals;
-    expect(request).toMatchObject({ tool: "mcp__resolve__timeline", input: { action: "create_empty" } });
+    expect(request).toMatchObject({ tool: "mcp__linker__create_timeline", input: { name: "Cut" } });
     send({ type: "approve", id: request!.id, allow });
     await turnDone();
     expect(answers).toEqual([allow]);
     expect(client.state.approvals).toEqual([]);
   });
 
-  it("decides Resolve calls from Codex's guard in the thread working in Resolve", async () => {
-    const decisions: ToolDecision[] = [];
-    let call: App["resolveCall"] = () => Promise.reject(new Error("No app yet"));
-    const { app, client, send, turnDone } = setup(async () => {
-      decisions.push(await call("project_manager", { action: "delete", params: { name: "Wedding" } }));
-      decisions.push(await call("timeline", { action: "get_current" }));
-      decisions.push(await call("timeline", { action: "create_empty" }));
-    });
-    call = app.resolveCall;
-    expect(await app.resolveCall("timeline", { action: "create_empty" })).toMatchObject({ allow: false });
+  it("runs agents' Resolve tools for the thread working in Resolve, asking before changes", async () => {
+    const results: { text: string; isError: boolean; images?: string[] }[] = [];
+    const ran: string[] = [];
+    let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setupWith(
+      {
+        resolveTools: async (tool, input, dir) => {
+          ran.push(`${tool} in ${dir}`);
+          if (tool === "add_markers") throw new Error("Cut is not an AI timeline.");
+          return { text: JSON.stringify({ tool, input }), ...(tool === "list_timelines" ? { images: ["frame.jpg"] } : {}) };
+        },
+      },
+      async () => {
+        results.push(await call("list_timelines", {}));
+        results.push(await call("set_current_timeline", { timeline: "AI - Cut" }));
+        results.push(await call("create_timeline", { name: "Cut" }));
+        results.push(await call("add_markers", { timeline: "Cut", markers: [{ frame: 0 }] }));
+        results.push(await call("nope", {}));
+      },
+    );
+    call = app.resolveTool;
+    expect(await app.resolveTool("list_timelines", {})).toEqual({ text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true });
     send({ type: "send", text: "build it" });
     await client.until((state) => state.approvals.length > 0);
-    expect(client.state.approvals).toMatchObject([{ tool: "mcp__resolve__timeline", input: { action: "create_empty" } }]);
+    expect(client.state.approvals).toMatchObject([{ tool: "mcp__linker__create_timeline", input: { name: "Cut" } }]);
     send({ type: "approve", id: client.state.approvals[0]!.id, allow: false });
+    await client.until((state) => state.approvals.length > 0);
+    send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
     await turnDone();
-    expect(decisions).toEqual([
-      { allow: false, message: PROJECT_SWITCH_DENIED },
-      { allow: true },
-      { allow: false, message: "The user declined this action." },
+    expect(results).toEqual([
+      { text: JSON.stringify({ tool: "list_timelines", input: {} }), images: ["frame.jpg"], isError: false },
+      { text: JSON.stringify({ tool: "set_current_timeline", input: { timeline: "AI - Cut" } }), isError: false },
+      { text: "The user declined this action.", isError: true },
+      { text: "Cut is not an AI timeline.", isError: true },
+      { text: "There is no Resolve tool called nope.", isError: true },
     ]);
+    const dir = workspaceProject.dir;
+    expect(ran).toEqual([`list_timelines in ${dir}`, `set_current_timeline in ${dir}`, `add_markers in ${dir}`]);
   });
 
   it("allows pending approvals when switched to auto", async () => {
@@ -437,13 +455,13 @@ describe("app edit history", () => {
   it("saves before every turn and after a turn that changed Resolve, with what the agent did", async () => {
     const { app, client, send, turnDone, records, prompts, store, commits } = withHistory(
       async (sink) => {
-        sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty", params: { name: "AI - Cut" } }, status: "running" });
-        sink.upsert({ id: "r", kind: "tool", name: "mcp__resolve__timeline", input: { action: "list" }, status: "done" });
+        sink.upsert({ id: "w", kind: "tool", name: "mcp__linker__create_timeline", input: { name: "Cut" }, status: "running" });
+        sink.upsert({ id: "r", kind: "tool", name: "mcp__linker__list_timelines", input: {}, status: "done" });
         sink.upsert({ id: "w", status: "done" });
         sink.upsert({ id: "a", kind: "assistant", text: "Built AI - Cut." });
       },
       async (sink) => {
-        sink.upsert({ id: "r2", kind: "tool", name: "mcp__resolve__timeline", input: { action: "list" }, status: "done" });
+        sink.upsert({ id: "r2", kind: "tool", name: "mcp__linker__list_timelines", input: {}, status: "done" });
       },
     );
     await app.refreshResolve();
@@ -457,7 +475,7 @@ describe("app edit history", () => {
       {
         provider: "claude",
         prompt: "cut it",
-        actions: ['timeline.create_empty {"name":"AI - Cut"}'],
+        actions: ['create_timeline {"name":"Cut"}'],
         summary: "Built AI - Cut.",
         thread: client.state.threadId,
       },
@@ -480,7 +498,7 @@ describe("app edit history", () => {
 
   it("sends the history on request and to every client after each save", async () => {
     const { app, client, send, turnDone } = withHistory(async (sink) => {
-      sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "done" });
+      sink.upsert({ id: "w", kind: "tool", name: "mcp__linker__create_timeline", input: {}, status: "done" });
     });
     send({ type: "load_history" });
     await app.refreshResolve();
@@ -495,7 +513,7 @@ describe("app edit history", () => {
   ])("still saves a turn's Resolve changes after %s", async (_name, message) => {
     const { open, opened } = gate();
     const { app, client, send, allDone, records } = withHistory(async (sink) => {
-      sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "running" });
+      sink.upsert({ id: "w", kind: "tool", name: "mcp__linker__create_timeline", input: {}, status: "running" });
       await opened;
     });
     await app.refreshResolve();
@@ -504,7 +522,7 @@ describe("app edit history", () => {
     send(message(client.state.threadId!));
     open();
     await allDone();
-    expect(records.at(-1)).toMatchObject({ prompt: "cut it", actions: ["timeline.create_empty"] });
+    expect(records.at(-1)).toMatchObject({ prompt: "cut it", actions: ["create_timeline"] });
   });
 });
 
@@ -532,7 +550,7 @@ describe("app preview", () => {
         history: fakeHistory(),
       },
       async (sink) => {
-        sink.upsert({ id: "w", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty" }, status: "done" });
+        sink.upsert({ id: "w", kind: "tool", name: "mcp__linker__create_timeline", input: {}, status: "done" });
       },
     );
     await app.refreshResolve();

@@ -34,16 +34,14 @@ describe("Claude session", () => {
     const { sink, approvals, items } = collectingSink();
     await session(replayQuery(TURN, 0)).send("check", sink, signal());
 
-    expect(approvals.map(({ tool, input }) => [tool, (input as { action?: string }).action])).toEqual([
-      ["mcp__resolve__resolve_control", "runtime_mode"],
-      ["Write", undefined],
-    ]);
+    // Linker-Edit's own tools never ask here: the Linker-Edit server asks for their changes itself.
+    expect(approvals.map(({ tool }) => tool)).toEqual(["mcp__resolve__run_script", "Write"]);
     const tools = items().filter((item) => item.kind === "tool");
     expect(tools.map((tool) => [tool.name, tool.status])).toEqual([
       ["ToolSearch", "done"],
-      ["mcp__resolve__resolve_control", "done"],
-      ["mcp__resolve__project_manager", "done"],
-      ["mcp__resolve__timeline", "done"],
+      ["mcp__resolve__run_script", "done"],
+      ["mcp__linker__list_timelines", "done"],
+      ["mcp__linker__get_timeline", "done"],
       ["Glob", "done"],
       ["Write", "done"],
     ]);
@@ -61,20 +59,26 @@ describe("Claude session", () => {
     });
   });
 
-  it("never lets the agent switch Resolve projects, even in auto mode", async () => {
+  it("always asks before a Resolve script, refuses forbidden ones and Resolve's dangerous tools, even in auto mode", async () => {
     const { calls, runQuery } = scripted([]);
-    await session(runQuery, "auto").send("go", collectingSink().sink, signal());
+    const { sink, approvals } = collectingSink();
+    await session(runQuery, "auto").send("go", sink, signal());
     const canUseTool = calls[0]!.options.canUseTool!;
-    const ask = (tool: string, action: string) =>
-      canUseTool(tool, { action }, { signal: signal(), suggestions: [], toolUseID: "t" } as unknown as Parameters<typeof canUseTool>[2]);
-    expect(await ask("mcp__resolve__project_manager", "load")).toMatchObject({ behavior: "deny" });
-    expect(await ask("mcp__resolve__project_manager", "get_current")).toMatchObject({ behavior: "allow" });
+    const ask = (tool: string, input: Record<string, unknown>) =>
+      canUseTool(tool, input, { signal: signal(), suggestions: [], toolUseID: "t" } as unknown as Parameters<typeof canUseTool>[2]);
+    expect(await ask("mcp__resolve__run_script", { script: "result = project.GetName()" })).toMatchObject({ behavior: "allow" });
+    expect(approvals.map(({ tool }) => tool)).toEqual(["mcp__resolve__run_script"]);
+    expect(await ask("mcp__resolve__run_script", { script: 'resolve.GetProjectManager().LoadProject("Other")' })).toMatchObject({ behavior: "deny" });
+    expect(await ask("mcp__resolve__run_script_unsafe", { script: "x = 1" })).toMatchObject({ behavior: "deny" });
+    expect(await ask("mcp__resolve__search_scripting_api", { pattern: "Marker" })).toMatchObject({ behavior: "allow" });
+    expect(approvals).toHaveLength(1);
+    expect(calls[0]!.options.disallowedTools).toContain("mcp__resolve__run_script_unsafe");
   });
 
-  it("asks nothing in auto mode", async () => {
+  it("asks only before Resolve scripts in auto mode", async () => {
     const { sink, approvals } = collectingSink();
     await session(replayQuery(TURN, 0), "auto").send("check", sink, signal());
-    expect(approvals).toEqual([]);
+    expect(approvals.map(({ tool }) => tool)).toEqual(["mcp__resolve__run_script"]);
   });
 
   it("resumes the recorded session on the next turn", async () => {
@@ -90,8 +94,8 @@ describe("Claude session", () => {
     expect(seen.map((options) => options.resume)).toEqual([undefined, init!.session_id]);
     expect(claude.resumeId()).toBe(init!.session_id);
     expect(seen[0]!.mcpServers).toEqual({
-      resolve: { type: "stdio", command: testConfig.resolveMcp.python, args: [testConfig.resolveMcp.serverScript], env: testConfig.resolveMcp.env },
-      linker: { type: "stdio", ...linkerMcpCommand(testConfig) },
+      resolve: { type: "stdio", command: testConfig.resolveMcp.command, args: [] },
+      linker: { type: "stdio", ...linkerMcpCommand(testConfig), alwaysLoad: true },
     });
   });
 
@@ -139,11 +143,17 @@ describe("Claude session", () => {
     const [matcher] = hooks!.PostToolUse!;
     expect(matcher!.matcher).toBe("mcp__resolve__.*");
     const hook = (tool_response: unknown) =>
-      matcher!.hooks[0]!({ hook_event_name: "PostToolUse", tool_name: "mcp__resolve__timeline", tool_input: {}, tool_response, tool_use_id: "t", session_id: "s", transcript_path: "", cwd: "" }, "t", { signal: signal() });
+      matcher!.hooks[0]!({ hook_event_name: "PostToolUse", tool_name: "mcp__resolve__run_script", tool_input: {}, tool_response, tool_use_id: "t", session_id: "s", transcript_path: "", cwd: "" }, "t", { signal: signal() });
     expect(await hook([{ type: "text", text: "{}" }])).toEqual({});
     const long = JSON.stringify({ items: Array.from({ length: 2000 }, (_, i) => ({ name: `clip ${i}` })) });
     const output = (await hook([{ type: "text", text: long }])) as { hookSpecificOutput: { updatedToolOutput: { text: string }[] } };
     expect(output.hookSpecificOutput.updatedToolOutput[0]!.text).toContain("1950 more items left out");
+  });
+
+  it("leaves Resolve's own MCP server out when this computer has none", async () => {
+    const { calls, runQuery } = scripted([]);
+    await createClaudeSession({ ...testConfig, resolveMcp: { command: null } }, () => "ask", { runQuery }).send("go", collectingSink().sink, signal());
+    expect(Object.keys(calls[0]!.options.mcpServers!)).toEqual(["linker"]);
   });
 
   it("reports a Resolve MCP that failed to start and a turn that ended badly", async () => {

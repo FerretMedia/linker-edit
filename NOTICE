@@ -27,9 +27,10 @@ adapted from T3 Code under the MIT License:
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
-Linker-Edit connects to DaVinci Resolve through davinci-resolve-mcp
-(https://github.com/samuelgursky/davinci-resolve-mcp), licensed under the MIT License.
-It is run as a separate process and not distributed with Linker-Edit.
+Linker-Edit connects to DaVinci Resolve through the MCP server (ResolveMCP) that
+Blackmagic Design ships with DaVinci Resolve Studio. It is proprietary software of
+Blackmagic Design; Linker-Edit starts the copy installed with Resolve as a separate
+process and does not distribute it.
 
 DaVinci Resolve is a trademark of Blackmagic Design Pty. Ltd. Linker-Edit is not
 affiliated with or endorsed by Blackmagic Design or T3 Tools Inc.

@@ -1,30 +1,38 @@
 import type { ClipChange, CloudSyncMode, Provider, ResolveLink } from "#shared/protocol.ts";
 
+// Resolve's own MCP server, and Linker-Edit's, whose tools other than transcribe all work in Resolve.
 const RESOLVE_PREFIX = "mcp__resolve__";
+const LINKER_PREFIX = "mcp__linker__";
 
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 
-export const isResolveTool = (name: string) => name.startsWith(RESOLVE_PREFIX);
+export const isResolveTool = (name: string) =>
+  name.startsWith(RESOLVE_PREFIX) || (name.startsWith(LINKER_PREFIX) && name !== `${LINKER_PREFIX}transcribe`);
 
-/** "mcp__resolve__timeline" + {action: "list"} → "timeline.list"; other tools keep their name. */
-export function toolLabel(name: string, input: unknown): string {
-  if (!isResolveTool(name)) return name;
-  const action = (input as { action?: unknown } | null)?.action;
-  return `${name.slice(RESOLVE_PREFIX.length)}${typeof action === "string" ? `.${action}` : ""}`;
+const isScript = (name: string, input: unknown): input is { script: string } =>
+  name === `${RESOLVE_PREFIX}run_script` && typeof (input as { script?: unknown } | null)?.script === "string";
+
+/** "mcp__linker__create_timeline" → "create_timeline"; other tools keep their name. */
+export function toolLabel(name: string, _input: unknown): string {
+  return isResolveTool(name) ? name.slice(name.indexOf("__", 5) + 2) : name;
 }
 
 /** The one-line detail shown after a tool's label. */
 export function toolSummary(name: string, input: unknown): string {
   if (input === null || typeof input !== "object") return "";
-  const record = input as Record<string, unknown>;
-  if (isResolveTool(name)) {
-    return record.params && typeof record.params === "object" ? compactJson(record.params) : "";
+  if (isScript(name, input)) {
+    return input.script.split("\n").find((line) => line.trim() && !line.trim().startsWith("#"))?.trim() ?? "";
   }
+  const record = input as Record<string, unknown>;
+  if (isResolveTool(name)) return compactJson(record);
   for (const key of ["command", "file_path", "path", "pattern", "query", "url", "description"]) {
     if (typeof record[key] === "string") return record[key];
   }
   return "";
 }
+
+/** What an approval shows: a script as code, anything else as JSON. */
+export const approvalDetail = (name: string, input: unknown) => (isScript(name, input) ? input.script : formatJson(input));
 
 function compactJson(value: unknown): string {
   const text = JSON.stringify(value);

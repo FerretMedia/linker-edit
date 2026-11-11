@@ -1,12 +1,10 @@
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { ResolveError } from "./resolve/connection.ts";
+import { fakeConnection, hasPython, pythonConnection } from "./resolve/testing.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
-
-const PYTHON = process.platform === "win32" ? "python" : "python3";
-const hasPython = spawnSync(PYTHON, ["--version"]).status === 0;
 
 // Stands in for Resolve's scripting module: a Project Manager over folder trees from a JSON file,
 // logging every call that changes something.
@@ -92,7 +90,6 @@ const TEAM = { DbType: "PostgreSQL", DbName: "Team", IpAddress: "10.0.0.5" };
 
 function fakeResolve(state: Record<string, unknown>) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-fake-resolve-"));
-  fs.writeFileSync(path.join(dir, "DaVinciResolveScript.py"), FAKE_MODULE);
   const stateFile = path.join(dir, "state.json");
   fs.writeFileSync(
     stateFile,
@@ -110,7 +107,7 @@ function fakeResolve(state: Record<string, unknown>) {
       ...state,
     }),
   );
-  const projects = createResolveProjects({ python: PYTHON, serverScript: "", env: { PYTHONPATH: dir, FAKE_RESOLVE: stateFile } });
+  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }));
   const calls = () =>
     fs.existsSync(`${stateFile}.log`)
       ? fs
@@ -190,5 +187,21 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
       ["SetCurrentDatabase", LOCAL],
       ["LoadProject", [], "Promo"],
     ]);
+  });
+});
+
+describe("opening a project that takes longer than a script may run", () => {
+  it("waits for Resolve to show it open", async () => {
+    let polls = 0;
+    const { connection } = fakeConnection({
+      script: (name) => {
+        if (name === "open_project") throw new ResolveError("timeout", "Script timed out after 60s.");
+        polls += 1;
+        return { project: polls < 3 ? "Promo" : "Client X", projectId: polls < 3 ? "promo-id" : "cx-id", database: null };
+      },
+    });
+    const opened = await createResolveProjects(connection, 1).open({ kind: "cloud", name: "Client X", projectId: "cx-id" }, { mediaPath: "D:/Cloud" });
+    expect(opened).toEqual({ project: { name: "Client X", id: "cx-id" }, database: null, folder: null });
+    expect(polls).toBe(3);
   });
 });

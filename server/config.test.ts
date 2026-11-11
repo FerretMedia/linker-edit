@@ -12,18 +12,11 @@ function configFile(contents: string): string {
 }
 
 describe("loadConfig", () => {
-  it("gives a venv Python its base interpreter's home on Windows, and lets env override defaults", () => {
-    const venv = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-venv-"));
-    fs.mkdirSync(path.join(venv, "Scripts"));
-    fs.writeFileSync(path.join(venv, "pyvenv.cfg"), "home = C:\\Python312 \nversion = 3.12.4\n");
-    const python = path.join(venv, "Scripts", "python.exe");
-    const file = configFile(JSON.stringify({ python, env: { RESOLVE_SCRIPT_API: "D:\\Scripting" } }));
-
-    expect(loadConfig(file, "win32").resolveMcp.env).toMatchObject({
-      PYTHONHOME: "C:\\Python312",
-      RESOLVE_SCRIPT_API: "D:\\Scripting",
-    });
-    expect(loadConfig(file, "linux").resolveMcp.env).not.toHaveProperty("PYTHONHOME");
+  it("finds Resolve's own MCP server, unless the config names one", () => {
+    expect(loadConfig(configFile("{}"), () => "C:/Resolve/ResolveMCP.exe").resolveMcp).toEqual({ command: "C:/Resolve/ResolveMCP.exe" });
+    expect(loadConfig(configFile("{}"), () => null).resolveMcp).toEqual({ command: null });
+    const file = configFile(JSON.stringify({ resolveMcp: "D:/Resolve/ResolveMCP.exe" }));
+    expect(loadConfig(file, () => "C:/Resolve/ResolveMCP.exe").resolveMcp).toEqual({ command: "D:/Resolve/ResolveMCP.exe" });
   });
 
   it("names the file when it isn't valid JSON", () => {

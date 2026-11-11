@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { createInterface } from "node:readline";
-import { APP_ROOT, type ResolveMcpConfig } from "../config.ts";
+import type { ResolveConnection } from "../resolve/connection.ts";
+import { renderTimeline } from "../resolve/render.ts";
 
-/** What render.py prints, one per line. */
+/** What a render reports as it goes. */
 export type PreviewEvent =
   | { event: "start"; timeline: { id: string; name: string } }
   | { event: "progress"; percent: number }
@@ -18,42 +17,34 @@ export interface PreviewRenderer {
   file(name: string): string | null;
 }
 
-const SCRIPT = path.join(APP_ROOT, "server", "preview", "render.py");
 const PREVIEW_FILE = /^preview-\d+\.mp4$/;
 
-export function createPreviewRenderer(options: { dir: string; mcp: ResolveMcpConfig }): PreviewRenderer {
-  const { dir, mcp } = options;
+/** A small MP4 of a timeline for the preview panel, rendered by Resolve. */
+export function createPreviewRenderer(options: { dir: string; connection: ResolveConnection; pollMs?: number }): PreviewRenderer {
+  const { dir, connection, pollMs = 500 } = options;
   return {
     render(timelineId, onEvent) {
-      // One preview at a time: the last one goes once a new render starts.
-      fs.mkdirSync(dir, { recursive: true });
-      for (const name of fs.readdirSync(dir)) {
-        if (PREVIEW_FILE.test(name)) fs.rmSync(path.join(dir, name), { force: true });
-      }
-      const child = spawn(mcp.python, [SCRIPT, dir, `preview-${Date.now()}`, ...(timelineId ? [timelineId] : [])], {
-        windowsHide: true,
-        env: { ...process.env, ...mcp.env },
-      });
-      let finished = false;
-      const finish = (event: PreviewEvent) => {
-        if (finished) return;
-        if (event.event === "done" || event.event === "error") finished = true;
-        onEvent(event);
-      };
-      createInterface({ input: child.stdout }).on("line", (line) => {
-        try {
-          finish(JSON.parse(line) as PreviewEvent);
-        } catch {
-          // Resolve's scripting module prints warnings of its own.
+      try {
+        // One preview at a time: the last one goes once a new render starts.
+        fs.mkdirSync(dir, { recursive: true });
+        for (const name of fs.readdirSync(dir)) {
+          if (PREVIEW_FILE.test(name)) fs.rmSync(path.join(dir, name), { force: true });
         }
-      });
-      child.on("error", (error) => finish({ event: "error", message: error.message }));
-      child.on("close", () => finish({ event: "error", message: "The preview render stopped without a result." }));
-      return {
-        stop() {
-          if (!finished) child.stdin.write("stop\n");
+      } catch (error) {
+        queueMicrotask(() => onEvent({ event: "error", message: error instanceof Error ? error.message : String(error) }));
+        return { stop() {} };
+      }
+      const job = renderTimeline(
+        connection,
+        { timelineId, dir, name: `preview-${Date.now()}`, format: "mp4", maxWidth: 960, audio: true, video: true },
+        (event) => {
+          if (event.event === "done") onEvent({ event: "done", file: event.file });
+          else if (event.event === "error" && event.stopped) onEvent({ event: "error", message: "Preview stopped.", stopped: true });
+          else onEvent(event);
         },
-      };
+        pollMs,
+      );
+      return { stop: job.stop };
     },
     file(name) {
       const file = path.join(dir, name);

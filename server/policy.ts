@@ -1,4 +1,5 @@
 import type { ApprovalMode } from "../shared/protocol.ts";
+import { findResolveTool } from "./resolve/tools.ts";
 import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "./rules.ts";
 
 const READ_ONLY_TOOLS = new Set([
@@ -14,22 +15,39 @@ const READ_ONLY_TOOLS = new Set([
   "ReadMcpResourceTool",
 ]);
 
-// davinci-resolve-mcp tools are compound: (action, params), and its annotations are per tool, not per
-// action. Read actions start with a read verb or end in a report noun ("project_summary").
-const READ_ACTION =
-  /^(get|list|find|search|describe|inspect|info|status|summary|summarize|count|is|has|probe|check|read|lookup|help|current|query|show|validate|verify|diff|compare|lint|plan|propose)(_|$)|^(?!(commit|export|save|set|create|add|apply|update|clear|delete|remove)_)(.+_)?(capabilities|report|summary|status|inventory|audit|stats|context)$/i;
+const LINKER_PREFIX = `mcp__${LINKER_MCP_NAME}__`;
+const RESOLVE_PREFIX = `mcp__${RESOLVE_MCP_NAME}__`;
 
-// A read verb up front doesn't make an action safe: "probe_interchange_roundtrip" imports a timeline
-// and "probe_dctl_lifecycle" installs an extension. get_ and list_ are trusted as plain getters.
-const WRITE_WORD =
-  /(^|_)(lifecycle|roundtrip|install|uninstall|remove|delete|create|apply|import|commit|save|write|rename|replace|insert|duplicate|relink|reset|restore|execute|publish|move|set|add|clear)(_|$)/i;
+/** Resolve's own MCP tools that only read: its scripting API and docs, and the LUTs and DCTLs it has. */
+const RESOLVE_READS = new Set([
+  "get_resolve_status",
+  "get_whats_new",
+  "get_scripting_api",
+  "search_scripting_api",
+  "get_scripting_docs",
+  "list_luts",
+  "list_dctls",
+]);
 
-export function isReadAction(action: string): boolean {
-  if (/^(get|list)(_|$)/i.test(action)) return true;
-  return READ_ACTION.test(action) && !WRITE_WORD.test(action);
+/** Resolve's own MCP tools that write files only into Resolve's LUT folder, after the user's OK. */
+const RESOLVE_LOOK_WRITES = new Set(["update_dctl", "generate_lut"]);
+
+/** The escape hatch: any Python against Resolve. Always asks, even in "auto" mode, and shows the script. */
+export const RUN_SCRIPT = "run_script";
+
+/**
+ * Resolve's own MCP tools agents never get: scripts with full system access, deleting LUTs, and starting
+ * Resolve. Unknown tools from a newer Resolve land here too, until they're reviewed.
+ */
+export function isDeniedResolveTool(tool: string): boolean {
+  return !RESOLVE_READS.has(tool) && !RESOLVE_LOOK_WRITES.has(tool) && tool !== RUN_SCRIPT;
 }
 
-const RESOLVE_PREFIX = `mcp__${RESOLVE_MCP_NAME}__`;
+/** Codex has no per-call hook, so it gets only Resolve's read tools; these are switched off for it. */
+export const CODEX_DISABLED_RESOLVE_TOOLS = ["run_script", "run_script_unsafe", "update_dctl", "generate_lut", "delete_dctl", "delete_lut", "launch_resolve"];
+
+/** For Claude's tool list: the tools of Resolve's own MCP server it never gets. */
+export const CLAUDE_DISALLOWED_RESOLVE_TOOLS = ["run_script_unsafe", "delete_dctl", "delete_lut", "launch_resolve"].map((tool) => `${RESOLVE_PREFIX}${tool}`);
 
 // Reading the edit history: plain or quoted arguments only, so no chaining, substitution or redirects.
 const GIT_READ = /^git[ \t]+(log|show|diff|status)([ \t]+("[^"$`\\]*"|'[^']*'|[^\s;&|<>`$()"'\\])+)*$/;
@@ -39,57 +57,55 @@ function isGitRead(command: string): boolean {
   return GIT_READ.test(command.trim()) && !command.includes("--output");
 }
 
+/**
+ * Does this tool call change the open Resolve project? True for Linker-Edit's write tools and Resolve's
+ * run_script, which can do anything. These are the calls the edit history lists after a turn.
+ */
+export function isResolveWrite(toolName: string): boolean {
+  if (toolName.startsWith(LINKER_PREFIX)) return findResolveTool(toolName.slice(LINKER_PREFIX.length))?.kind === "write";
+  return toolName === `${RESOLVE_PREFIX}${RUN_SCRIPT}`;
+}
+
 /** In "ask" mode: does this tool call need the user's OK before it runs? */
 export function needsApproval(toolName: string, input: Record<string, unknown>): boolean {
   if (READ_ONLY_TOOLS.has(toolName)) return false;
-  // Transcribing reads media and writes only to Linker-Edit's own transcript folder.
-  if (toolName === `mcp__${LINKER_MCP_NAME}__transcribe`) return false;
+  // The Linker-Edit server asks for its own tools' writes itself, for every agent alike.
+  if (toolName.startsWith(LINKER_PREFIX)) return false;
+  if (toolName.startsWith(RESOLVE_PREFIX)) return !RESOLVE_READS.has(toolName.slice(RESOLVE_PREFIX.length));
   // Claude Code on Windows runs shell commands through PowerShell instead of Bash.
   const shell = toolName === "Bash" || toolName === "PowerShell";
   if (shell && typeof input.command === "string" && isGitRead(input.command)) return false;
-  if (toolName.startsWith(RESOLVE_PREFIX)) {
-    const tool = toolName.slice(RESOLVE_PREFIX.length);
-    if (tool === "knowledge") return false;
-    const action = typeof input.action === "string" ? input.action : "";
-    return !isReadAction(action);
-  }
   return true;
 }
 
-// Each thread belongs to one Resolve project, so only the user switches projects, in Linker-Edit.
-const PROJECT_SWITCHES: Record<string, ReadonlySet<string> | "all"> = {
-  project_manager: new Set(["create", "load", "close", "delete", "import_project", "restore"]),
-  project_manager_cloud: "all",
-  project_manager_database: new Set(["set_current"]),
-};
+// What scripts may not do through run_script either: each thread belongs to one Resolve project, which
+// only the user switches, in Linker-Edit; and media, bins, timelines and projects are never deleted.
+const FORBIDDEN_CALLS =
+  /\b(LoadProject|LoadCloudProject|CloseProject|CreateProject|CreateCloudProject|DeleteProject|ImportProject|ImportCloudProject|RestoreProject|RestoreCloudProject|ArchiveProject|SetCurrentDatabase|DeleteTimelines|DeleteFolders|DeleteClips|DeleteClipMattes|Quit)\s*\(/;
 
-/**
- * Resolve MCP tools Codex doesn't get at all: it has no per-call hook to deny only their switching
- * actions. project_manager stays for its reads; the rules and the save after a turn cover its loads.
- */
-export const CODEX_DISABLED_RESOLVE_TOOLS = ["project_manager_cloud", "project_manager_database"];
-
-export const PROJECT_SWITCH_DENIED =
-  "Linker-Edit doesn't let agents open, close, create or switch Resolve projects or databases. Ask the user to switch projects in Linker-Edit's sidebar.";
-
-/** Would this call open, close or switch Resolve's project or database? Denied in every mode. */
-export function isProjectSwitch(toolName: string, input: Record<string, unknown>): boolean {
-  if (!toolName.startsWith(RESOLVE_PREFIX)) return false;
-  const actions = PROJECT_SWITCHES[toolName.slice(RESOLVE_PREFIX.length)];
-  if (!actions) return false;
-  return actions === "all" || (typeof input.action === "string" && actions.has(input.action));
-}
+export const FORBIDDEN_SCRIPT =
+  "Linker-Edit doesn't let scripts open, close, create or switch Resolve projects or databases, or delete media, bins or timelines. Use the linker tools (remove_clips takes clips off an AI timeline), or ask the user to switch projects in Linker-Edit's sidebar.";
 
 export type ToolDecision = { allow: true } | { allow: false; message: string };
 
-/** One policy for every provider: project switches are denied, and in "ask" mode changes wait for the user. */
+/**
+ * One policy for every agent. Denied tools and forbidden scripts are refused; run_script always waits for
+ * the user's OK; other changes wait for it in "ask" mode.
+ */
 export async function decideToolCall(
   toolName: string,
   input: Record<string, unknown>,
   mode: ApprovalMode,
   ask: () => Promise<boolean>,
 ): Promise<ToolDecision> {
-  if (isProjectSwitch(toolName, input)) return { allow: false, message: PROJECT_SWITCH_DENIED };
+  if (toolName.startsWith(RESOLVE_PREFIX)) {
+    const tool = toolName.slice(RESOLVE_PREFIX.length);
+    if (isDeniedResolveTool(tool)) return { allow: false, message: `Linker-Edit doesn't let agents use ${tool}.` };
+    if (tool === RUN_SCRIPT) {
+      if (typeof input.script === "string" && FORBIDDEN_CALLS.test(input.script)) return { allow: false, message: FORBIDDEN_SCRIPT };
+      return (await ask()) ? { allow: true } : { allow: false, message: "The user declined this script." };
+    }
+  }
   if (mode === "ask" && needsApproval(toolName, input) && !(await ask())) {
     return { allow: false, message: "The user declined this action." };
   }

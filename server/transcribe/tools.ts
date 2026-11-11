@@ -123,11 +123,17 @@ const MISSING_WHISPER =
     ? "Install whisper.cpp with `brew install whisper-cpp`, or set whisperCli in linker-edit.config.json."
     : "Install whisper.cpp so `whisper-cli` is on PATH, or set whisperCli in linker-edit.config.json.";
 
-/** Finds or downloads ffmpeg, whisper.cpp and its models. The first run downloads about 1.5 GB on Windows. */
-export async function prepareTools(dir: string, override: string | undefined, onProgress: SetupProgress): Promise<WhisperTools> {
+/** The ffmpeg Linker-Edit ships, or one on PATH. */
+export function findFfmpeg(): string {
   // ffmpeg-static downloads its binary in an install script, which npm can be set to skip.
   const ffmpeg = ffmpegPath && fs.existsSync(ffmpegPath) ? ffmpegPath : findOnPath("ffmpeg");
   if (!ffmpeg) throw new Error("ffmpeg is missing. Reinstall Linker-Edit, or install ffmpeg so it's on your PATH.");
+  return ffmpeg;
+}
+
+/** Finds or downloads ffmpeg, whisper.cpp and its models. The first run downloads about 1.5 GB on Windows. */
+export async function prepareTools(dir: string, override: string | undefined, onProgress: SetupProgress): Promise<WhisperTools> {
+  const ffmpeg = findFfmpeg();
   let whisperCli = override ?? null;
   let device = "";
   if (!whisperCli && process.platform === "win32" && process.arch === "x64") {

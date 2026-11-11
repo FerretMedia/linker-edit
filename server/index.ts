@@ -11,6 +11,8 @@ import { createClaudeSession } from "./providers/claude.ts";
 import { createCodexSession } from "./providers/codex.ts";
 import { replayQuery } from "./providers/replay.ts";
 import { createRemoteAccess } from "./remote.ts";
+import { createResolveConnection } from "./resolve/connection.ts";
+import { runResolveTool } from "./resolve/run.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
@@ -23,6 +25,10 @@ const config = loadConfigOrExit();
 // Set to a recorded Claude turn (JSONL) to replay it instead of calling Claude: free turns for UI work.
 const replay = process.env.LINKER_EDIT_REPLAY;
 if (replay) console.log(`Replaying ${replay} instead of calling Claude`);
+
+// The one connection to Resolve, through the MCP server Resolve Studio comes with.
+const resolve = createResolveConnection({ command: config.resolveMcp.command });
+process.on("exit", () => resolve.close());
 
 const remote = createRemoteAccess({ port: config.port, servePort: config.tailscalePort });
 // The browser comes back to this server after signing in at Linker.
@@ -37,13 +43,14 @@ const app = createApp({
       ? createCodexSession(projectConfig, resumeId)
       : createClaudeSession(projectConfig, approvalMode, { runQuery: replay ? replayQuery(replay) : query, resumeId });
   },
-  checkResolve: () => checkResolve(config.resolveMcp),
+  checkResolve: () => checkResolve(resolve),
   // A replayed turn never touched Resolve, so there is nothing to save.
   createHistory: replay
     ? undefined
-    : (dir, checkProject) => createHistory({ dir, readSnapshot: () => readResolveSnapshot(config.resolveMcp), checkProject }),
-  preview: createPreviewRenderer({ dir: config.previewDir, mcp: config.resolveMcp }),
-  resolveProjects: createResolveProjects(config.resolveMcp),
+    : (dir, checkProject) => createHistory({ dir, readSnapshot: () => readResolveSnapshot(resolve), checkProject }),
+  preview: createPreviewRenderer({ dir: config.previewDir, connection: resolve }),
+  resolveProjects: createResolveProjects(resolve),
+  resolveTools: (tool, input, dir) => runResolveTool(resolve, tool, input, { dir }),
   prepareFolder: prepareWorkspace,
   transcriber: createTranscriber({
     dir: config.transcriptsDir,

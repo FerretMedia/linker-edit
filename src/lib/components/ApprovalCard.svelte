@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ShieldAlert } from "@lucide/svelte";
   import type { ApprovalRequest } from "#shared/protocol.ts";
-  import { formatJson, isResolveTool, toolLabel } from "#lib/labels.ts";
+  import { approvalDetail, isResolveTool, toolLabel } from "#lib/labels.ts";
 
   let { request, onAnswer }: { request: ApprovalRequest; onAnswer: (allow: boolean) => void } = $props();
 </script>
@@ -15,7 +15,8 @@
     </span>
   </div>
   <pre
-    class="mt-2 ms-6 max-h-40 overflow-auto font-mono text-xs leading-5 whitespace-pre-wrap text-muted-foreground select-text">{formatJson(
+    class="mt-2 ms-6 max-h-64 overflow-auto font-mono text-xs leading-5 whitespace-pre-wrap text-muted-foreground select-text">{approvalDetail(
+      request.tool,
       request.input,
     )}</pre>
   <div class="mt-3 flex justify-end gap-2">

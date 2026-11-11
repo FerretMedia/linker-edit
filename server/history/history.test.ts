@@ -178,9 +178,13 @@ describe("edit history", () => {
 
 describe("resolveWriteAction", () => {
   it.each([
-    ["mcp__resolve__timeline", { action: "create_empty", params: { name: "AI - Cut" } }, 'timeline.create_empty {"name":"AI - Cut"}'],
-    ["mcp__resolve__timeline", { action: "set_current" }, "timeline.set_current"],
-    ["mcp__resolve__timeline", { action: "list" }, null],
+    ["mcp__linker__create_timeline", { name: "Cut" }, 'create_timeline {"name":"Cut"}'],
+    ["mcp__linker__add_markers", {}, "add_markers"],
+    ["mcp__linker__get_timeline", { timeline: "AI - Cut" }, null],
+    ["mcp__linker__set_current_timeline", { timeline: "AI - Cut" }, null],
+    ["mcp__linker__transcribe", { files: ["a.mov"] }, null],
+    ["mcp__resolve__run_script", { script: "x = 1" }, 'run_script {"script":"x = 1"}'],
+    ["mcp__resolve__search_scripting_api", { pattern: "Marker" }, null],
     ["Write", { file_path: "notes.md" }, null],
     [undefined, {}, null],
   ])("%s %j → %s", (tool, input, expected) => {

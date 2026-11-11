@@ -6,7 +6,9 @@ test("a turn streams in, waits for each change to be approved, and finishes", as
   await page.getByRole("button", { name: "Send" }).click();
 
   const approval = page.getByText(/^Allow (Resolve|tool):/).locator("..");
-  await expect(approval).toHaveText(/Allow Resolve:\s*resolve_control\.runtime_mode/);
+  // A script through Resolve's own run_script always asks, and shows the script itself.
+  await expect(approval).toHaveText(/Allow Resolve:\s*run_script/);
+  await expect(page.locator("pre").filter({ hasText: "result = resolve.GetVersionString()" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Allow", exact: true }).click();
 
   await expect(approval).toHaveText(/Allow tool:\s*Write/);

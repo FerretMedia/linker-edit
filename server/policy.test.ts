@@ -1,7 +1,6 @@
-import * as fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "./config.ts";
-import { isProjectSwitch, isReadAction, needsApproval } from "./policy.ts";
+import { decideToolCall, FORBIDDEN_SCRIPT, isResolveWrite, needsApproval } from "./policy.ts";
+import { RESOLVE_TOOLS } from "./resolve/tools.ts";
 
 describe("needsApproval", () => {
   it.each([
@@ -27,68 +26,72 @@ describe("needsApproval", () => {
     ["Edit", {}, true],
     ["Agent", {}, true],
     // Other MCP servers are never trusted as reads.
-    ["mcp__gmail__search_threads", { action: "list" }, true],
-    ["mcp__linker__transcribe", { files: ["D:\\Footage\\interview.mov"] }, false],
-    // Resolve: the action decides.
-    ["mcp__resolve__knowledge", { action: "anything" }, false],
-    ["mcp__resolve__timeline", { action: "list" }, false],
-    ["mcp__resolve__project_manager", { action: "get_current" }, false],
-    ["mcp__resolve__project_settings", { action: "project_summary" }, false],
-    ["mcp__resolve__edit_engine", { action: "plan_silence_ripple" }, false],
-    ["mcp__resolve__timeline", { action: "create_empty" }, true],
-    ["mcp__resolve__timeline", { action: "set_current" }, true],
-    ["mcp__resolve__timeline", { action: "delete" }, true],
-    ["mcp__resolve__timeline", { action: "export_report" }, true],
-    ["mcp__resolve__timeline", {}, true],
-    ["mcp__resolve__timeline", { action: 42 }, true],
-    // A read verb up front, but the action writes.
-    ["mcp__resolve__timeline", { action: "probe_interchange_roundtrip" }, true],
-    ["mcp__resolve__script_plugin", { action: "probe_dctl_lifecycle" }, true],
-    ["mcp__resolve__script_plugin", { action: "check_and_install" }, true],
-    ["mcp__resolve__timeline", { action: "rename_timeline_report" }, true],
+    ["mcp__gmail__search_threads", {}, true],
+    // Linker-Edit's own tools: the server asks for their changes, so the agent's hook never does.
+    ["mcp__linker__create_timeline", { name: "Cut" }, false],
+    ["mcp__linker__transcribe", { files: [] }, false],
+    // Resolve's own server: its docs run unasked, anything else asks.
+    ["mcp__resolve__search_scripting_api", { pattern: "Marker" }, false],
+    ["mcp__resolve__get_scripting_docs", {}, false],
+    ["mcp__resolve__generate_lut", {}, true],
+    ["mcp__resolve__run_script", { script: "x = 1" }, true],
+    ["mcp__resolve__something_new", {}, true],
   ])("%s %j → %s", (tool, input, expected) => {
     expect(needsApproval(tool, input)).toBe(expected);
   });
 });
 
-describe("isProjectSwitch", () => {
-  it.each([
-    ["mcp__resolve__project_manager", { action: "load" }, true],
-    ["mcp__resolve__project_manager", { action: "close" }, true],
-    ["mcp__resolve__project_manager", { action: "create" }, true],
-    ["mcp__resolve__project_manager_cloud", { action: "load" }, true],
-    ["mcp__resolve__project_manager_cloud", {}, true],
-    ["mcp__resolve__project_manager_database", { action: "set_current" }, true],
-    ["mcp__resolve__project_manager", { action: "get_current" }, false],
-    ["mcp__resolve__project_manager", { action: "save" }, false],
-    ["mcp__resolve__project_manager_database", { action: "list" }, false],
-    ["mcp__resolve__timeline", { action: "load" }, false],
-    ["mcp__other__project_manager", { action: "load" }, false],
-  ])("%s %j → %s", (tool, input, expected) => {
-    expect(isProjectSwitch(tool, input)).toBe(expected);
+describe("isResolveWrite", () => {
+  it("lists Linker-Edit's write tools and Resolve scripts, not reads, views or transcription", () => {
+    const writes = RESOLVE_TOOLS.filter((tool) => isResolveWrite(`mcp__linker__${tool.name}`)).map((tool) => tool.name);
+    expect(writes).toEqual(RESOLVE_TOOLS.filter((tool) => tool.kind === "write").map((tool) => tool.name));
+    expect(writes).toContain("create_timeline");
+    expect(writes).not.toContain("set_current_timeline");
+    expect(isResolveWrite("mcp__linker__transcribe")).toBe(false);
+    expect(isResolveWrite("mcp__resolve__run_script")).toBe(true);
+    expect(isResolveWrite("mcp__resolve__get_scripting_api")).toBe(false);
   });
 });
 
-// Every action davinci-resolve-mcp dispatches on, so an MCP upgrade shows which new actions skip approval.
-function resolveActions(serverScript: string): string[] {
-  const source = fs.readFileSync(serverScript, "utf8");
-  const names = new Set<string>();
-  for (const match of source.matchAll(/action\s*==\s*"([a-z0-9_]+)"/g)) names.add(match[1]!);
-  for (const match of source.matchAll(/action\s+in\s*[({[]([^)}\]]*)[)}\]]/g)) {
-    for (const name of match[1]!.matchAll(/"([a-z0-9_]+)"/g)) names.add(name[1]!);
-  }
-  return [...names].sort();
-}
+describe("decideToolCall", () => {
+  const decide = (tool: string, input: Record<string, unknown>, mode: "ask" | "auto" = "auto", answer = true) => {
+    const asked: string[] = [];
+    return decideToolCall(tool, input, mode, async () => {
+      asked.push(tool);
+      return answer;
+    }).then((decision) => ({ decision, asked }));
+  };
 
-const serverScript = loadConfig().resolveMcp.serverScript;
+  it("always asks before a script, even in auto mode", async () => {
+    expect(await decide("mcp__resolve__run_script", { script: "result = project.GetName()" })).toEqual({
+      decision: { allow: true },
+      asked: ["mcp__resolve__run_script"],
+    });
+    expect((await decide("mcp__resolve__run_script", { script: "x = 1" }, "auto", false)).decision).toMatchObject({ allow: false });
+  });
 
-describe.skipIf(!fs.existsSync(serverScript))("davinci-resolve-mcp actions that run without approval", () => {
-  it("match the reviewed list", async () => {
-    const actions = resolveActions(serverScript);
-    expect(actions.length).toBeGreaterThan(100);
-    // Review the diff before accepting it with `npx vitest -u`: every line here runs unasked.
-    await expect(`${actions.filter(isReadAction).join("\n")}\n`).toMatchFileSnapshot(
-      "__snapshots__/resolve-read-actions.txt",
-    );
+  it.each([
+    'resolve.GetProjectManager().LoadProject("Other")',
+    "pm.SetCurrentDatabase({'DbType': 'Disk', 'DbName': 'X'})",
+    "project.GetMediaPool().DeleteClips([clip])",
+    "pool.DeleteTimelines([t])",
+    "pm.CloseProject (project)",
+  ])("refuses a script that switches projects or deletes: %s", async (script) => {
+    expect(await decide("mcp__resolve__run_script", { script })).toEqual({ decision: { allow: false, message: FORBIDDEN_SCRIPT }, asked: [] });
+  });
+
+  it.each(["run_script_unsafe", "delete_lut", "delete_dctl", "launch_resolve", "a_tool_from_a_newer_resolve"])(
+    "never lets agents use Resolve's %s",
+    async (tool) => {
+      const { decision, asked } = await decide(`mcp__resolve__${tool}`, {}, "ask");
+      expect(decision).toMatchObject({ allow: false });
+      expect(asked).toEqual([]);
+    },
+  );
+
+  it("asks for other changes only in ask mode", async () => {
+    expect(await decide("Write", { file_path: "a.md" }, "auto")).toEqual({ decision: { allow: true }, asked: [] });
+    expect(await decide("Write", { file_path: "a.md" }, "ask")).toEqual({ decision: { allow: true }, asked: ["Write"] });
+    expect(await decide("mcp__resolve__generate_lut", {}, "ask", false)).toMatchObject({ decision: { allow: false } });
   });
 });
