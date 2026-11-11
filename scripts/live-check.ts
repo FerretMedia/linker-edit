@@ -62,19 +62,19 @@ async function fingerprint(): Promise<Fingerprint | null> {
 }
 
 /** The part of the Linker-Edit server the agents' "linker" MCP server calls for Resolve tools. */
-async function serveLinkerTools(token: string): Promise<number> {
+async function serveLinkerTools(token: string, dir: string): Promise<number> {
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      const reply = (result: { text: string; isError: boolean }) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
+      const reply = (result: { text: string; isError: boolean; images?: string[] }) => res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(result));
       if (req.url !== "/api/resolve-tool" || req.headers.authorization !== `Bearer ${token}`) {
         reply({ text: "Not available in the live check.", isError: true });
         return;
       }
       const { tool, input } = JSON.parse(body) as { tool: string; input: Record<string, unknown> };
-      runResolveTool(resolve, tool, input).then(
-        (text) => reply({ text, isError: false }),
+      runResolveTool(resolve, tool, input, { dir }).then(
+        (result) => reply({ ...result, isError: false }),
         (error: unknown) => reply({ text: error instanceof Error ? error.message : String(error), isError: true }),
       );
     });
@@ -122,8 +122,8 @@ if (values.project !== before.project) {
   process.exit(1);
 }
 
-const port = await serveLinkerTools(config.apiToken);
 const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-live-"));
+const port = await serveLinkerTools(config.apiToken, workspaceDir);
 prepareWorkspace(workspaceDir);
 const notices: { text: string; tone?: string }[] = [];
 let replies = 0;

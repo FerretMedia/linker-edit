@@ -1,4 +1,4 @@
-# How far the preview render is. ARGS: {"job": job id}. Read-only.
+# How far a render is. ARGS: {"job": job id}. Read-only.
 p = need_project()
 status = p.GetRenderJobStatus(ARGS["job"]) or {}
 result = {

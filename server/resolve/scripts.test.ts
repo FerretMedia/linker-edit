@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { readResolveSnapshot } from "../history/history.ts";
 import { ResolveError } from "./connection.ts";
 import { hasPython, pythonConnection } from "./testing.ts";
+import { NODE_TOOLS } from "./run.ts";
 import { RESOLVE_TOOLS } from "./tools.ts";
 
 const FAKE = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "DaVinciResolveScript.py"), "utf8");
@@ -50,9 +51,10 @@ const refusal = (promise: Promise<unknown>) =>
   );
 
 describe.skipIf(!hasPython)("Resolve scripts", () => {
-  it("has a script for every tool", () => {
+  it("has a script or a Node handler for every tool", () => {
     for (const tool of RESOLVE_TOOLS) {
-      expect(fs.existsSync(path.join(import.meta.dirname, "scripts", `tool_${tool.name}.py`)), tool.name).toBe(true);
+      const script = fs.existsSync(path.join(import.meta.dirname, "scripts", `tool_${tool.name}.py`));
+      expect(script || NODE_TOOLS.has(tool.name), tool.name).toBe(true);
     }
   });
 

@@ -4,6 +4,20 @@ import json
 import os
 
 STATE = json.load(open(os.environ["FAKE_RESOLVE"], encoding="utf8"))
+# A small grey PNG, for exported stills.
+def png(width=4, height=4):
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    rows = b"".join(b"\x00" + b"\x80\x80\x80" * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+PNG = png()
 
 
 def log(*args):
@@ -31,6 +45,18 @@ class Clip:
 
     def GetTranscription(self, nested=False):
         return self.data.get("transcription")
+
+    def SetClipColor(self, color):
+        log("SetClipColor", self.data["id"], color)
+        return color != "Rainbow"
+
+    def AddFlag(self, color):
+        log("AddFlag", self.data["id"], color)
+        return True
+
+    def SetMetadata(self, metadata):
+        log("SetMetadata", self.data["id"], metadata)
+        return True
 
 
 class Folder:
@@ -92,7 +118,47 @@ class Item:
         return [self.track_type, self.track]
 
     def GetFusionCompCount(self):
-        return 0
+        return 1 if self.data.get("title") else 0
+
+    def GetFusionCompByIndex(self, index):
+        return Comp(self.data["id"]) if self.data.get("title") else None
+
+    def GetNodeGraph(self, layer=None):
+        return Graph(self.data["id"])
+
+    def SetCDL(self, cdl):
+        log("SetCDL", self.data["id"], cdl)
+        return True
+
+    def CopyGrades(self, items):
+        log("CopyGrades", self.data["id"], [i.GetUniqueId() for i in items])
+        return True
+
+
+class Graph:
+    def __init__(self, item_id):
+        self.item_id = item_id
+
+    def SetLUT(self, node, path):
+        log("SetLUT", self.item_id, node, path)
+        return path.endswith(".cube")
+
+
+class TextTool:
+    def __init__(self, item_id):
+        self.item_id = item_id
+
+    def SetInput(self, name, value):
+        log("SetInput", self.item_id, name, value)
+        return True
+
+
+class Comp:
+    def __init__(self, item_id):
+        self.item_id = item_id
+
+    def GetToolList(self, selected, kind):
+        return {1: TextTool(self.item_id)} if kind == "TextPlus" else {}
 
 
 class Timeline:
@@ -149,6 +215,57 @@ class Timeline:
         log("AddMarker", self.data["name"], frame, color, name, note, duration)
         return frame not in [m["frame"] for m in self.data.get("markers", [])]
 
+    def GetCurrentTimecode(self):
+        return self.data.get("playhead", "01:00:00:00")
+
+    def SetCurrentTimecode(self, timecode):
+        log("SetCurrentTimecode", self.data["name"], timecode)
+        self.data["playhead"] = timecode
+        return True
+
+    def Export(self, path, kind, subtype):
+        log("Export", self.data["name"], os.path.basename(path), kind, subtype)
+        open(path, "w").write("exported")
+        return True
+
+    def SetName(self, name):
+        log("SetName", self.data["name"], name)
+        self.data["name"] = name
+        return True
+
+    def SetTrackName(self, kind, index, name):
+        log("SetTrackName", kind, index, name)
+        return True
+
+    def SetTrackEnable(self, kind, index, value):
+        log("SetTrackEnable", kind, index, value)
+        return True
+
+    def SetTrackLock(self, kind, index, value):
+        log("SetTrackLock", kind, index, value)
+        return kind != "subtitle"
+
+    def DeleteMarkerAtFrame(self, frame):
+        markers = self.data.get("markers", [])
+        found = [m for m in markers if m["frame"] == frame]
+        self.data["markers"] = [m for m in markers if m["frame"] != frame]
+        return bool(found)
+
+    def DeleteMarkersByColor(self, color):
+        self.data["markers"] = [m for m in self.data.get("markers", []) if color != "All" and m["color"] != color]
+        return True
+
+    def InsertFusionTitleIntoTimeline(self, name):
+        log("InsertFusionTitleIntoTimeline", self.data["name"], name, self.GetCurrentTimecode())
+        if name != "Text+":
+            return None
+        return Item({"id": "title-1", "name": name, "start": 90100, "end": 90225, "title": True}, "video", 2, self.project.pool)
+
+    def DetectSceneCuts(self):
+        log("DetectSceneCuts", self.data["name"])
+        self.data.setdefault("video", [[]])[0].append({"id": "cut", "start": 0, "end": 1})
+        return True
+
     def DuplicateTimeline(self, name):
         log("DuplicateTimeline", self.data["name"], name)
         return self.project.add_timeline(dict(json.loads(json.dumps(self.data)), id=f"dup-{len(self.project.timelines)}", name=name))
@@ -189,6 +306,18 @@ class MediaPool:
         sub = Folder({"name": name})
         parent.subs.append(sub)
         return sub
+
+    def MoveClips(self, clips, folder):
+        log("MoveClips", [c.GetUniqueId() for c in clips], folder.GetName())
+        return True
+
+    def ImportTimelineFromFile(self, path, options=None):
+        options = dict(options or {})
+        options["sourceClipsFolders"] = [f.GetName() for f in options.get("sourceClipsFolders", [])]
+        log("ImportTimelineFromFile", os.path.basename(path), options)
+        if not path.endswith(".otio"):
+            return None
+        return self.project.add_timeline({"id": "imported", "name": "Timeline 1", "video": [[{"id": "x", "start": 90000, "end": 90010}]], "audio": []})
 
     def CreateEmptyTimeline(self, name, timecode=None):
         log("CreateEmptyTimeline", name)
@@ -256,6 +385,82 @@ class Project:
     def GetTranscribeAudioStatus(self):
         return {"JobStatus": "Inactive"}
 
+    def GetDetectSceneCutsStatus(self):
+        return {"JobStatus": "Complete", "CompletionPercentage": 100}
+
+    def ExportCurrentFrameAsStill(self, path):
+        log("ExportCurrentFrameAsStill", self.current.GetCurrentTimecode(), os.path.basename(path))
+        open(path, "wb").write(PNG)
+        return True
+
+    # Rendering: a job finishes the moment it starts, writing a file named as the settings say.
+    def GetCurrentRenderFormatAndCodec(self):
+        return {"format": "mov", "codec": "ProRes422HQ"}
+
+    def GetRenderPresetList(self):
+        return ["H.264 Master", "YouTube - 1080p"]
+
+    def GetRenderFormats(self):
+        return {"MP4": "mp4", "QuickTime": "mov", "Wave": "wav"}
+
+    def GetRenderCodecs(self, fmt):
+        return {
+            "mp4": {"H.264": "H264", "H.265": "H265"},
+            "mov": {"Apple ProRes 422 HQ": "ProRes422HQ"},
+            "wav": {"Linear PCM": "LinearPCM"},
+        }.get(fmt, {})
+
+    def DeleteRenderPreset(self, name):
+        return True
+
+    def SaveAsNewRenderPreset(self, name):
+        return True
+
+    def LoadRenderPreset(self, name):
+        log("LoadRenderPreset", name)
+        return name in self.GetRenderPresetList() or name == "Linker-Edit restore"
+
+    def SetCurrentRenderFormatAndCodec(self, fmt, codec):
+        log("SetCurrentRenderFormatAndCodec", fmt, codec)
+        STATE["render_ext"] = fmt
+        return True
+
+    def SetCurrentRenderMode(self, mode):
+        return True
+
+    def SetRenderSettings(self, settings):
+        log("SetRenderSettings", settings)
+        STATE["render_settings"] = settings
+        return True
+
+    def AddRenderJob(self):
+        return "job-1"
+
+    def GetRenderJobList(self):
+        settings = STATE.get("render_settings", {})
+        name = settings.get("CustomName")
+        return [{"JobId": "job-1", "TargetDir": settings.get("TargetDir"), "OutputFilename": name + "." + STATE.get("render_ext", "mov")}]
+
+    def StartRendering(self, jobs, interactive=False):
+        job = self.GetRenderJobList()[0]
+        open(os.path.join(job["TargetDir"], job["OutputFilename"]), "w").write("rendered")
+        log("StartRendering", job["OutputFilename"])
+        return True
+
+    def IsRenderingInProgress(self):
+        return False
+
+    def GetRenderJobStatus(self, job):
+        # Each script runs in a new process, so a finished job reads as done whatever came before.
+        return {"JobStatus": "Complete", "CompletionPercentage": 100}
+
+    def StopRendering(self):
+        return True
+
+    def DeleteRenderJob(self, job):
+        log("DeleteRenderJob", job)
+        return True
+
 
 PROJECT = Project(STATE["project"])
 
@@ -283,6 +488,20 @@ class Resolve:
 
     def GetMediaStorage(self):
         return MediaStorage()
+
+    def OpenPage(self, page):
+        log("OpenPage", page)
+        return True
+
+    EXPORT_OTIO = "otio"
+    EXPORT_EDL = "edl"
+    EXPORT_FCPXML_1_10 = "fcpxml"
+    EXPORT_FCP_7_XML = "fcp7xml"
+    EXPORT_AAF = "aaf"
+    EXPORT_TEXT_CSV = "csv"
+    EXPORT_DRT = "drt"
+    EXPORT_NONE = "none"
+    EXPORT_AAF_NEW = "aaf-new"
 
 
 def scriptapp(name):

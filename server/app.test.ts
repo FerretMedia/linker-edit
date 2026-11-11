@@ -225,15 +225,15 @@ describe("app approvals", () => {
   });
 
   it("runs agents' Resolve tools for the thread working in Resolve, asking before changes", async () => {
-    const results: { text: string; isError: boolean }[] = [];
+    const results: { text: string; isError: boolean; images?: string[] }[] = [];
     const ran: string[] = [];
     let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
     const { app, client, send, turnDone } = setupWith(
       {
-        resolveTools: async (tool, input) => {
-          ran.push(tool);
+        resolveTools: async (tool, input, dir) => {
+          ran.push(`${tool} in ${dir}`);
           if (tool === "add_markers") throw new Error("Cut is not an AI timeline.");
-          return JSON.stringify({ tool, input });
+          return { text: JSON.stringify({ tool, input }), ...(tool === "list_timelines" ? { images: ["frame.jpg"] } : {}) };
         },
       },
       async () => {
@@ -254,13 +254,14 @@ describe("app approvals", () => {
     send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
     await turnDone();
     expect(results).toEqual([
-      { text: JSON.stringify({ tool: "list_timelines", input: {} }), isError: false },
+      { text: JSON.stringify({ tool: "list_timelines", input: {} }), images: ["frame.jpg"], isError: false },
       { text: JSON.stringify({ tool: "set_current_timeline", input: { timeline: "AI - Cut" } }), isError: false },
       { text: "The user declined this action.", isError: true },
       { text: "Cut is not an AI timeline.", isError: true },
       { text: "There is no Resolve tool called nope.", isError: true },
     ]);
-    expect(ran).toEqual(["list_timelines", "set_current_timeline", "add_markers"]);
+    const dir = workspaceProject.dir;
+    expect(ran).toEqual([`list_timelines in ${dir}`, `set_current_timeline in ${dir}`, `add_markers in ${dir}`]);
   });
 
   it("allows pending approvals when switched to auto", async () => {

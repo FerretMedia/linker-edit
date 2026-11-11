@@ -1,4 +1,4 @@
-# Stops the preview render and waits for Resolve to finish stopping: it refuses the cleanup until then.
+# Stops a render and waits for Resolve to finish stopping: it refuses the cleanup until then.
 import time
 
 p = need_project()

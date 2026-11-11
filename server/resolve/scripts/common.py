@@ -172,3 +172,25 @@ def find_media(ids):
     if missing:
         raise Refused(f"These media ids aren't in the media pool: {', '.join(missing)}. list_media shows them.")
     return [found[i] for i in wanted]
+
+
+def frame_timecode(t, frame):
+    """A timeline frame (as get_timeline counts them) as the timecode Resolve's playhead takes. Non-drop-frame."""
+    base = int(round(float(call(t, "GetSetting", "timelineFrameRate") or 24)))
+    f = int(frame)
+    return f"{f // (base * 3600):02d}:{f // (base * 60) % 60:02d}:{f // base % 60:02d}:{f % base:02d}"
+
+
+def ensure_folder(path):
+    """The media pool bin at "Master/A/B" or "A/B" (under the root), made when missing."""
+    pool = need_project().GetMediaPool()
+    folder = pool.GetRootFolder()
+    parts = [part.strip() for part in str(path or "").split("/") if part.strip()]
+    if parts and parts[0] == call(folder, "GetName"):
+        parts = parts[1:]
+    for name in parts:
+        sub = next((f for f in call(folder, "GetSubFolderList") or [] if call(f, "GetName") == name), None)
+        folder = sub or pool.AddSubFolder(folder, name)
+        if not folder:
+            raise Refused(f'Resolve couldn\'t make the bin "{name}".')
+    return folder

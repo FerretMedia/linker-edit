@@ -42,8 +42,8 @@ export interface AppOptions {
   resolveProjects?: ResolveProjects;
   /** Gets a project folder ready for agents, such as its AGENTS.md. */
   prepareFolder?: (dir: string) => void;
-  /** Runs one of Linker-Edit's own Resolve tools for an agent; resolves with its text result. */
-  resolveTools?: (tool: string, input: Record<string, unknown>) => Promise<string>;
+  /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
+  resolveTools?: (tool: string, input: Record<string, unknown>, dir: string) => Promise<{ text: string; images?: string[] }>;
   /** Speech to text for the agents' transcribe tool. */
   transcriber?: Transcriber;
   /** Opening the app from the user's other devices over Tailscale. */
@@ -659,16 +659,18 @@ export function createApp(options: AppOptions) {
      * One of Linker-Edit's Resolve tools, called by an agent's "linker" MCP server. Only the thread with a
      * turn running may use Resolve, and in "ask" mode changes wait for the user, for every agent alike.
      */
-    async resolveTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+    async resolveTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean; images?: string[] }> {
       const definition = findResolveTool(tool);
       if (!definition || !options.resolveTools) return { text: `There is no Resolve tool called ${tool}.`, isError: true };
-      const owner = turnOwner ? threads.get(turnOwner)?.thread : undefined;
-      if (!owner?.busy) return { text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true };
+      const entry = turnOwner ? threads.get(turnOwner) : undefined;
+      const owner = entry?.thread;
+      const dir = entry ? projects.get(entry.projectId)?.saved.dir : undefined;
+      if (!owner?.busy || !dir) return { text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true };
       if (definition.kind === "write" && approvalMode === "ask" && !(await owner.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, input))) {
         return { text: "The user declined this action.", isError: true };
       }
       try {
-        return { text: await options.resolveTools(tool, input), isError: false };
+        return { ...(await options.resolveTools(tool, input, dir)), isError: false };
       } catch (error) {
         return { text: errorText(error), isError: true };
       }

@@ -21,11 +21,15 @@ Rules:
 
 Resolve tools:
 - Read: resolve_context, list_timelines, get_timeline, list_media, get_clip_properties, get_transcription. Narrow get_timeline and list_media to what you need on long projects.
-- Edit: create_timeline, duplicate_timeline, add_clips, remove_clips, set_clip_properties, add_markers, import_media, transcribe_in_resolve, and set_current_timeline to show a timeline.
+- Edit: create_timeline, duplicate_timeline, add_clips, remove_clips, set_clip_properties, add_markers, remove_markers, set_tracks, add_title, set_color, detect_scene_cuts, import_timeline, and set_current_timeline to show a timeline.
+- Media pool: import_media, organize_media (bins, clip colors, flags, metadata such as "Comments" for selects), transcribe_in_resolve.
+- See: view_frames shows you frames as images, of a timeline (exactly as Resolve renders it, titles and grade included) or of a media file. Look at the footage before choosing shots by how they look, and check what you built before you report back. A few frames per call: each image costs context.
+- Silences: find_silences gives a file's silent and speech ranges in seconds, quickly and without transcribing. To cut silences, build a new timeline from the speech ranges with add_clips (source frame = seconds × the clip's fps), one clip per range, back to back. Check the transcript too when a pause may be meaningful.
+- Deliver: render_timeline renders a file (into renders/ in the working folder unless the user names a folder) and waits for it; render_options lists presets, formats and codecs. export_timeline writes OTIO, EDL, FCPXML, AAF or CSV into exports/.
 - Frames: a clip's start and end are timeline frames (end exclusive); source_start and source_end are frames in its media, counted at the media's own frame rate. Marker frames count from the timeline's first frame.
 - The "${RESOLVE_MCP_NAME}" MCP server is Resolve's own. Its search_scripting_api, get_scripting_api, get_scripting_docs and get_whats_new tools look up Resolve's current scripting API. If you have its run_script tool, use it only for what the ${LINKER_MCP_NAME} tools can't do: it runs Python against Resolve after the user reads and approves the script, every time. Keep scripts short, follow the rules above in them, and never use them to switch projects or delete anything.
 
-The working folder is for notes, transcripts and timeline exports (OTIO). Media never goes in it.
+The working folder is for notes, transcripts, timeline exports (exports/) and renders (renders/). Source media never goes in it.
 
 Transcripts:
 - To know what is said in footage, use the "${LINKER_MCP_NAME}" MCP tool transcribe. It runs on this machine's GPU, takes the clips' file paths (list_media's file_path, or get_timeline's media), and understands most languages. Transcripts are kept until a file changes, so asking again is instant. Pass several files in one call rather than one call per file.

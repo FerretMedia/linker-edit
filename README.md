@@ -15,6 +15,10 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead, and Linker-Edit's tools refuse to change any other timeline.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
 - **Transcripts.** The agent hears what's said in your footage, in most languages, on your own GPU, with a time for every word.
+- **The agent sees.** It looks at frames of your footage, and at its own timelines exactly as Resolve renders them, titles and grade included, to pick shots and check its work.
+- **Silence cutting.** It finds pauses straight from the audio, quickly and precisely, and builds a tightened timeline from what's left.
+- **Delivery and exchange.** It renders timelines to files with any Resolve preset, format or size, and exports or imports OTIO, EDL, FCPXML and AAF.
+- **Titles, color and selects.** It adds Text+ titles, applies LUTs and CDLs or copies a grade between shots, detects scene cuts, and files selects into bins with colors, flags and notes.
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
@@ -100,8 +104,16 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 
 Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server. Each tool either reads the project or changes it:
 
-- **Reads** run straight away: `resolve_context`, `list_timelines`, `get_timeline`, `list_media`, `get_clip_properties`, `get_transcription`. So does `set_current_timeline`, which only changes which timeline Resolve shows.
-- **Changes** show Allow/Deny while "Ask before changes" is on, for Claude and Codex alike: `create_timeline`, `duplicate_timeline`, `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `import_media`, `transcribe_in_resolve`. With it off, they just run.
+- **Reads** run straight away:
+  - looking at the project: `resolve_context`, `list_timelines`, `get_timeline`, `list_media`, `get_clip_properties`, `get_transcription`, `render_options`;
+  - looking at footage: `view_frames`, which moves Resolve's playhead and puts it back, and `find_silences`;
+  - `export_timeline`, which only writes a file into the project folder;
+  - `set_current_timeline`, which only changes which timeline Resolve shows.
+- **Changes** show Allow/Deny while "Ask before changes" is on, for Claude and Codex alike. With it off, they just run.
+  - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`.
+  - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
+  - The media pool: `import_media`, `organize_media`, `transcribe_in_resolve`.
+  - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
 - **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits ask; Codex's shell commands and file edits run sandboxed to the project's folder.
 
 The rules are built into the tools, not only into the agent's instructions:
@@ -200,7 +212,7 @@ Only your own computers show up in that menu, and only once remote access is on 
 
 ## Testing
 
-- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`server/resolve/scripts`) against a stand-in Resolve.
+- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`server/resolve/scripts`) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.

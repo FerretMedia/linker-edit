@@ -95,7 +95,7 @@ describe("Claude session", () => {
     expect(claude.resumeId()).toBe(init!.session_id);
     expect(seen[0]!.mcpServers).toEqual({
       resolve: { type: "stdio", command: testConfig.resolveMcp.command, args: [] },
-      linker: { type: "stdio", ...linkerMcpCommand(testConfig) },
+      linker: { type: "stdio", ...linkerMcpCommand(testConfig), alwaysLoad: true },
     });
   });
 

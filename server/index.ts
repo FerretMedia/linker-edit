@@ -47,7 +47,7 @@ const app = createApp({
     : (dir, checkProject) => createHistory({ dir, readSnapshot: () => readResolveSnapshot(resolve), checkProject }),
   preview: createPreviewRenderer({ dir: config.previewDir, connection: resolve }),
   resolveProjects: createResolveProjects(resolve),
-  resolveTools: (tool, input) => runResolveTool(resolve, tool, input),
+  resolveTools: (tool, input, dir) => runResolveTool(resolve, tool, input, { dir }),
   prepareFolder: prepareWorkspace,
   transcriber: createTranscriber({
     dir: config.transcriptsDir,

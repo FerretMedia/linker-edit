@@ -145,7 +145,8 @@ export function createClaudeSession(
         mcpServers: {
           // Resolve's own server, for its scripting docs and, after the user's OK, run_script.
           ...(config.resolveMcp.command ? { [RESOLVE_MCP_NAME]: { type: "stdio" as const, command: config.resolveMcp.command, args: [] } } : {}),
-          [LINKER_MCP_NAME]: { type: "stdio", ...linkerMcpCommand(config) },
+          // Loaded up front, so a chat doesn't start with a tool search before it can touch Resolve.
+          [LINKER_MCP_NAME]: { type: "stdio", ...linkerMcpCommand(config), alwaysLoad: true },
         },
         disallowedTools: CLAUDE_DISALLOWED_RESOLVE_TOOLS,
         ...(config.autoCompactWindow === undefined ? {} : { settings: { autoCompactWindow: config.autoCompactWindow } }),

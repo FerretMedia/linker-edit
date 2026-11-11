@@ -32,18 +32,18 @@ describe("createPreviewRenderer", () => {
     let polls = 0;
     let file = "";
     const result = await render((name, args) => {
-      if (name === "preview_start") {
+      if (name === "render_start") {
         const out = started(args);
         file = path.join(out.target_dir, out.file_name);
         return out;
       }
-      if (name === "preview_poll") {
+      if (name === "render_poll") {
         polls += 1;
         if (polls < 3) return { rendering: true, percent: polls * 40, status: "Rendering" };
         fs.writeFileSync(file, "mp4");
         return { rendering: false, percent: 100, status: "Complete" };
       }
-      return true;
+      return { page: "edit" };
     });
     expect(result.events).toEqual([
       { event: "start", timeline },
@@ -51,14 +51,14 @@ describe("createPreviewRenderer", () => {
       { event: "progress", percent: 80 },
       { event: "done", file },
     ]);
-    expect(result.scripts.at(-1)).toBe("preview_finish");
+    expect(result.scripts.slice(-3)).toEqual(["render_finish", "render_page", "render_page"]);
   });
 
   it("stops, removes the partial file and still puts Resolve back", async () => {
-    const result = await render((name, args) => (name === "preview_start" ? started(args) : name === "preview_poll" ? { rendering: true, percent: 5, status: "Rendering" } : true), true);
+    const result = await render((name, args) => (name === "render_start" ? started(args) : name === "render_poll" ? { rendering: true, percent: 5, status: "Rendering" } : { page: "edit" }), true);
     expect(result.events.at(-1)).toEqual({ event: "error", message: "Preview stopped.", stopped: true });
-    expect(result.scripts).toContain("preview_stop");
-    expect(result.scripts.at(-1)).toBe("preview_finish");
+    expect(result.scripts).toContain("render_stop");
+    expect(result.scripts.slice(-3)).toEqual(["render_finish", "render_page", "render_page"]);
   });
 
   it("passes on why Resolve couldn't start", async () => {
@@ -66,11 +66,11 @@ describe("createPreviewRenderer", () => {
       throw new ResolveError("refused", "Resolve has no timeline open.");
     });
     expect(result.events).toEqual([{ event: "error", message: "Resolve has no timeline open." }]);
-    expect(result.scripts).toEqual(["preview_start"]);
+    expect(result.scripts).toEqual(["render_start"]);
   });
 
   it("reports a render that didn't complete", async () => {
-    const result = await render((name, args) => (name === "preview_start" ? started(args) : name === "preview_poll" ? { rendering: false, percent: 20, status: "Failed" } : true));
+    const result = await render((name, args) => (name === "render_start" ? started(args) : name === "render_poll" ? { rendering: false, percent: 20, status: "Failed" } : { page: "edit" }));
     expect(result.events.at(-1)).toEqual({ event: "error", message: "Resolve's render ended with status Failed." });
   });
 });

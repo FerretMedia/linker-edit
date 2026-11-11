@@ -1,4 +1,4 @@
-# Puts Resolve back as it was before the preview render. ARGS: {"restore": what preview_start.py returned}.
+# Puts Resolve's timeline and render settings back as they were before a render. ARGS: {"restore": what render_start.py returned}.
 PRESET = "Linker-Edit restore"
 restore = ARGS["restore"]
 p = need_project()
@@ -13,6 +13,5 @@ if restore.get("previous_timeline"):
     previous = next((t for t in all_timelines() if call(t, "GetUniqueId") == restore["previous_timeline"]), None)
     if previous:
         p.SetCurrentTimeline(previous)
-if restore.get("page"):
-    resolve.OpenPage(restore["page"])
+# The page goes back in render_page.py, run separately: Resolve ignores a page switch made in this script.
 result = True
