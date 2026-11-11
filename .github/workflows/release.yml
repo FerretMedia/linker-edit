@@ -137,10 +137,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "v$VERSION" "$RUNNER_TEMP"/assets/* --verify-tag --title "Linker-Edit $VERSION" --generate-notes
+      # npm refuses provenance from a private repository, so the package waits until the repo is public.
       - name: Stamp the version
+        if: ${{ !github.event.repository.private }}
         run: npm version "$VERSION" --no-git-tag-version
-      - run: npm run build
+      - if: ${{ !github.event.repository.private }}
+        run: npm run build
       - name: Publish to npm
+        if: ${{ !github.event.repository.private }}
         run: npm publish --provenance --access public
         env:
           # Only needed until trusted publishing is set up on npmjs.com; see RELEASING.md.
