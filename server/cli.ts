@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // `npx linker-edit@latest`: sets up davinci-resolve-mcp when it's missing, starts the server and opens the app window.
 // `npx linker-edit@latest setup` only does the setup; `--browser` opens the app in the browser instead of a window.
+// `--serve` only starts the server: the installed desktop app runs it this way and opens its own window.
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -14,8 +15,8 @@ if (command === "--version") {
   console.log(VERSION);
   process.exit(0);
 }
-if (command !== undefined && command !== "setup" && command !== "--browser") {
-  console.error("Usage: linker-edit [setup | --browser | --version]");
+if (command !== undefined && command !== "setup" && command !== "--browser" && command !== "--serve") {
+  console.error("Usage: linker-edit [setup | --browser | --serve | --version]");
   process.exit(1);
 }
 
@@ -24,7 +25,11 @@ if (command === "setup") process.exit(ready ? 0 : 1);
 
 // Starts anyway when setup failed: the Resolve status in the app says what's missing.
 const { server, url } = await import("./index.ts");
-const open = () => (command === "--browser" ? openBrowser(url) : void openWindow(url));
+const open = () => {
+  if (command === "--serve") process.send?.({ type: "ready", url });
+  else if (command === "--browser") openBrowser(url);
+  else void openWindow(url);
+};
 if (server.listening) open();
 else server.once("listening", open);
 

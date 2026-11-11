@@ -15,13 +15,17 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  release:
+  # Picks the version and tags the commit. Tagging first means a run that fails later never hands its
+  # version to another commit; the next run takes the next number.
+  version:
+    name: Version
     needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
-      # npm trusted publishing and provenance.
-      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Release from main only
         if: github.ref != 'refs/heads/main'
@@ -34,31 +38,114 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: npm
-          registry-url: https://registry.npmjs.org
-      - run: npm ci
       - name: Pick the version
         id: version
         run: echo "version=$(node scripts/release-version.ts $(git tag --list 'v*'))" >> "$GITHUB_OUTPUT"
-      # Tagging first means a run that fails later never hands its version to another commit.
       - name: Tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           git tag "v$VERSION"
           git push origin "v$VERSION"
+
+  # Each installer is built on its own platform: the agents' programs are installed per platform and architecture.
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            artifact: windows-x64
+          - name: macOS Apple silicon
+            os: macos-latest
+            artifact: macos-arm64
+          - name: macOS Intel
+            os: macos-15-intel
+            artifact: macos-x64
+          - name: Linux x64
+            os: ubuntu-latest
+            artifact: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.version.outputs.version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - name: Stamp the version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: npm version "$VERSION" --no-git-tag-version
+        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version
       - run: npm run build
+      - name: Build the installer
+        run: node scripts/build-desktop.ts
+        env:
+          # Optional. Unset, Windows builds are unsigned and Mac builds are signed ad hoc; see RELEASING.md.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.artifact }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  # Nothing is published until every installer has built.
+  publish:
+    name: Publish
+    needs: [version, desktop]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      # npm trusted publishing and provenance.
+      id-token: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.version.outputs.version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: ${{ runner.temp }}/desktop
+      - name: Gather the installers
+        run: node scripts/release-assets.ts "$RUNNER_TEMP/desktop" "$RUNNER_TEMP/assets"
+      # The installed apps update from this release's latest*.yml files.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v$VERSION" "$RUNNER_TEMP"/assets/* --verify-tag --title "Linker-Edit $VERSION" --generate-notes
+      # npm refuses provenance from a private repository, so the package waits until the repo is public.
+      - name: Stamp the version
+        if: ${{ !github.event.repository.private }}
+        run: npm version "$VERSION" --no-git-tag-version
+      - if: ${{ !github.event.repository.private }}
+        run: npm run build
       - name: Publish to npm
+        if: ${{ !github.event.repository.private }}
         run: npm publish --provenance --access public
         env:
           # Only needed until trusted publishing is set up on npmjs.com; see RELEASING.md.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Create the GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: gh release create "v$VERSION" --verify-tag --title "Linker-Edit $VERSION" --generate-notes
