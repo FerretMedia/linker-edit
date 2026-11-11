@@ -27,6 +27,7 @@
     ThreadSummary,
     TranscriptionStatus,
   } from "#shared/protocol.ts";
+  import { releaseName } from "#shared/release-name.ts";
   import { desktop } from "#lib/desktop.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
   import ComputerPicker from "./ComputerPicker.svelte";
@@ -237,7 +238,7 @@
       <Clapperboard class="size-3.5" strokeWidth={2.25} />
     </span>
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
-    <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : version}</span>
+    <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : releaseName(version)}</span>
   </div>
 
   <ComputerPicker {computer} {remote} {onRemoteAccess} />
@@ -347,7 +348,7 @@
   {#if appUpdate}
     <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
       {#if appUpdate.state === "ready"}
-        <span class="block text-xs font-medium">Linker-Edit {appUpdate.version} is ready</span>
+        <span class="block text-xs font-medium">Linker-Edit {releaseName(appUpdate.version)} is ready</span>
         <button
           type="button"
           class="mt-0.5 text-2xs text-primary hover:underline"
@@ -356,7 +357,7 @@
           Restart to update
         </button>
       {:else}
-        <span class="block text-xs font-medium">Linker-Edit {appUpdate.version} is out</span>
+        <span class="block text-xs font-medium">Linker-Edit {releaseName(appUpdate.version)} is out</span>
         <a class="mt-0.5 block text-2xs text-primary hover:underline" href={appUpdate.url} target="_blank" rel="noreferrer">
           Download it
         </a>

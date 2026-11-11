@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { Arch, build, Platform, type Configuration } from "electron-builder";
+import { releaseName } from "#shared/release-name.ts";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const STAGE = path.join(ROOT, ".desktop-stage");
@@ -38,7 +39,7 @@ for (const built of ["build/index.html", "dist/desktop.js", "dist/linker-edit.js
   }
 }
 
-console.log(`Staging Linker-Edit ${pkg.version} in ${STAGE}`);
+console.log(`Staging Linker-Edit ${releaseName(pkg.version)} in ${STAGE}`);
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.rmSync(OUT, { recursive: true, force: true });
 const files = ["build", "dist", "desktop/preload.cjs", "NOTICE", "LICENSE", ...fs.globSync("server/resolve/scripts/*.py", { cwd: ROOT })];
@@ -73,7 +74,8 @@ const config: Configuration = {
   appId: "com.ferretmedia.linkeredit",
   productName: "Linker-Edit",
   copyright: "Copyright © 2026 Linker-Edit contributors",
-  artifactName: "Linker-Edit-${version}-${os}-${arch}.${ext}",
+  // Installers carry the release name, 2026.11.07; the app itself keeps the version the updater compares.
+  artifactName: `Linker-Edit-${releaseName(pkg.version)}-` + "${os}-${arch}.${ext}",
   electronVersion,
   // The agents' own programs (claude, codex, ffmpeg) and the Python scripts must be real files to run.
   asar: false,
