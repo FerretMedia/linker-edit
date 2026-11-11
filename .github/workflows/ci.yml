@@ -116,12 +116,46 @@ jobs:
           kill "$server"
           cat "$RUNNER_TEMP/server.log"
 
+  # Builds the Linux desktop app the way releases do and starts it, so a missing file or a helper process
+  # that can't run inside the app is caught before a release. Release builds the installers for every platform.
+  desktop:
+    name: Desktop app
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/build-desktop.ts --dir
+      - name: Start the app
+        run: |
+          app=release/linux-unpacked/linker-edit
+          mkdir -p "$RUNNER_TEMP/mcp/src"
+          # A stand-in davinci-resolve-mcp install, so the first run doesn't clone the real one.
+          touch "$RUNNER_TEMP/mcp/src/server.py"
+          cat > "$RUNNER_TEMP/config.json" <<EOF
+          { "port": 4391, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "resolveMcpDir": "$RUNNER_TEMP/mcp", "python": "$(command -v python3)" }
+          EOF
+          # Agents start the "linker" MCP server with the app's own binary, run as Node.
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ELECTRON_RUN_AS_NODE=1 "$app" release/linux-unpacked/resources/app/dist/linker-mcp.js | grep -q '"transcribe"'
+          # No setuid sandbox helper in an unpacked build, and no display without xvfb.
+          LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" xvfb-run -a "$app" --no-sandbox > "$RUNNER_TEMP/app.log" 2>&1 &
+          curl --silent --fail --retry 60 --retry-delay 1 --retry-all-errors http://127.0.0.1:4391/ | grep -q "<html" || {
+            cat "$RUNNER_TEMP/app.log" ~/.config/Linker-Edit/logs/server.log
+            exit 1
+          }
+          cat ~/.config/Linker-Edit/logs/server.log
+
   # The one check to require before merging. It fails when any job above fails, is cancelled or is
   # skipped, so adding or splitting jobs needs no change to the merge rules. Add every job to `needs`.
   check:
     name: Check
     if: ${{ always() }}
-    needs: [typecheck, test, e2e, package]
+    needs: [typecheck, test, e2e, package, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

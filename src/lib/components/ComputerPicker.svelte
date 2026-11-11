@@ -2,16 +2,11 @@
   import { onMount } from "svelte";
   import { Check, ChevronsUpDown, Globe, Monitor } from "@lucide/svelte";
   import type { Computers, RemoteAccess } from "#shared/protocol.ts";
-
-  interface DesktopBridge {
-    computers(): Promise<Computers & { home: string }>;
-    open(url: string): Promise<void>;
-  }
+  import { desktop } from "#lib/desktop.ts";
 
   let { computer, remote, onRemoteAccess }: { computer: string; remote: RemoteAccess; onRemoteAccess: () => void } = $props();
 
   // Only the desktop app can switch computers; in a browser this is just the way to the remote access settings.
-  const desktop = (globalThis as { linkerEditDesktop?: DesktopBridge }).linkerEditDesktop;
   let open = $state(false);
   let list = $state<(Computers & { home: string }) | null>(null);
   let failed = $state(false);
@@ -77,7 +72,7 @@
             class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent"
             onclick={() => {
               open = false;
-              if (!current) void desktop.open(entry.url);
+              if (!current) void desktop?.open(entry.url);
             }}
           >
             <Monitor class="size-3.5 shrink-0 text-muted-foreground" />

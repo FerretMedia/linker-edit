@@ -261,6 +261,12 @@ export interface Computers {
   home?: string;
 }
 
+/**
+ * An update to the installed desktop app. "ready" installs on restart; "download" is for macOS, where an
+ * app that isn't signed can't replace itself, so the user downloads the new version from `url`.
+ */
+export type DesktopUpdate = { version: string; state: "ready" } | { version: string; state: "download"; url: string };
+
 export interface AppMeta {
   projects: ProjectSummary[];
   /** The thread this client is looking at; null when there are no projects. */

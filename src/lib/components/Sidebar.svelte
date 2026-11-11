@@ -17,7 +17,16 @@
     SquarePen,
     Trash,
   } from "@lucide/svelte";
-  import type { ProjectSummary, RemoteAccess, ResolveStatus, ThreadSummary, TranscriptionStatus } from "#shared/protocol.ts";
+  import { onMount } from "svelte";
+  import type {
+    DesktopUpdate,
+    ProjectSummary,
+    RemoteAccess,
+    ResolveStatus,
+    ThreadSummary,
+    TranscriptionStatus,
+  } from "#shared/protocol.ts";
+  import { desktop } from "#lib/desktop.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
   import ComputerPicker from "./ComputerPicker.svelte";
   import RowMenu from "./RowMenu.svelte";
@@ -63,6 +72,13 @@
     onRefreshResolve: () => void;
     onRemoteAccess: () => void;
   } = $props();
+
+  // The installed app updates itself; `update` is the npm release, for `npx linker-edit`.
+  let appUpdate = $state<DesktopUpdate | null>(null);
+  onMount(() => {
+    void desktop?.update?.().then((next) => (appUpdate = next));
+    return desktop?.onUpdate?.((next) => (appUpdate = next));
+  });
 
   const COLLAPSED_KEY = "linker-edit.collapsed-projects";
   let collapsed = $state(new Set<string>(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]") as string[]));
@@ -320,7 +336,25 @@
     </div>
   {/if}
 
-  {#if update}
+  {#if appUpdate}
+    <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
+      {#if appUpdate.state === "ready"}
+        <span class="block text-xs font-medium">Linker-Edit {appUpdate.version} is ready</span>
+        <button
+          type="button"
+          class="mt-0.5 text-2xs text-primary hover:underline"
+          onclick={() => void desktop?.installUpdate?.()}
+        >
+          Restart to update
+        </button>
+      {:else}
+        <span class="block text-xs font-medium">Linker-Edit {appUpdate.version} is out</span>
+        <a class="mt-0.5 block text-2xs text-primary hover:underline" href={appUpdate.url} target="_blank" rel="noreferrer">
+          Download it
+        </a>
+      {/if}
+    </div>
+  {:else if update}
     <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
       <span class="block text-xs font-medium">Linker-Edit {update} is out</span>
       <span class="mt-0.5 block text-2xs text-muted-foreground">

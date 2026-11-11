@@ -75,8 +75,8 @@ server.listen(config.port, "127.0.0.1", () => {
   }, 15_000);
 });
 
-// A checkout runs as 0.0.0 and has nothing to update to.
-if (VERSION !== "0.0.0") {
+// A checkout runs as 0.0.0 and has nothing to update to. The desktop app updates itself instead.
+if (VERSION !== "0.0.0" && !process.env.LINKER_EDIT_DESKTOP) {
   const checkForUpdate = () =>
     void latestVersion().then((latest) => app.setUpdate(latest && isNewer(latest, VERSION) ? latest : null));
   checkForUpdate();
