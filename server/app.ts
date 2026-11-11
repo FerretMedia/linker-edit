@@ -19,12 +19,12 @@ import type {
 import type { History, ProjectCheck } from "./history/history.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
-import { decideToolCall, type ToolDecision } from "./policy.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
 import type { ResolveProjects } from "./resolveProjects.ts";
-import { RESOLVE_MCP_NAME } from "./rules.ts";
+import { findResolveTool } from "./resolve/tools.ts";
+import { LINKER_MCP_NAME } from "./rules.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
 
@@ -42,6 +42,8 @@ export interface AppOptions {
   resolveProjects?: ResolveProjects;
   /** Gets a project folder ready for agents, such as its AGENTS.md. */
   prepareFolder?: (dir: string) => void;
+  /** Runs one of Linker-Edit's own Resolve tools for an agent; resolves with its text result. */
+  resolveTools?: (tool: string, input: Record<string, unknown>) => Promise<string>;
   /** Speech to text for the agents' transcribe tool. */
   transcriber?: Transcriber;
   /** Opening the app from the user's other devices over Tailscale. */
@@ -653,12 +655,23 @@ export function createApp(options: AppOptions) {
       return history.timeline(id, commit);
     },
     busy: resolveBusy,
-    /** A Resolve call from the guard in front of Codex's MCP server; only the thread working in Resolve may make one. */
-    resolveCall(tool: string, input: Record<string, unknown>): Promise<ToolDecision> {
+    /**
+     * One of Linker-Edit's Resolve tools, called by an agent's "linker" MCP server. Only the thread with a
+     * turn running may use Resolve, and in "ask" mode changes wait for the user, for every agent alike.
+     */
+    async resolveTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+      const definition = findResolveTool(tool);
+      if (!definition || !options.resolveTools) return { text: `There is no Resolve tool called ${tool}.`, isError: true };
       const owner = turnOwner ? threads.get(turnOwner)?.thread : undefined;
-      if (!owner?.busy) return Promise.resolve({ allow: false, message: "No Linker-Edit turn is running, so Resolve calls are refused." });
-      const name = `mcp__${RESOLVE_MCP_NAME}__${tool}`;
-      return decideToolCall(name, input, approvalMode, () => owner.requestApproval(name, input));
+      if (!owner?.busy) return { text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true };
+      if (definition.kind === "write" && approvalMode === "ask" && !(await owner.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, input))) {
+        return { text: "The user declined this action.", isError: true };
+      }
+      try {
+        return { text: await options.resolveTools(tool, input), isError: false };
+      } catch (error) {
+        return { text: errorText(error), isError: true };
+      }
     },
     /** For the agents' MCP server: the transcripts as text, or what went wrong per file. */
     transcribe: async (files: string[], language?: string) => {

@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// `npx linker-edit@latest`: sets up davinci-resolve-mcp when it's missing, starts the server and opens the app window.
-// `npx linker-edit@latest setup` only does the setup; `--browser` opens the app in the browser instead of a window.
+// `npx linker-edit@latest`: starts the server and opens the app window. `--browser` opens the app in the browser
+// instead of a window. Nothing needs setting up: Linker-Edit drives Resolve through the MCP server Resolve comes with.
 // `--serve` only starts the server: the installed desktop app runs it this way and opens its own window.
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { APP_ROOT, loadConfigOrExit } from "./config.ts";
-import { setupResolveMcp } from "./setup.ts";
+import { APP_ROOT } from "./config.ts";
 import { VERSION } from "./updates.ts";
 
 const command = process.argv[2];
@@ -16,14 +15,16 @@ if (command === "--version") {
   process.exit(0);
 }
 if (command !== undefined && command !== "setup" && command !== "--browser" && command !== "--serve") {
-  console.error("Usage: linker-edit [setup | --browser | --serve | --version]");
+  console.error("Usage: linker-edit [--browser | --serve | --version]");
   process.exit(1);
 }
 
-const ready = await setupResolveMcp(loadConfigOrExit().resolveMcp);
-if (command === "setup") process.exit(ready ? 0 : 1);
+// Kept for older instructions; there is nothing to set up any more.
+if (command === "setup") {
+  console.log("Nothing to set up: Linker-Edit uses the MCP server that comes with DaVinci Resolve Studio 21.1.2 and newer.");
+  process.exit(0);
+}
 
-// Starts anyway when setup failed: the Resolve status in the app says what's missing.
 const { server, url } = await import("./index.ts");
 const open = () => {
   if (command === "--serve") process.send?.({ type: "ready", url });

@@ -4,9 +4,9 @@ import { handoffSummary, withHandoff } from "./handoff.ts";
 
 const chat: ChatItem[] = [
   { id: "1", kind: "user", text: "Cut the\n\nsilences" },
-  { id: "2", kind: "tool", name: "mcp__resolve__timeline", input: { action: "list" }, status: "done" },
-  { id: "3", kind: "tool", name: "mcp__resolve__timeline", input: { action: "create_empty", params: { name: "AI - Cut" } }, status: "done" },
-  { id: "4", kind: "tool", name: "mcp__resolve__timeline", input: { action: "delete" }, status: "error" },
+  { id: "2", kind: "tool", name: "mcp__linker__list_timelines", input: {}, status: "done" },
+  { id: "3", kind: "tool", name: "mcp__linker__create_timeline", input: { name: "Cut" }, status: "done" },
+  { id: "4", kind: "tool", name: "mcp__linker__remove_clips", input: { item_ids: ["a"] }, status: "error" },
   { id: "5", kind: "notice", text: "Saved to edit history", tone: "info" },
   { id: "6", kind: "assistant", text: "a".repeat(300) },
 ];
@@ -15,13 +15,13 @@ describe("handoffSummary", () => {
   it("keeps what was said and done in Resolve, one short line each", () => {
     expect(handoffSummary(chat).split("\n")).toEqual([
       "User: Cut the silences",
-      'Resolve action: timeline.create_empty {"name":"AI - Cut"}',
+      'Resolve action: create_timeline {"name":"Cut"}',
       `Assistant: ${"a".repeat(237)}...`,
     ]);
   });
 
   it("keeps the newest lines when the chat runs over the budget", () => {
-    const summary = handoffSummary(chat, 300);
+    const summary = handoffSummary(chat, 280);
     expect(summary.split("\n")).toEqual(["(earlier messages left out)", `Assistant: ${"a".repeat(237)}...`]);
   });
 

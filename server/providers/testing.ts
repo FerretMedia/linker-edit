@@ -14,11 +14,7 @@ export const testConfig: AppConfig = {
   toolsDir: "C:\\tools",
   tailscalePort: 8443,
   apiToken: "test-token",
-  resolveMcp: {
-    python: "C:\\mcp\\.venv\\Scripts\\python.exe",
-    serverScript: "C:\\mcp\\src\\server.py",
-    env: { RESOLVE_SCRIPT_API: "C:\\ProgramData\\Resolve\\Scripting" },
-  },
+  resolveMcp: { command: "C:\\Program Files\\Blackmagic Design\\DaVinci Resolve\\ResolveMCP.exe" },
 };
 
 /** Collects a turn's chat items the way the app merges them, and answers approvals with `answer`. */

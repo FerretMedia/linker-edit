@@ -1,7 +1,7 @@
 import { query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
-import { decideToolCall } from "../policy.ts";
+import { CLAUDE_DISALLOWED_RESOLVE_TOOLS, decideToolCall } from "../policy.ts";
 import { EDITING_RULES, LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
 import { linkerMcpCommand } from "../agents/commands.ts";
 import { shortenToolOutput } from "./shorten.ts";
@@ -143,14 +143,11 @@ export function createClaudeSession(
         abortController,
         systemPrompt: { type: "preset", preset: "claude_code", append: EDITING_RULES },
         mcpServers: {
-          [RESOLVE_MCP_NAME]: {
-            type: "stdio",
-            command: config.resolveMcp.python,
-            args: [config.resolveMcp.serverScript],
-            env: config.resolveMcp.env,
-          },
+          // Resolve's own server, for its scripting docs and, after the user's OK, run_script.
+          ...(config.resolveMcp.command ? { [RESOLVE_MCP_NAME]: { type: "stdio" as const, command: config.resolveMcp.command, args: [] } } : {}),
           [LINKER_MCP_NAME]: { type: "stdio", ...linkerMcpCommand(config) },
         },
+        disallowedTools: CLAUDE_DISALLOWED_RESOLVE_TOOLS,
         ...(config.autoCompactWindow === undefined ? {} : { settings: { autoCompactWindow: config.autoCompactWindow } }),
         hooks: {
           PostToolUse: [

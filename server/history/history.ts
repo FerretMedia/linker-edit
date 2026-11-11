@@ -1,12 +1,11 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
-import { APP_ROOT, type ResolveMcpConfig } from "../config.ts";
-import { needsApproval } from "../policy.ts";
+import { isResolveWrite } from "../policy.ts";
 import { PROJECT_FILE } from "../projects/store.ts";
-import { RESOLVE_MCP_NAME } from "../rules.ts";
+import type { ResolveConnection } from "../resolve/connection.ts";
 import { describeChanges, timelineStrips } from "./diff.ts";
 import { mediaType, playableTimeline } from "./playable.ts";
 import {
@@ -28,7 +27,7 @@ export const HISTORY_ROOT = "resolve";
 export interface AgentTurn {
   provider: Provider;
   prompt: string;
-  /** Resolve write calls, e.g. `timeline.create_empty {"name":"AI - Cut"}`. */
+  /** Resolve write calls, e.g. `create_timeline {"name":"Cut"}`. */
   actions: string[];
   /** The agent's last reply. */
   summary: string;
@@ -62,26 +61,22 @@ export interface History {
  */
 export type ProjectCheck = (open: { name: string; id: string | null }) => string | null;
 
-// Read from the package folder, so the bundled server finds it too.
-const SNAPSHOT_SCRIPT = path.join(APP_ROOT, "server", "history", "snapshot.py");
-
-export function readResolveSnapshot(mcp: ResolveMcpConfig): Promise<RawSnapshot> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      mcp.python,
-      [SNAPSHOT_SCRIPT],
-      { timeout: 120_000, maxBuffer: 256 * 1024 * 1024, windowsHide: true, env: { ...process.env, ...mcp.env } },
-      (error, stdout) => {
-        try {
-          const result = JSON.parse(stdout.trim().split("\n").pop() ?? "") as RawSnapshot | { error: string };
-          if ("error" in result) reject(new Error(result.error));
-          else resolve(result);
-        } catch {
-          reject(error ?? new Error("The Resolve snapshot printed no result."));
-        }
-      },
-    );
-  });
+/** Resolve's open project with every timeline, read in as many script runs as it takes. */
+export async function readResolveSnapshot(connection: ResolveConnection): Promise<RawSnapshot> {
+  type Page = RawSnapshot & { remaining: string[] };
+  // Scripts stop after 60 seconds, so each run stops after 40 and says which timelines are left.
+  const first = await connection.runScript<Page>("snapshot", { ids: null, budget: 40 }, 60);
+  const timelines = [...first.timelines];
+  let remaining = first.remaining;
+  while (remaining.length) {
+    const page = await connection.runScript<Page>("snapshot", { ids: remaining, budget: 40 }, 60);
+    if (page.project_id !== first.project_id) throw new Error("Resolve switched projects while Linker-Edit was saving it.");
+    if (page.timelines.length === 0) break;
+    timelines.push(...page.timelines);
+    remaining = page.remaining;
+  }
+  const { remaining: _, ...snapshot } = first;
+  return { ...snapshot, timelines };
 }
 
 function git(cwd: string, args: string[], input?: string): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -106,16 +101,13 @@ async function gitOk(cwd: string, args: string[], input?: string): Promise<strin
 }
 
 const AGENT_NAMES: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
-const RESOLVE_PREFIX = `mcp__${RESOLVE_MCP_NAME}__`;
 
-/** `timeline.create_empty {"name":"AI - Cut"}` for a Resolve call that writes; null for reads and other tools. */
+/** `create_timeline {"name":"Cut"}` for a Resolve call that writes; null for reads and other tools. */
 export function resolveWriteAction(tool: string | undefined, input: unknown): string | null {
-  if (!tool?.startsWith(RESOLVE_PREFIX)) return null;
-  const args = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-  if (!needsApproval(tool, args)) return null;
-  const action = typeof args.action === "string" ? args.action : "?";
-  const params = args.params === undefined ? "" : ` ${JSON.stringify(args.params)}`;
-  const line = `${tool.slice(RESOLVE_PREFIX.length)}.${action}${params}`;
+  if (!tool || !isResolveWrite(tool)) return null;
+  const name = tool.split("__").at(-1)!;
+  const args = input && typeof input === "object" ? JSON.stringify(input) : "";
+  const line = args && args !== "{}" ? `${name} ${args}` : name;
   return line.length > 240 ? `${line.slice(0, 239)}…` : line;
 }
 

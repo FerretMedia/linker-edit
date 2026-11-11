@@ -19,7 +19,7 @@ The workflow runs CI, then:
 
 The repository's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check once a few hours (desktop) or once a day (npm) and show the update in the sidebar.
 
-Before a release that changes how Linker-Edit drives Resolve, run `npm run test:live` against a scratch project.
+Before a release that changes how Linker-Edit drives Resolve (`server/resolve/`), run `npm run test:live` against a scratch project.
 
 ## Building an installer locally
 
@@ -29,7 +29,7 @@ npm run dist:desktop
 
 builds the installer for the computer you're on into `release/`. `node scripts/build-desktop.ts --dir` after `npm run build` only lays out the unpacked app in `release/<platform>-unpacked`, which is quicker to try.
 
-The build stages the app in `.desktop-stage` with its own `package.json` and only the packages it runs with, then runs electron-builder there. The app ships without an asar archive, because the agents' programs (`claude`, `codex`), ffmpeg and the Python scripts have to be real files to run. They are also why the installer is about 400 MB.
+The build stages the app in `.desktop-stage` with its own `package.json` and only the packages it runs with, then runs electron-builder there. The app ships without an asar archive, because the agents' programs (`claude`, `codex`) and ffmpeg have to be real files to run, and the server reads the Resolve scripts from disk. They are also why the installer is about 400 MB.
 
 In the installed app, Electron starts the server as Node (`ELECTRON_RUN_AS_NODE`) with `linker-edit --serve`, and its log goes to the app's log folder (`%APPDATA%\Linker-Edit\logs\server.log` on Windows, `~/Library/Logs/Linker-Edit` on macOS, `~/.config/Linker-Edit/logs` on Linux). Helper processes the agents start (the `linker` MCP server, the Resolve guard) run the same way.
 
@@ -53,9 +53,13 @@ The first publish needs a token, because npm only lets you set up trusted publis
 3. On npmjs.com → `linker-edit` → Settings → Trusted publishing, add GitHub Actions with owner `FerretMedia`, repository `linker-edit` and workflow `release.yml`.
 4. Delete the `NPM_TOKEN` secret and the token. Later releases publish through GitHub's OIDC token, with no stored secret.
 
-## Updating davinci-resolve-mcp
+## After a Resolve update
 
-The version Linker-Edit installs is `RESOLVE_MCP_VERSION` in `server/setup.ts`. To move it, update a local checkout to the new tag, run `npm test` and review the changed list of actions that run without approval, then run `npm run test:live`. Setup only installs davinci-resolve-mcp when it's missing, so existing installs keep their copy until `~/LinkerEdit/davinci-resolve-mcp` is deleted.
+Linker-Edit drives Resolve through the MCP server that comes with Resolve Studio, so a Resolve update can change how it behaves. After one:
+- run `npm run test:live -- --project "<scratch project>"`;
+- check the Resolve status in the app.
+
+A newer Resolve may add tools to its MCP server. Agents don't get a new tool until it's added to `server/policy.ts`.
 
 ## Merging
 

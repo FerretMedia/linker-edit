@@ -127,11 +127,11 @@ describe("server", () => {
     expect((await post("/api/transcribe", files)).status).toBe(403);
     expect((await post("/api/transcribe", files, "guess")).status).toBe(403);
     expect(await post("/api/transcribe", files, "secret")).toEqual({ status: 400, body: '{"error":"Transcription is off."}' });
-    const call = { tool: "timeline", input: { action: "create_empty" } };
-    expect((await post("/api/resolve-call", call)).status).toBe(403);
-    expect(await post("/api/resolve-call", call, "secret")).toEqual({
+    const call = { tool: "list_timelines", input: {} };
+    expect((await post("/api/resolve-tool", call)).status).toBe(403);
+    expect(await post("/api/resolve-tool", call, "secret")).toEqual({
       status: 200,
-      body: '{"allow":false,"message":"No Linker-Edit turn is running, so Resolve calls are refused."}',
+      body: '{"text":"There is no Resolve tool called list_timelines.","isError":true}',
     });
   });
 

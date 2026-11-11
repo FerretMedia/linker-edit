@@ -41,7 +41,7 @@ for (const built of ["build/index.html", "dist/desktop.js", "dist/linker-edit.js
 console.log(`Staging Linker-Edit ${pkg.version} in ${STAGE}`);
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.rmSync(OUT, { recursive: true, force: true });
-const files = ["build", "dist", "desktop/preload.cjs", "NOTICE", "LICENSE", ...fs.globSync("server/**/*.py", { cwd: ROOT })];
+const files = ["build", "dist", "desktop/preload.cjs", "NOTICE", "LICENSE", ...fs.globSync("server/resolve/scripts/*.py", { cwd: ROOT })];
 for (const file of files) fs.cpSync(path.join(ROOT, file), path.join(STAGE, file), { recursive: true });
 
 const { electron: _, ...dependencies } = pkg.dependencies;

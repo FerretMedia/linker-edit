@@ -20,16 +20,9 @@ export default defineConfig([
   },
   // The agents' "linker" MCP server runs as its own process.
   {
-    input: "server/transcribe/mcpServer.ts",
+    input: "server/agents/linkerMcp.ts",
     platform: "node",
     external,
     output: { file: "dist/linker-mcp.js", format: "esm", codeSplitting: false },
-  },
-  // The guard in front of Codex's Resolve MCP server.
-  {
-    input: "server/agents/resolveGuard.ts",
-    platform: "node",
-    external,
-    output: { file: "dist/resolve-guard.js", format: "esm", codeSplitting: false },
   },
 ]);

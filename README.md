@@ -10,9 +10,9 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 
 ## What works today
 
-- **Chat with Claude or Codex** about your open Resolve project. They read it and edit it directly through [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp).
+- **Chat with Claude or Codex** about your open Resolve project. They read it and edit it directly with Linker-Edit's own Resolve tools, which run through the MCP server that comes with DaVinci Resolve Studio. There's nothing extra to install.
 - **Projects and threads.** Each Resolve project gets its own threads and edit history in the sidebar, whether it lives on this computer, on a network database or in Blackmagic Cloud.
-- **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead.
+- **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead, and Linker-Edit's tools refuse to change any other timeline.
 - **You stay in control.** With "Ask before changes" on, every change waits for your Allow or Deny, while reads run straight away.
 - **Transcripts.** The agent hears what's said in your footage, in most languages, on your own GPU, with a time for every word.
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
@@ -35,9 +35,9 @@ Priorities come from real use. If something here matters to you, or is missing, 
 
 ## Requirements
 
-- **DaVinci Resolve Studio** with Preferences → System → General → *External scripting using* set to **Local**. Restart Resolve after changing it. The free edition blocks external scripting.
+- **DaVinci Resolve Studio 21.1.2 or newer**, which comes with its own MCP server (`ResolveMCP`). Linker-Edit finds it in Resolve's install folder. Set Preferences → System → General → *External scripting using* to **Local**, and restart Resolve after changing it. The free edition has no MCP server.
 - **Claude Code** (`claude`, logged in) and/or **Codex** (`codex`, logged in).
-- **[Git](https://git-scm.com)** and **[uv](https://docs.astral.sh/uv/)**, which Linker-Edit uses to install [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) and Python for it.
+- **[Git](https://git-scm.com)**, for the edit history.
 
 ## Install
 
@@ -56,7 +56,7 @@ The builds aren't signed yet, so the first launch needs one extra step:
 - **macOS**: open the app once, then System Settings → Privacy & Security → *Open Anyway*.
 - **Linux**: `chmod +x` the AppImage, then run it.
 
-The first launch installs davinci-resolve-mcp into `~/LinkerEdit/davinci-resolve-mcp`. Check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
+Start Resolve, check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
 
 The app downloads new versions by itself and the sidebar offers *Restart to update*. On macOS the sidebar links to the new download instead, because an unsigned app can't replace itself. Your projects, history and settings stay in `~/LinkerEdit`.
 
@@ -79,9 +79,7 @@ The defaults work for a standard install. To override them, create `~/LinkerEdit
 | `projectsDir` | `~/LinkerEdit/projects`, where new projects get their folders |
 | `workspaceDir` | `~/LinkerEdit/workspace`, the working folder from before projects; it becomes your first project |
 | `previewDir` | `~/LinkerEdit/previews`, where preview renders go |
-| `resolveMcpDir` | `~/LinkerEdit/davinci-resolve-mcp` |
-| `python` | the checkout's `.venv` Python |
-| `env` | Resolve scripting paths for your OS |
+| `resolveMcp` | found in Resolve's install folder: the path of Resolve's `ResolveMCP` program, for an install Linker-Edit doesn't find |
 | `port` | `4317` |
 | `autoCompactWindow` | unset: Claude Code decides. Tokens at which Claude compacts the chat by itself, from `100000` to `1000000` |
 | `transcriptsDir` | `~/LinkerEdit/transcripts` |
@@ -93,7 +91,6 @@ The defaults work for a standard install. To override them, create `~/LinkerEdit
 
 ```sh
 npm install
-npm run setup   # installs davinci-resolve-mcp, once
 npm run dev
 ```
 
@@ -101,13 +98,23 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 
 ## How approvals work
 
-- **Claude, with "Ask before changes" on:**
-  - Resolve actions that only read (get, list, summaries, reports, plans) run immediately.
-  - Reading the edit history (`git log`, `git show`, `git diff`, `git status`) runs immediately.
-  - Any other Resolve action, and any file edit, shows Allow/Deny.
-- **Claude, with it off:** everything runs.
-- **Codex, with "Ask before changes" on:** the same Allow/Deny for Resolve actions. Its shell commands and file edits don't ask; they run sandboxed to the project's folder.
-- **Never:** agents can't open, close, create, delete or switch Resolve projects or databases, in any mode. You switch projects in Linker-Edit.
+Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server. Each tool either reads the project or changes it:
+
+- **Reads** run straight away: `resolve_context`, `list_timelines`, `get_timeline`, `list_media`, `get_clip_properties`, `get_transcription`. So does `set_current_timeline`, which only changes which timeline Resolve shows.
+- **Changes** show Allow/Deny while "Ask before changes" is on, for Claude and Codex alike: `create_timeline`, `duplicate_timeline`, `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `import_media`, `transcribe_in_resolve`. With it off, they just run.
+- **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits ask; Codex's shell commands and file edits run sandboxed to the project's folder.
+
+The rules are built into the tools, not only into the agent's instructions:
+- they only change timelines named `AI - …`;
+- none of them deletes media, bins or projects;
+- none of them opens another project. You switch projects in Linker-Edit.
+
+Claude also gets Resolve's own MCP server:
+- **Its scripting API and docs**, to look things up. These run straight away.
+- **Its `run_script` tool**, as an escape hatch for what Linker-Edit's tools can't do yet. A script **always** shows Allow/Deny with the full script, even with "Ask before changes" off.
+- **Refused outright:** scripts that open, close or switch projects or databases, or delete media, bins or timelines.
+
+Codex gets only the read-only docs tools, because it has no way to ask before a script. No agent gets Resolve's `run_script_unsafe` tool, or its tools for deleting LUTs or launching Resolve.
 
 ## Projects and threads
 
@@ -151,11 +158,11 @@ Everything said and every Resolve result stays in the agent's context for the re
 
 - **Context meter.** With Claude, the ring next to the send button shows how full the context is. Click it for the token count and **Compact now**, which replaces the chat so far with a summary. You can keep chatting afterwards.
 - **Compact on return.** Claude keeps a recent chat cached for about an hour on a subscription (5 minutes with an API key). If you come back to a chat over 200,000 tokens after that, a **Compact** chip shows next to the send button: sending then summarizes the chat first, so all of it isn't reread at full price. Click the chip to switch to **Full** and send with the whole chat.
-- **Long Resolve results are shortened.** With Claude, a Resolve result over about 5,000 tokens, such as every item on a long timeline, has its lists cut down before the agent reads it. The agent is told to ask for a narrower part if it needs more.
+- **Long Resolve results are shortened.** A Resolve result over about 5,000 tokens, such as every item on a long timeline, has its lists cut down before the agent reads it. The agent is told to ask for a narrower part if it needs more.
 - **Threads survive restarts.** Each thread is kept in `.linker-edit/threads/` in its project folder, which Git ignores, and the agent continues the same conversation. If it can't (say Claude's session was deleted), it starts a new one with a summary of the chat.
 - **Switching agent keeps the chat.** The new agent gets a short summary of it with your next message: what was asked, what was said, and what changed in Resolve. It doesn't get the other agent's full context.
 
-Codex has no context meter or compaction here: its SDK doesn't report how full the context is or run `/compact`. Its results aren't shortened either.
+Codex has no context meter or compaction here: its SDK doesn't report how full the context is or run `/compact`.
 
 ## Preview
 
@@ -193,11 +200,11 @@ Only your own computers show up in that menu, and only once remote access is on 
 
 ## Testing
 
-- `npm test`: unit tests. Free and offline. They include a list of every davinci-resolve-mcp action that runs without approval (`server/__snapshots__/resolve-read-actions.txt`). After updating the MCP, review that diff before accepting it with `npx vitest -u`.
+- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`server/resolve/scripts`) against a stand-in Resolve.
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
-- `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after MCP updates. `--dry-run` only checks that it can see the project.
+- `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing
 
@@ -211,4 +218,4 @@ For anything larger, please open an issue before writing the code, so we can agr
 
 ## Credits
 
-MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio decoding by [FFmpeg](https://ffmpeg.org) through `ffmpeg-static` (GPL), both run as separate programs. Resolve integration by [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp). The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
+MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio decoding by [FFmpeg](https://ffmpeg.org) through `ffmpeg-static` (GPL), both run as separate programs. Linker-Edit drives Resolve through the MCP server Blackmagic Design ships with DaVinci Resolve Studio; it starts your installed copy and doesn't distribute it. The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.

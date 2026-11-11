@@ -79,19 +79,24 @@ describe("Codex session", () => {
     expect(items().map((item) => item.kind === "notice" && item.text)).toEqual(["usage limit reached", "stream closed"]);
   });
 
-  it("gives Codex forward-slash paths, which its --config parsing needs, and Resolve only behind the guard", () => {
+  it("gives Codex forward-slash paths, which its --config parsing needs, and only Resolve's read tools", () => {
     createCodexSession(testConfig);
     const options = fake.options.at(-1) as CodexOptions;
     expect(JSON.stringify(options.config)).not.toContain("\\\\");
     expect(options.config).toMatchObject({
       mcp_servers: {
         resolve: {
-          command: process.execPath.replaceAll("\\", "/"),
-          args: [expect.stringMatching(/\/agents\/resolveGuard\.ts$/), "C:/mcp/.venv/Scripts/python.exe", "C:/mcp/src/server.py"],
-          env: { LINKER_EDIT_TOKEN: "test-token" },
-          disabled_tools: ["project_manager_cloud", "project_manager_database"],
+          command: "C:/Program Files/Blackmagic Design/DaVinci Resolve/ResolveMCP.exe",
+          disabled_tools: expect.arrayContaining(["run_script", "run_script_unsafe", "delete_lut"]),
         },
+        linker: { env: { LINKER_EDIT_TOKEN: "test-token" } },
       },
     });
+  });
+
+  it("leaves Resolve's own MCP server out when this computer has none", () => {
+    createCodexSession({ ...testConfig, resolveMcp: { command: null } });
+    const options = fake.options.at(-1) as CodexOptions;
+    expect(Object.keys((options.config as { mcp_servers: object }).mcp_servers)).toEqual(["linker"]);
   });
 });

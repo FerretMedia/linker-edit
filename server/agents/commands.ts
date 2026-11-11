@@ -19,16 +19,7 @@ const runAsNode: Record<string, string> = process.versions.electron ? { ELECTRON
 export function linkerMcpCommand(config: AppConfig) {
   return {
     command: process.execPath,
-    args: [script("linker-mcp.js", path.join("transcribe", "mcpServer.ts"))],
+    args: [script("linker-mcp.js", path.join("agents", "linkerMcp.ts"))],
     env: { ...runAsNode, ...apiEnv(config.port, config.apiToken) },
-  };
-}
-
-/** davinci-resolve-mcp behind resolveGuard.ts, for agents without a per-call hook of their own. */
-export function guardedResolveMcpCommand(config: AppConfig) {
-  return {
-    command: process.execPath,
-    args: [script("resolve-guard.js", path.join("agents", "resolveGuard.ts")), config.resolveMcp.python, config.resolveMcp.serverScript],
-    env: { ...config.resolveMcp.env, ...runAsNode, ...apiEnv(config.port, config.apiToken) },
   };
 }

@@ -2,7 +2,7 @@ import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOpti
 import type { AppConfig } from "../config.ts";
 import { CODEX_DISABLED_RESOLVE_TOOLS } from "../policy.ts";
 import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
-import { guardedResolveMcpCommand, linkerMcpCommand } from "../agents/commands.ts";
+import { linkerMcpCommand } from "../agents/commands.ts";
 import { truncate, type ProviderSession, type TurnSink } from "./types.ts";
 
 function mcpResultText(item: Extract<ThreadItem, { type: "mcp_tool_call" }>): string | undefined {
@@ -63,26 +63,30 @@ const slashes = (value: string) => value.replaceAll("\\", "/");
 
 export function codexOptions(config: AppConfig): CodexOptions {
   const linker = linkerMcpCommand(config);
-  const resolve = guardedResolveMcpCommand(config);
+  const resolve = config.resolveMcp.command;
   return {
     config: {
       mcp_servers: {
-        [RESOLVE_MCP_NAME]: {
-          command: slashes(resolve.command),
-          args: resolve.args.map(slashes),
-          env: Object.fromEntries(Object.entries(resolve.env).map(([key, value]) => [key, slashes(value)])),
-          // The MCP marks its tools destructive; with approvalPolicy "never" Codex would refuse every call.
-          // The guard asks Linker-Edit instead, which may wait for the user's OK.
-          default_tools_approval_mode: "approve",
-          tool_timeout_sec: 3600,
-          disabled_tools: CODEX_DISABLED_RESOLVE_TOOLS,
-        },
+        // Resolve's own server, for its scripting docs only: Codex has no per-call hook to ask the user
+        // before run_script, so that and every tool that writes are switched off.
+        ...(resolve
+          ? {
+              [RESOLVE_MCP_NAME]: {
+                command: slashes(resolve),
+                args: [],
+                default_tools_approval_mode: "approve",
+                disabled_tools: CODEX_DISABLED_RESOLVE_TOOLS,
+              },
+            }
+          : {}),
+        // Linker-Edit's tools: the Linker-Edit server asks the user before changes, for Codex too.
         [LINKER_MCP_NAME]: {
           command: slashes(linker.command),
           args: linker.args.map(slashes),
           env: linker.env,
           default_tools_approval_mode: "approve",
-          // A first transcription downloads the engine; Codex gives up on a tool after 60 seconds by default.
+          // A first transcription downloads the engine, and an approval waits for the user; Codex gives
+          // up on a tool after 60 seconds by default.
           tool_timeout_sec: 3600,
         },
       },
@@ -90,7 +94,7 @@ export function codexOptions(config: AppConfig): CodexOptions {
   };
 }
 
-// Codex runs non-interactively here: Resolve calls go through the guard, writes stay in the workspace.
+// Codex runs non-interactively here: Resolve changes wait for the user in the Linker-Edit server, writes stay in the workspace.
 export function codexThreadOptions(config: AppConfig): ThreadOptions {
   return {
     workingDirectory: config.workspaceDir,

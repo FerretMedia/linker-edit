@@ -120,9 +120,9 @@ async function transcribe(app: App, { files, language }: Record<string, unknown>
   return { text: await app.transcribe(files, typeof language === "string" ? language : undefined) };
 }
 
-async function resolveCall(app: App, { tool, input }: Record<string, unknown>) {
+async function resolveTool(app: App, { tool, input }: Record<string, unknown>) {
   if (typeof tool !== "string") throw new Error("tool must be a tool name.");
-  return app.resolveCall(tool, input && typeof input === "object" ? (input as Record<string, unknown>) : {});
+  return app.resolveTool(tool, input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {});
 }
 
 export interface RemoteRoutes {
@@ -169,8 +169,8 @@ export function createServer(app: App, distDir: string, apiToken: string, remote
       handleAgentCall(apiToken, req, res, (body) => transcribe(app, body));
       return;
     }
-    if (urlPath === "/api/resolve-call") {
-      handleAgentCall(apiToken, req, res, (body) => resolveCall(app, body));
+    if (urlPath === "/api/resolve-tool") {
+      handleAgentCall(apiToken, req, res, (body) => resolveTool(app, body));
       return;
     }
     if (urlPath === "/api/timeline") {

@@ -30,7 +30,6 @@ jobs:
       - run: npm run typecheck
 
   # Windows too: it's where most Resolve users are, and where path handling breaks.
-  # The Resolve action snapshot needs a davinci-resolve-mcp install and is skipped here.
   test:
     name: Test (${{ matrix.os }})
     strategy:
@@ -97,18 +96,21 @@ jobs:
       - name: Install and start the package
         run: |
           app="$RUNNER_TEMP/app"
-          mkdir -p "$app" "$RUNNER_TEMP/mcp/src"
-          # A stand-in davinci-resolve-mcp install, so the first run doesn't clone the real one.
-          touch "$RUNNER_TEMP/mcp/src/server.py"
+          mkdir -p "$app"
+          # No Resolve here: the app starts anyway, and its status says Resolve Studio is missing.
           cat > "$RUNNER_TEMP/config.json" <<EOF
-          { "port": 4390, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "resolveMcpDir": "$RUNNER_TEMP/mcp", "python": "$(command -v python3)" }
+          { "port": 4390, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects" }
           EOF
           cd "$app"
           npm init -y > /dev/null
           npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/linker-edit-*.tgz
           npx linker-edit --version
           # Agents start the "linker" MCP server from the package's own bundle.
-          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node node_modules/linker-edit/dist/linker-mcp.js | grep -q '"transcribe"'
+          tools=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node node_modules/linker-edit/dist/linker-mcp.js)
+          echo "$tools" | grep -q '"transcribe"'
+          echo "$tools" | grep -q '"create_timeline"'
+          # The Resolve scripts ship in the package, where the server reads them.
+          test -f node_modules/linker-edit/server/resolve/scripts/tool_add_clips.py
           # No display here for the app window, so it uses the browser path.
           LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" npx linker-edit --browser > "$RUNNER_TEMP/server.log" 2>&1 &
           server=$!
@@ -134,14 +136,12 @@ jobs:
       - name: Start the app
         run: |
           app=release/linux-unpacked/linker-edit
-          mkdir -p "$RUNNER_TEMP/mcp/src"
-          # A stand-in davinci-resolve-mcp install, so the first run doesn't clone the real one.
-          touch "$RUNNER_TEMP/mcp/src/server.py"
           cat > "$RUNNER_TEMP/config.json" <<EOF
-          { "port": 4391, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "resolveMcpDir": "$RUNNER_TEMP/mcp", "python": "$(command -v python3)" }
+          { "port": 4391, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects" }
           EOF
           # Agents start the "linker" MCP server with the app's own binary, run as Node.
-          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ELECTRON_RUN_AS_NODE=1 "$app" release/linux-unpacked/resources/app/dist/linker-mcp.js | grep -q '"transcribe"'
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ELECTRON_RUN_AS_NODE=1 "$app" release/linux-unpacked/resources/app/dist/linker-mcp.js | grep -q '"create_timeline"'
+          test -f release/linux-unpacked/resources/app/server/resolve/scripts/tool_add_clips.py
           # No setuid sandbox helper in an unpacked build, and no display without xvfb.
           LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" xvfb-run -a "$app" --no-sandbox > "$RUNNER_TEMP/app.log" 2>&1 &
           curl --silent --fail --retry 60 --retry-delay 1 --retry-all-errors http://127.0.0.1:4391/ | grep -q "<html" || {
