@@ -15,7 +15,7 @@ The workflow runs CI, then:
 2. Tags the commit `v<version>`. A run that fails after this skips that version; the next run takes the next number.
 3. Builds the installers, each on its own platform: the agents' programs ship inside the app, and npm installs only the current platform's.
 4. Once every installer has built, creates the GitHub release with them and notes generated from the merged PRs. The `latest*.yml` files are what installed apps check for updates; the two Mac builds' lists are merged into one `latest-mac.yml`.
-5. Builds and publishes the npm package with provenance.
+5. Builds and publishes the npm package with provenance. While the repository is private this step is skipped: npm refuses provenance from a private repository.
 
 The repository's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check once a few hours (desktop) or once a day (npm) and show the update in the sidebar.
 
