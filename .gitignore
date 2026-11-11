@@ -5,3 +5,5 @@ linker-edit.config.json
 test-results/
 playwright-report/
 dist/
+release/
+.desktop-stage/
