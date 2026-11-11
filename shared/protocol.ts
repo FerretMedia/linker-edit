@@ -264,6 +264,23 @@ export type RemoteAccess =
   /** Only devices logged in to Tailscale as owner get in. */
   | { state: "on"; url: string; owner: string };
 
+/** The Linker account (linker.cool) signed in on this computer. Optional: Linker-Edit works without one. */
+export type LinkerAccount =
+  /** problem is why the last sign-in failed or ended, worded for the user. */
+  | { state: "signed_out"; problem: string | null }
+  /** Waiting for the browser to come back from Linker. */
+  | { state: "signing_in" }
+  | {
+      state: "signed_in";
+      name: string;
+      email: string | null;
+      picture: string | null;
+      /** The Linker plan's name (Free, Pro, Max…); null when Linker didn't say. */
+      plan: string | null;
+      /** Linker's dashboard. */
+      appUrl: string;
+    };
+
 /** Another of the user's computers that runs Linker-Edit with remote access on. */
 export interface Computer {
   name: string;
@@ -311,6 +328,7 @@ export interface AppMeta {
   remote: RemoteAccess;
   /** The name of the computer this Linker-Edit runs on. */
   computer: string;
+  linker: LinkerAccount;
 }
 
 export interface AppState extends AppMeta {
@@ -348,7 +366,10 @@ export type ClientMessage =
   /** Lists the folders in path on the server's computer; an empty path is the home folder. */
   | { type: "browse_folders"; requestId: number; path: string }
   | { type: "refresh_remote_access" }
-  | { type: "set_remote_access"; enabled: boolean };
+  | { type: "set_remote_access"; enabled: boolean }
+  /** Stops waiting for a Linker sign-in started in the browser (GET /api/linker/sign-in starts one). */
+  | { type: "linker_cancel_sign_in" }
+  | { type: "linker_sign_out" };
 
 export type ServerMessage =
   | { type: "snapshot"; state: AppState }

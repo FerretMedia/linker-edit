@@ -85,7 +85,14 @@ describe("server", () => {
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),
     });
-    server = createServer(app, dist, "secret", { gate: () => gate, computers: async () => [] });
+    const linker = {
+      start: async () => "https://clerk.example/oauth/authorize?state=abc",
+      finish: async (query: URLSearchParams) => {
+        if (query.get("state") !== "abc") throw new Error("Not <this> one.");
+        return "Jane <Doe>";
+      },
+    };
+    server = createServer(app, dist, "secret", { gate: () => gate, computers: async () => [] }, linker);
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     port = (server.address() as AddressInfo).port;
@@ -133,6 +140,30 @@ describe("server", () => {
       status: 200,
       body: '{"allow":false,"message":"No Linker-Edit turn is running, so Resolve calls are refused."}',
     });
+  });
+
+  it("signs in with Linker on this computer only", async () => {
+    const start = await new Promise<http.IncomingMessage>((resolve, reject) =>
+      http.get({ host: "127.0.0.1", port, path: "/api/linker/sign-in" }, resolve).on("error", reject),
+    );
+    start.resume();
+    expect(start.statusCode).toBe(302);
+    expect(start.headers.location).toBe("https://clerk.example/oauth/authorize?state=abc");
+
+    const done = await get("/api/linker/callback?code=x&state=abc");
+    expect(done.status).toBe(200);
+    expect(done.body).toContain("Signed in as Jane &lt;Doe&gt;");
+    const refused = await get("/api/linker/callback?code=x&state=forged");
+    expect(refused.status).toBe(400);
+    expect(refused.body).toContain("Not &lt;this&gt; one.");
+
+    gate = { host: "studio.tail1234.ts.net:8443", owner: "jane@example.com" };
+    try {
+      const owner = { host: "studio.tail1234.ts.net:8443", "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
+      expect((await get("/api/linker/sign-in", owner)).status).toBe(403);
+    } finally {
+      gate = null;
+    }
   });
 
   it("answers a malformed URL with 400 and keeps serving", async () => {

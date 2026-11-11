@@ -20,6 +20,7 @@
   import { onMount } from "svelte";
   import type {
     DesktopUpdate,
+    LinkerAccount,
     ProjectSummary,
     RemoteAccess,
     ResolveStatus,
@@ -29,6 +30,7 @@
   import { desktop } from "#lib/desktop.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
   import ComputerPicker from "./ComputerPicker.svelte";
+  import LinkerAccountRow from "./LinkerAccount.svelte";
   import RowMenu from "./RowMenu.svelte";
 
   let {
@@ -38,6 +40,7 @@
     transcription,
     remote,
     computer,
+    linker,
     projects,
     threadId,
     onSelect,
@@ -51,6 +54,8 @@
     onOpenInResolve,
     onRefreshResolve,
     onRemoteAccess,
+    onLinkerCancel,
+    onLinkerSignOut,
   }: {
     resolve: ResolveStatus;
     version: string;
@@ -58,6 +63,7 @@
     transcription: TranscriptionStatus;
     remote: RemoteAccess;
     computer: string;
+    linker: LinkerAccount;
     projects: ProjectSummary[];
     threadId: string | null;
     onSelect: (threadId: string) => void;
@@ -71,6 +77,8 @@
     onOpenInResolve: (projectId: string) => void;
     onRefreshResolve: () => void;
     onRemoteAccess: () => void;
+    onLinkerCancel: () => void;
+    onLinkerSignOut: () => void;
   } = $props();
 
   // The installed app updates itself; `update` is the npm release, for `npx linker-edit`.
@@ -363,9 +371,13 @@
     </div>
   {/if}
 
+  <div class="mt-2">
+    <LinkerAccountRow {linker} {computer} onCancel={onLinkerCancel} onSignOut={onLinkerSignOut} />
+  </div>
+
   <button
     type="button"
-    class="group m-2 flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent"
+    class="group m-2 mt-0.5 flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent"
     onclick={onRefreshResolve}
     title="Refresh Resolve status"
   >

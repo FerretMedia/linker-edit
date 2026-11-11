@@ -18,6 +18,7 @@ import type {
 } from "../shared/protocol.ts";
 import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
+import type { LinkerService } from "./linker.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
 import { decideToolCall, type ToolDecision } from "./policy.ts";
@@ -47,6 +48,8 @@ export interface AppOptions {
   transcriber?: Transcriber;
   /** Opening the app from the user's other devices over Tailscale. */
   remote?: RemoteAccessService;
+  /** The optional Linker account. */
+  linker?: LinkerService;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -269,6 +272,7 @@ export function createApp(options: AppOptions) {
       transcription: options.transcriber?.status() ?? { state: "idle" },
       remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
       computer: os.hostname(),
+      linker: options.linker?.status() ?? { state: "signed_out", problem: null },
     };
   }
 
@@ -281,6 +285,7 @@ export function createApp(options: AppOptions) {
   }
   options.transcriber?.onStatus(sendMeta);
   options.remote?.onStatus(sendMeta);
+  options.linker?.onStatus(sendMeta);
 
   function sendSnapshot(client: Client) {
     const view = clients.get(client);
@@ -632,6 +637,12 @@ export function createApp(options: AppOptions) {
         break;
       case "set_remote_access":
         void options.remote?.setEnabled(message.enabled);
+        break;
+      case "linker_cancel_sign_in":
+        options.linker?.cancel();
+        break;
+      case "linker_sign_out":
+        void options.linker?.signOut();
         break;
     }
   }

@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { WebSocketServer } from "ws";
 import type { ClientMessage } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
+import type { LinkerService } from "./linker.ts";
 import type { Computer } from "../shared/protocol.ts";
 import { requestSource, type RemoteGate } from "./remote.ts";
 
@@ -133,7 +134,29 @@ export interface RemoteRoutes {
 
 const noRemote: RemoteRoutes = { gate: () => null, computers: async () => [] };
 
-export function createServer(app: App, distDir: string, apiToken: string, remote: RemoteRoutes = noRemote): http.Server {
+/** Signing in with Linker in the browser; see server/linker.ts. */
+export type LinkerRoutes = Pick<LinkerService, "start" | "finish">;
+
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+
+/** A small page in the browser tab that signed in, which Linker-Edit itself doesn't show. */
+export function linkerPage(title: string, text: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)} · Linker-Edit</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:15px/1.5 system-ui,sans-serif;background:#0b0b0c;color:#e8e8ea}
+main{max-width:26rem;padding:2rem}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0;color:#a1a1aa}
+@media (prefers-color-scheme: light){body{background:#fafafa;color:#18181b}p{color:#52525b}}</style></head>
+<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(text)}</p></main></body></html>`;
+}
+
+export function createServer(
+  app: App,
+  distDir: string,
+  apiToken: string,
+  remote: RemoteRoutes = noRemote,
+  linker?: LinkerRoutes,
+): http.Server {
   const gate = remote.gate;
   const server = http.createServer((req, res) => {
     // Also turns away pages on other sites whose name was pointed at 127.0.0.1 (DNS rebinding).
@@ -163,6 +186,33 @@ export function createServer(app: App, distDir: string, apiToken: string, remote
         .computers()
         .then((others) => json(200, { name: os.hostname(), others }))
         .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
+    if (urlPath === "/api/linker/sign-in" || urlPath === "/api/linker/callback") {
+      const page = (status: number, title: string, text: string) =>
+        res
+          .writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
+          .end(linkerPage(title, text));
+      if (!linker) {
+        page(404, "Linker sign-in is off", "This Linker-Edit can't sign in to Linker.");
+        return;
+      }
+      // Linker sends the browser back to 127.0.0.1, which is only this computer.
+      if (requestSource(req.headers, gate()) !== "local") {
+        page(403, "Sign in on the computer itself", "Linker can only sign in on the computer Linker-Edit runs on.");
+        return;
+      }
+      if (urlPath === "/api/linker/sign-in") {
+        linker
+          .start()
+          .then((location) => res.writeHead(302, { location, "cache-control": "no-store", "referrer-policy": "no-referrer" }).end())
+          .catch((error: unknown) => page(502, "Couldn't reach Linker", error instanceof Error ? error.message : String(error)));
+      } else {
+        linker
+          .finish(query)
+          .then((name) => page(200, `Signed in as ${name}`, "You're signed in to Linker. Close this tab and go back to Linker-Edit."))
+          .catch((error: unknown) => page(400, "Not signed in", error instanceof Error ? error.message : String(error)));
+      }
       return;
     }
     if (urlPath === "/api/transcribe") {
