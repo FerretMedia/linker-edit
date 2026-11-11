@@ -16,7 +16,9 @@ import type {
   ResolveStatus,
   ServerMessage,
 } from "../shared/protocol.ts";
+import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
+import type { LinkerService } from "./linker.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
@@ -48,6 +50,8 @@ export interface AppOptions {
   transcriber?: Transcriber;
   /** Opening the app from the user's other devices over Tailscale. */
   remote?: RemoteAccessService;
+  /** The optional Linker account. */
+  linker?: LinkerService;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -270,6 +274,7 @@ export function createApp(options: AppOptions) {
       transcription: options.transcriber?.status() ?? { state: "idle" },
       remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
       computer: os.hostname(),
+      linker: options.linker?.status() ?? { state: "signed_out", problem: null },
     };
   }
 
@@ -282,6 +287,7 @@ export function createApp(options: AppOptions) {
   }
   options.transcriber?.onStatus(sendMeta);
   options.remote?.onStatus(sendMeta);
+  options.linker?.onStatus(sendMeta);
 
   function sendSnapshot(client: Client) {
     const view = clients.get(client);
@@ -400,7 +406,7 @@ export function createApp(options: AppOptions) {
     if (source.kind === "cloud") {
       return {
         link: { kind: "cloud", name: source.name.trim(), projectId: null },
-        local: { mediaPath: source.mediaPath.trim(), syncMode: source.syncMode },
+        local: { mediaPath: expandHome(source.mediaPath), syncMode: source.syncMode },
       };
     }
     return {
@@ -413,7 +419,7 @@ export function createApp(options: AppOptions) {
     let state: ProjectState;
     if (source.kind === "folder") {
       try {
-        const adopted = store.adopt(source.dir.trim());
+        const adopted = store.adopt(expandHome(source.dir));
         state = addProject(adopted.project, adopted.threads);
       } catch (error) {
         toast(client, errorText(error));
@@ -454,7 +460,7 @@ export function createApp(options: AppOptions) {
     const name = changes.name === undefined ? saved.name : changes.name.trim() || null;
     const local: LocalLink = {
       ...saved.local,
-      ...(changes.mediaPath === undefined ? {} : { mediaPath: changes.mediaPath.trim() }),
+      ...(changes.mediaPath === undefined ? {} : { mediaPath: expandHome(changes.mediaPath) }),
       ...(changes.syncMode === undefined ? {} : { syncMode: changes.syncMode }),
     };
     project.saved = { ...saved, name, local };
@@ -533,6 +539,14 @@ export function createApp(options: AppOptions) {
       send(client, { type: "library", library: await options.resolveProjects.library() });
     } catch (error) {
       send(client, { type: "library", library: { error: errorText(error) } });
+    }
+  }
+
+  async function sendFolders(client: Client, requestId: number, dir: string) {
+    try {
+      send(client, { type: "folders", requestId, listing: await browseFolders(dir) });
+    } catch (error) {
+      send(client, { type: "folders", requestId, listing: { error: errorText(error) } });
     }
   }
 
@@ -617,11 +631,20 @@ export function createApp(options: AppOptions) {
       case "load_library":
         void loadLibrary(client);
         break;
+      case "browse_folders":
+        if (typeof message.path === "string") void sendFolders(client, message.requestId, message.path);
+        break;
       case "refresh_remote_access":
         void options.remote?.refresh();
         break;
       case "set_remote_access":
         void options.remote?.setEnabled(message.enabled);
+        break;
+      case "linker_cancel_sign_in":
+        options.linker?.cancel();
+        break;
+      case "linker_sign_out":
+        void options.linker?.signOut();
         break;
     }
   }

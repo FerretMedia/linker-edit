@@ -23,6 +23,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
 - **Use it from your other computers.** Over your own Tailscale, the app on a laptop or another PC drives the agents and Resolve on your edit machine.
+- **Sign in with Linker, if you like.** Your [Linker](https://linker.cool) account in the sidebar; nothing needs it.
 - **Long chats stay affordable.** A context meter, compaction, chats that survive restarts, and switching between Claude and Codex mid-chat.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
 
@@ -90,6 +91,9 @@ The defaults work for a standard install. To override them, create `~/LinkerEdit
 | `toolsDir` | `~/LinkerEdit/tools`, the speech engine and its models |
 | `tailscalePort` | `8443`, the HTTPS port remote access uses on your tailnet |
 | `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows and looks on PATH elsewhere |
+| `linkerAuthServer` | `https://clerk.linker.cool`, Linker's sign-in; another one for testing against staging |
+| `linkerAppUrl` | `https://app.linker.cool`, Linker's dashboard and API |
+| `linkerClientId` | unset: the client Linker publishes for Linker-Edit at `app.linker.cool/oauth/linker-edit.json` |
 
 ## Development
 
@@ -144,6 +148,8 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 - **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
 - **Cloud:** a Blackmagic Cloud project, by its name and a folder for its media on this computer. Resolve can't list cloud projects to other apps, so if it's open in Resolve, use **Open in Resolve** instead.
 - **Folder:** a project folder from another computer, such as a teammate's edit history you cloned.
+
+Folder fields list the folders as you type, like T3 Code's **Add project**. Use ↑/↓ to choose a folder, and Enter or Tab to open it. Enter with no folder chosen picks the path you typed. Project folders are marked **Linker-Edit project**. The folders listed are on the computer running Linker-Edit, even when you use it from another one. In the desktop app on that computer, **Browse…** also opens the system's folder dialog.
 
 A project with no Resolve project yet links itself to the one open in Resolve with its first message. To link it to another one later, open that one in Resolve and use **Project settings**. Projects stay linked when you rename them in Resolve.
 
@@ -209,6 +215,13 @@ Only your own computers show up in that menu, and only once remote access is on 
 - **The first time, Tailscale may ask you to allow it.** If Tailscale Serve or HTTPS certificates are off for your tailnet, the dialog shows Tailscale's link to turn them on. Then click **Turn on** again.
 - **It stays on** after Linker-Edit or the computer restarts, until you turn it off in the same dialog. While Linker-Edit isn't running, the address shows an error.
 - **It uses port 8443**, so it doesn't take over an address you already serve on 443, such as T3 Code's. If 8443 is taken too, set `tailscalePort` in the config.
+
+## Sign in with Linker
+
+Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in with your [Linker](https://linker.cool) account in your browser. The sidebar then shows who you are and your plan. Nothing else changes yet: this is the start of working on your Linker projects from Linker-Edit (see [docs/linker-plan.md](docs/linker-plan.md)).
+
+- **Sign in on the edit machine itself.** Linker sends your browser back to Linker-Edit on `127.0.0.1`, so it works on the computer Linker-Edit runs on, on the default port 4317.
+- **Linker-Edit asks for your name and email,** and to stay signed in. It keeps the sign-in in `~/LinkerEdit/linker-account.json`, readable only by you. **Sign out** in the account's menu removes it and tells Linker to forget it.
 
 ## Testing
 

@@ -1,5 +1,5 @@
 // What pages in the desktop window may ask of it: which of the user's computers run Linker-Edit, switching to
-// one, and the app's own updates. The types are DesktopBridge in src/lib/desktop.ts.
+// one, the app's own updates, and the system's folder dialog. The types are DesktopBridge in src/lib/desktop.ts.
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("linkerEditDesktop", {
@@ -13,4 +13,6 @@ contextBridge.exposeInMainWorld("linkerEditDesktop", {
     return () => void ipcRenderer.removeListener("update", forward);
   },
   installUpdate: () => ipcRenderer.invoke("install-update"),
+  canPickFolder: () => ipcRenderer.invoke("can-pick-folder"),
+  pickFolder: (/** @type {string | undefined} */ defaultPath) => ipcRenderer.invoke("pick-folder", defaultPath),
 });

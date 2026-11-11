@@ -7,10 +7,16 @@ import * as path from "node:path";
 const port = 4399;
 const dir = path.join(os.tmpdir(), "linker-edit-e2e");
 const configFile = path.join(dir, "linker-edit.config.json");
-// Fresh each run: the server keeps its projects and threads across restarts.
-fs.rmSync(dir, { recursive: true, force: true });
-fs.mkdirSync(dir, { recursive: true });
-fs.writeFileSync(configFile, JSON.stringify({ port, workspaceDir: path.join(dir, "workspace"), projectsDir: path.join(dir, "projects") }));
+// Fresh each run: the server keeps its projects and threads across restarts. Only in the main process:
+// each test worker loads this file again, while the server is already using the folder.
+if (!process.env.TEST_WORKER_INDEX) {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(configFile, JSON.stringify({ port, workspaceDir: path.join(dir, "workspace"), projectsDir: path.join(dir, "projects") }));
+  // A teammate's project folder to add through the folder picker.
+  fs.mkdirSync(path.join(dir, "team", "Promo"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "team", "Promo", "linker-edit.json"), JSON.stringify({ version: 1, name: "Promo", resolve: null }));
+}
 
 export default defineConfig({
   testDir: "e2e",

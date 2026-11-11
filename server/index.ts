@@ -4,6 +4,7 @@ import { createApp } from "./app.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
+import { createLinker } from "./linker.ts";
 import { createPreviewRenderer } from "./preview/preview.ts";
 import { fileProjectStore } from "./projects/store.ts";
 import { createClaudeSession } from "./providers/claude.ts";
@@ -30,6 +31,8 @@ const resolve = createResolveConnection({ command: config.resolveMcp.command });
 process.on("exit", () => resolve.close());
 
 const remote = createRemoteAccess({ port: config.port, servePort: config.tailscalePort });
+// The browser comes back to this server after signing in at Linker.
+const linker = createLinker({ ...config.linker, redirectUri: `http://127.0.0.1:${config.port}/api/linker/callback` });
 
 const app = createApp({
   version: VERSION,
@@ -54,10 +57,11 @@ const app = createApp({
     prepare: (onProgress) => prepareTools(config.toolsDir, config.whisperCli, onProgress),
   }),
   remote,
+  linker,
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
-export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote);
+export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote, linker);
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
@@ -77,6 +81,7 @@ server.listen(config.port, "127.0.0.1", () => {
     if (status.state === "on") console.log(`Remote access: ${status.url} (for ${status.owner})`);
   });
   void app.refreshResolve();
+  void linker.refresh();
   setInterval(() => {
     if (!app.busy()) void app.refreshResolve();
   }, 15_000);
