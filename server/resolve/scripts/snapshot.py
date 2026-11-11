@@ -73,7 +73,8 @@ if wanted is not None:
 done = []
 remaining = []
 for t in timelines:
-    if done and time.time() - started > ARGS.get("budget", 40):
+    # >= so that a budget of 0 reads one timeline per run even where the clock barely moves (Windows).
+    if done and time.time() - started >= ARGS.get("budget", 40):
         remaining.append(call(t, "GetUniqueId"))
     else:
         done.append(timeline_of(t))
