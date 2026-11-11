@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
+import { releaseName } from "#shared/release-name.ts";
 import { createApp } from "./app.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
@@ -73,7 +74,7 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 });
 
 server.listen(config.port, "127.0.0.1", () => {
-  console.log(`Linker-Edit ${VERSION} on ${url}`);
+  console.log(`Linker-Edit ${releaseName(VERSION)} on ${url}`);
   console.log(`Projects: ${config.projectsDir}`);
   // Tailscale keeps Serve on across restarts, so remote access may already be on.
   void remote.refresh().then(() => {

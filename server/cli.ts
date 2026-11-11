@@ -5,13 +5,14 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { releaseName } from "#shared/release-name.ts";
 import { APP_ROOT } from "./config.ts";
 import { VERSION } from "./updates.ts";
 
 const command = process.argv[2];
 
 if (command === "--version") {
-  console.log(VERSION);
+  console.log(releaseName(VERSION));
   process.exit(0);
 }
 if (command !== undefined && command !== "setup" && command !== "--browser" && command !== "--serve") {
