@@ -1,14 +1,17 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Cloud, FolderInput, HardDrive, MonitorUp } from "@lucide/svelte";
-  import type { CloudSyncMode, ProjectSource, ResolveLibrary, ResolveStatus } from "#shared/protocol.ts";
+  import type { CloudSyncMode, FolderListing, ProjectSource, ResolveLibrary, ResolveStatus } from "#shared/protocol.ts";
+  import { trimSeparators } from "#lib/browsePath.ts";
   import { LIBRARY_LABEL, SYNC_MODES } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
+  import FolderPicker from "./FolderPicker.svelte";
 
   let {
     resolve,
     library,
     onLoadLibrary,
+    browseFolders,
     onAdd,
     onClose,
   }: {
@@ -16,6 +19,8 @@
     /** Null while it loads. */
     library: ResolveLibrary | { error: string } | null;
     onLoadLibrary: () => void;
+    /** Lists folders on the server's computer for the folder fields. */
+    browseFolders: (path: string) => Promise<FolderListing | { error: string }>;
     onAdd: (source: ProjectSource) => void;
     onClose: () => void;
   } = $props();
@@ -35,6 +40,18 @@
   let mediaPath = $state("");
   let syncMode = $state<CloudSyncMode>("proxy_only");
   let folder = $state("");
+  let folderStatus = $state<{ exists: boolean; isProject: boolean } | null>(null);
+  const folderHint = $derived.by(() => {
+    if (!folder.trim()) return "Pick the folder of a Linker-Edit project.";
+    if (!folderStatus) return "Checking the folder…";
+    if (!folderStatus.exists) return "There's no such folder.";
+    if (!folderStatus.isProject) return "Go into a folder marked as a Linker-Edit project to add it.";
+    return null;
+  });
+
+  function addFolder() {
+    if (folderStatus?.isProject) add({ kind: "folder", dir: trimSeparators(folder) });
+  }
 
   $effect(() => {
     // Asks Resolve for its projects each time the tab opens, so the list is current.
@@ -134,10 +151,10 @@
       Project name, exactly as in Resolve
       <input class={field} bind:value={cloudName} />
     </label>
-    <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+    <div class="flex flex-col gap-1 text-xs text-muted-foreground">
       Media folder on this computer
-      <input class={field} placeholder="D:\Cloud media\Project" bind:value={mediaPath} />
-    </label>
+      <FolderPicker bind:value={mediaPath} browse={browseFolders} listOnFocus label="Media folder" />
+    </div>
     <label class="flex flex-col gap-1 text-xs text-muted-foreground">
       Sync
       <select class={field} bind:value={syncMode}>
@@ -154,25 +171,24 @@
       type="button"
       class="h-8 self-end rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
       disabled={!cloudName.trim() || !mediaPath.trim()}
-      onclick={() => add({ kind: "cloud", name: cloudName.trim(), mediaPath: mediaPath.trim(), syncMode })}
+      onclick={() => add({ kind: "cloud", name: cloudName.trim(), mediaPath: trimSeparators(mediaPath), syncMode })}
     >
       Add
     </button>
   {:else}
-    <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-      Project folder
-      <input class={field} placeholder="C:\Users\you\LinkerEdit\projects\Promo" bind:value={folder} />
-    </label>
-    <p class="text-xs text-muted-foreground">
-      A Linker-Edit project folder with its linker-edit.json, such as a teammate's edit history you cloned. It stays where it is.
-    </p>
-    <button
-      type="button"
-      class="h-8 self-end rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-      disabled={!folder.trim()}
-      onclick={() => add({ kind: "folder", dir: folder.trim() })}
-    >
-      Add
-    </button>
+    <FolderPicker bind:value={folder} bind:status={folderStatus} browse={browseFolders} autofocus label="Project folder" onSubmit={addFolder} />
+    <div class="flex items-center gap-3">
+      <p class="flex-1 text-xs text-muted-foreground">
+        {folderHint ?? "A Linker-Edit project folder, such as a teammate's edit history you cloned. It stays where it is."}
+      </p>
+      <button
+        type="button"
+        class="h-8 shrink-0 rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+        disabled={!folderStatus?.isProject}
+        onclick={addFolder}
+      >
+        Add
+      </button>
+    </div>
   {/if}
 </Dialog>

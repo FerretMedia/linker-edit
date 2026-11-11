@@ -11,6 +11,10 @@ export interface DesktopBridge {
   /** Returns a function that stops listening. */
   onUpdate?(listener: (update: DesktopUpdate) => void): () => void;
   installUpdate?(): Promise<void>;
+  /** Whether pickFolder works for this page: only on this computer's own server. */
+  canPickFolder?(): Promise<boolean>;
+  /** The system's folder dialog; null when cancelled. */
+  pickFolder?(defaultPath?: string): Promise<string | null>;
 }
 
 export const desktop = (globalThis as { linkerEditDesktop?: DesktopBridge }).linkerEditDesktop;

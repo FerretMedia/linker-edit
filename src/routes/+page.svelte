@@ -386,6 +386,7 @@
       resolve={app.resolve}
       library={server.library}
       onLoadLibrary={loadLibrary}
+      browseFolders={(path) => server.browseFolders(path)}
       onAdd={(source) => server.send({ type: "add_project", source })}
       onClose={() => (dialog = null)}
     />
@@ -400,6 +401,7 @@
     <ProjectSettingsDialog
       project={settingsProject}
       relinkTo={app.resolve.state === "connected" && !app.projects.some((candidate) => candidate.open) ? app.resolve.project : null}
+      browseFolders={(path) => server.browseFolders(path)}
       onSave={(changes) => server.send({ type: "update_project", projectId: settingsProject.id, ...changes })}
       onRelink={() => server.send({ type: "relink_project", projectId: settingsProject.id })}
       onRemove={() => server.send({ type: "remove_project", projectId: settingsProject.id })}

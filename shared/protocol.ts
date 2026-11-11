@@ -115,6 +115,24 @@ export type ProjectSource =
   /** A working folder that already has a linker-edit.json, such as a teammate's cloned history. */
   | { kind: "folder"; dir: string };
 
+/** One folder in a FolderListing. */
+export interface FolderEntry {
+  name: string;
+  /** Holds a linker-edit.json, so it can be added as a project folder. */
+  isProject: boolean;
+}
+
+/** The folders inside one folder on the server's computer, for picking a path without typing it all. */
+export interface FolderListing {
+  /** Absolute, ending in a separator, such as C:\Users\you\. */
+  dir: string;
+  isProject: boolean;
+  entries: FolderEntry[];
+  /** The drives on Windows, or / elsewhere: where to jump from the picker. */
+  roots: string[];
+  home: string;
+}
+
 export interface ApprovalRequest {
   id: string;
   tool: string;
@@ -327,6 +345,8 @@ export type ClientMessage =
   /** Saves the project open in Resolve, then opens this one. */
   | { type: "open_in_resolve"; projectId: string }
   | { type: "load_library" }
+  /** Lists the folders in path on the server's computer; an empty path is the home folder. */
+  | { type: "browse_folders"; requestId: number; path: string }
   | { type: "refresh_remote_access" }
   | { type: "set_remote_access"; enabled: boolean };
 
@@ -336,6 +356,7 @@ export type ServerMessage =
   | { type: "item"; threadId: string; item: ChatItem }
   | { type: "history"; projectId: string; entries: HistoryEntry[] }
   | { type: "library"; library: ResolveLibrary | { error: string } }
+  | { type: "folders"; requestId: number; listing: FolderListing | { error: string } }
   /** The message wasn't sent; it goes back in the composer. */
   | { type: "refused"; threadId: string; text: string }
   | { type: "toast"; text: string; tone: "info" | "error" };

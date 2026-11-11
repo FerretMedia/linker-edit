@@ -2,7 +2,8 @@ Linker-Edit
 Copyright (c) 2026 Linker-Edit contributors
 
 The interface is modelled on T3 Code (https://github.com/pingdotgg/t3code). Its theme
-tokens and provider icons are adapted from T3 Code under the MIT License:
+tokens, provider icons and the folder picker's path handling (src/lib/browsePath.ts) are
+adapted from T3 Code under the MIT License:
 
   MIT License
 
