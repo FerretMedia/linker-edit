@@ -4,7 +4,17 @@
 import { execFile, fork, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell,
+  type BrowserWindowConstructorOptions,
+  type IpcMainInvokeEvent,
+  type TitleBarOverlayOptions,
+} from "electron";
 import type { Computers, DesktopUpdate } from "../shared/protocol.ts";
 
 const APP_DIR = path.join(import.meta.dirname, "..");
@@ -37,8 +47,25 @@ async function listComputers(): Promise<Computers & { home: string }> {
 
 const STARTING = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <meta name="color-scheme" content="dark">
-<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0a0a0a;color:#a3a3a3;font:13px system-ui,sans-serif">
+<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0a0a0a;color:#a3a3a3;font:13px system-ui,sans-serif;-webkit-app-region:drag">
 Starting Linker-Edit…`)}`;
+
+// There's no system title bar, like T3 Code: the page's top headers are the title bar, and the system draws its
+// window buttons over their corner. The page makes room for them (src/app.css); the preload says which kind.
+const TITLE_BAR_HEIGHT = 52; // The headers' h-13.
+
+// Windows and Linux draw minimize, maximize and close over the page; they take their color from the theme.
+const overlay = (): TitleBarOverlayOptions => ({
+  // Fully transparent misdraws on Linux.
+  color: "#01000000",
+  symbolColor: nativeTheme.shouldUseDarkColors ? "#f5f5f5" : "#27272a",
+  height: TITLE_BAR_HEIGHT,
+});
+
+const titleBar = (): BrowserWindowConstructorOptions =>
+  process.platform === "darwin"
+    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 19 } }
+    : { titleBarStyle: "hidden", titleBarOverlay: overlay() };
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -49,6 +76,7 @@ function createWindow(): BrowserWindow {
     title: "Linker-Edit",
     backgroundColor: "#0a0a0a",
     autoHideMenuBar: true,
+    ...titleBar(),
     webPreferences: { preload: path.join(APP_DIR, "desktop", "preload.cjs"), contextIsolation: true, sandbox: true },
   });
   const contents = window.webContents;
@@ -83,6 +111,12 @@ function createWindow(): BrowserWindow {
     if (originOf(url) === homeOrigin()) setTimeout(() => void window.loadURL(home), 1000);
     else backHome("Couldn't reach that computer.", `Is it on, with Linker-Edit running and remote access on? (${description})`);
   });
+
+  const recolor = () => {
+    if (process.platform !== "darwin" && !window.isDestroyed()) window.setTitleBarOverlay(overlay());
+  };
+  nativeTheme.on("updated", recolor);
+  window.on("closed", () => nativeTheme.off("updated", recolor));
 
   void window.loadURL(home || STARTING);
   return window;

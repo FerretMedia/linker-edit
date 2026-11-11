@@ -146,7 +146,7 @@
 <svelte:document onfullscreenchange={() => (fullscreen = document.fullscreenElement === stage)} />
 
 <aside class="flex w-[32rem] shrink-0 flex-col border-l bg-sidebar">
-  <header class="flex h-13 shrink-0 items-center gap-2 border-b px-4">
+  <header class="title-bar flex h-13 shrink-0 items-center gap-2 border-b px-4">
     <MonitorPlay class="size-4 text-muted-foreground" />
     <h2 class="text-sm font-medium">Preview</h2>
     <button

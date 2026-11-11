@@ -232,7 +232,7 @@
 {/snippet}
 
 <aside class="flex w-64 shrink-0 flex-col border-r bg-sidebar">
-  <div class="flex h-13 items-center gap-2 px-4">
+  <div class="title-bar title-bar-start flex h-13 shrink-0 items-center gap-2 px-4">
     <span class="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
       <Clapperboard class="size-3.5" strokeWidth={2.25} />
     </span>
