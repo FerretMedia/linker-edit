@@ -2,7 +2,7 @@ import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOpti
 import type { AppConfig } from "../config.ts";
 import { CODEX_DISABLED_RESOLVE_TOOLS } from "../policy.ts";
 import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
-import { linkerMcpCommand } from "../transcribe/mcp.ts";
+import { guardedResolveMcpCommand, linkerMcpCommand } from "../agents/commands.ts";
 import { truncate, type ProviderSession, type TurnSink } from "./types.ts";
 
 function mcpResultText(item: Extract<ThreadItem, { type: "mcp_tool_call" }>): string | undefined {
@@ -63,15 +63,18 @@ const slashes = (value: string) => value.replaceAll("\\", "/");
 
 export function codexOptions(config: AppConfig): CodexOptions {
   const linker = linkerMcpCommand(config);
+  const resolve = guardedResolveMcpCommand(config);
   return {
     config: {
       mcp_servers: {
         [RESOLVE_MCP_NAME]: {
-          command: slashes(config.resolveMcp.python),
-          args: [slashes(config.resolveMcp.serverScript)],
-          env: Object.fromEntries(Object.entries(config.resolveMcp.env).map(([key, value]) => [key, slashes(value)])),
+          command: slashes(resolve.command),
+          args: resolve.args.map(slashes),
+          env: Object.fromEntries(Object.entries(resolve.env).map(([key, value]) => [key, slashes(value)])),
           // The MCP marks its tools destructive; with approvalPolicy "never" Codex would refuse every call.
+          // The guard asks Linker-Edit instead, which may wait for the user's OK.
           default_tools_approval_mode: "approve",
+          tool_timeout_sec: 3600,
           disabled_tools: CODEX_DISABLED_RESOLVE_TOOLS,
         },
         [LINKER_MCP_NAME]: {
@@ -87,7 +90,7 @@ export function codexOptions(config: AppConfig): CodexOptions {
   };
 }
 
-// Codex runs non-interactively here: no per-call approvals, writes confined to the workspace.
+// Codex runs non-interactively here: Resolve calls go through the guard, writes stay in the workspace.
 export function codexThreadOptions(config: AppConfig): ThreadOptions {
   return {
     workingDirectory: config.workspaceDir,

@@ -318,6 +318,8 @@ export function createHistory(options: {
       const raw = snapshot.timelines.find((candidate) => (id ? candidate.id === id : candidate.name === snapshot.current_timeline));
       return raw ? playableTimeline(storedTimeline(raw), snapshotMedia, null) : null;
     }
+    // The commit comes from a URL; a value starting with "-" would be read as a git option.
+    if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
     const tree = await git(dir, ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", commit, "--", HISTORY_ROOT]);
     if (tree.code !== 0) return null;
     const metadataFiles = tree.stdout.split("\n").filter((file) => file.split("/").length === 4 && file.endsWith("/metadata.json"));

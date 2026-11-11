@@ -2,7 +2,7 @@ import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ApprovalMode } from "../../shared/protocol.ts";
-import { linkerMcpCommand } from "../transcribe/mcp.ts";
+import { linkerMcpCommand } from "../agents/commands.ts";
 import { CONTEXT_OVERFLOW_NOTICE, createClaudeSession, type RunQuery } from "./claude.ts";
 import { readFixture, replayQuery } from "./replay.ts";
 import { collectingSink, FIXTURES, testConfig } from "./testing.ts";

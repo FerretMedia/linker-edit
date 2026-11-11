@@ -110,6 +110,7 @@ describe("edit history", () => {
       duration: 2,
       video: [{ name: "clip b", start: 0, end: 2, media: "m-b" }],
     });
+    expect(await history.timeline("t2", "--output=x")).toBeNull();
     expect(await history.timeline("t2", null)).toBeNull();
     expect(await history.timeline(null, null)).toBeNull();
     expect(await history.timeline("t1", null)).toMatchObject({ commit: null, video: [{ name: "clip a" }, { name: "clip b", look: { ZoomX: 1.5 } }] });

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
-import { createApp, type AppOptions } from "./app.ts";
+import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
+import { PROJECT_SWITCH_DENIED, type ToolDecision } from "./policy.ts";
 import type { SavedProject, SavedThread } from "./projects/store.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
@@ -223,8 +224,32 @@ describe("app approvals", () => {
     expect(client.state.approvals).toEqual([]);
   });
 
+  it("decides Resolve calls from Codex's guard in the thread working in Resolve", async () => {
+    const decisions: ToolDecision[] = [];
+    let call: App["resolveCall"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setup(async () => {
+      decisions.push(await call("project_manager", { action: "delete", params: { name: "Wedding" } }));
+      decisions.push(await call("timeline", { action: "get_current" }));
+      decisions.push(await call("timeline", { action: "create_empty" }));
+    });
+    call = app.resolveCall;
+    expect(await app.resolveCall("timeline", { action: "create_empty" })).toMatchObject({ allow: false });
+    send({ type: "send", text: "build it" });
+    await client.until((state) => state.approvals.length > 0);
+    expect(client.state.approvals).toMatchObject([{ tool: "mcp__resolve__timeline", input: { action: "create_empty" } }]);
+    send({ type: "approve", id: client.state.approvals[0]!.id, allow: false });
+    await turnDone();
+    expect(decisions).toEqual([
+      { allow: false, message: PROJECT_SWITCH_DENIED },
+      { allow: true },
+      { allow: false, message: "The user declined this action." },
+    ]);
+  });
+
   it("allows pending approvals when switched to auto", async () => {
     const { send, turnDone, answers } = await awaitingApproval();
+    send({ type: "set_approval_mode", mode: "yes" as "auto" });
+    expect(answers).toEqual([]);
     send({ type: "set_approval_mode", mode: "auto" });
     await turnDone();
     expect(answers).toEqual([true]);
