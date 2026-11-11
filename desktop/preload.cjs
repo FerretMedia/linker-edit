@@ -1,8 +1,11 @@
 // What pages in the desktop window may ask of it: which of the user's computers run Linker-Edit, switching to
-// one, the app's own updates, and the system's folder dialog. The types are DesktopBridge in src/lib/desktop.ts.
+// one, the app's own updates, the system's folder dialog, and where the window's own buttons sit. The types are DesktopBridge in src/lib/desktop.ts.
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("linkerEditDesktop", {
+  // desktop/main.ts hides the system title bar: macOS keeps its traffic lights on the left, Windows and Linux
+  // draw their window buttons over the right.
+  titleBar: process.platform === "darwin" ? "mac" : "overlay",
   computers: () => ipcRenderer.invoke("computers"),
   open: (/** @type {string} */ url) => ipcRenderer.invoke("open", url),
   update: () => ipcRenderer.invoke("update"),

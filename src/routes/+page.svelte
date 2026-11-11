@@ -179,11 +179,11 @@
 <svelte:window onfocus={onWindowFocus} />
 
 {#if !app}
-  <div class="grid h-full place-items-center text-sm text-muted-foreground">
+  <div class="title-bar grid h-full place-items-center text-sm text-muted-foreground">
     {server.connected ? "Loading…" : "Connecting to the Linker-Edit server…"}
   </div>
 {:else}
-  <div class="flex h-full">
+  <div class="title-bar-row flex h-full">
     <Sidebar
       resolve={app.resolve}
       version={app.version}
@@ -213,7 +213,7 @@
     />
 
     <main class="flex min-w-0 flex-1 flex-col">
-      <header class="flex h-13 shrink-0 items-center gap-2 border-b px-5">
+      <header class="title-bar flex h-13 shrink-0 items-center gap-2 border-b px-5">
         <h1 class="min-w-0 truncate text-sm font-medium">{chatTitle}</h1>
         {#if project}
           <span class="shrink-0 rounded-md border px-1.5 py-0.5 text-2xs text-muted-foreground" title={project.dir}>

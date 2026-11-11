@@ -5,6 +5,11 @@ import type { Computers, DesktopUpdate } from "#shared/protocol.ts";
  * methods are optional: an older app window may show the page of a newer Linker-Edit on another computer.
  */
 export interface DesktopBridge {
+  /**
+   * The window has no system title bar, and its buttons sit on the page: macOS's on the left, Windows' and
+   * Linux's on the right. src/app.html marks the page with it, for the title bar styles in src/app.css.
+   */
+  titleBar?: "mac" | "overlay";
   computers(): Promise<Computers & { home: string }>;
   open(url: string): Promise<void>;
   update?(): Promise<DesktopUpdate | null>;

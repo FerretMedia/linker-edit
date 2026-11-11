@@ -102,6 +102,29 @@
   }
 }
 
+/*
+ * The desktop window has no system title bar (desktop/main.ts): the top headers are the title bar, like T3 Code.
+ * They drag the window, and double-clicking them maximizes it; their controls stay clickable.
+ */
+[data-title-bar] .title-bar {
+  -webkit-app-region: drag;
+  user-select: none;
+
+  & :is(button, a, input, select, textarea, label, [role="button"], [title]) {
+    -webkit-app-region: no-drag;
+  }
+}
+
+/* macOS's traffic lights sit in the sidebar's top corner. */
+[data-title-bar="mac"] .title-bar-start {
+  padding-left: 5.25rem;
+}
+
+/* Windows' and Linux's window buttons sit over the corner of whichever header is rightmost. */
+[data-title-bar="overlay"] .title-bar-row > :last-child > .title-bar {
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 0.75rem);
+}
+
 /* Assistant markdown, sized for the chat column. */
 .prose-chat {
   font-size: 0.875rem;

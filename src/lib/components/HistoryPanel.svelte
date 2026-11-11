@@ -59,7 +59,7 @@
 </script>
 
 <aside class="flex w-[24rem] shrink-0 flex-col border-l bg-sidebar">
-  <header class="flex h-13 shrink-0 items-center gap-2 border-b px-4">
+  <header class="title-bar flex h-13 shrink-0 items-center gap-2 border-b px-4">
     <History class="size-4 text-muted-foreground" />
     <h2 class="text-sm font-medium">Edit history</h2>
     {#if entries?.length}

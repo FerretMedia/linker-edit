@@ -10,6 +10,9 @@
       const apply = () => document.documentElement.classList.toggle("dark", dark.matches);
       apply();
       dark.addEventListener("change", apply);
+      // In the desktop window the page's top headers are the title bar (desktop/main.ts).
+      const titleBar = window.linkerEditDesktop?.titleBar;
+      if (titleBar) document.documentElement.dataset.titleBar = titleBar;
     </script>
     %sveltekit.head%
   </head>
