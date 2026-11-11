@@ -34,6 +34,12 @@ interface UserConfig {
   whisperCli?: string;
   /** The HTTPS port remote access uses on your tailnet. */
   tailscalePort?: number;
+  /** Linker's sign-in (Clerk), for testing against staging. */
+  linkerAuthServer?: string;
+  /** Linker's dashboard and API, for testing against staging. */
+  linkerAppUrl?: string;
+  /** An OAuth client id for signing in with Linker, instead of the one Linker publishes for Linker-Edit. */
+  linkerClientId?: string;
 }
 
 export interface ResolveMcpConfig {
@@ -52,6 +58,8 @@ export interface AppConfig {
   toolsDir: string;
   whisperCli?: string;
   tailscalePort: number;
+  /** Signing in with a Linker account; file is where the sign-in is kept. */
+  linker: { authServer: string; appUrl: string; clientId?: string; file: string };
   /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
   apiToken: string;
   resolveMcp: ResolveMcpConfig;
@@ -146,6 +154,12 @@ export function loadConfig(
     toolsDir: user.toolsDir ?? path.join(HOME_DIR, "tools"),
     ...(user.whisperCli ? { whisperCli: user.whisperCli } : {}),
     tailscalePort,
+    linker: {
+      authServer: user.linkerAuthServer ?? "https://clerk.linker.cool",
+      appUrl: user.linkerAppUrl ?? "https://app.linker.cool",
+      ...(user.linkerClientId ? { clientId: user.linkerClientId } : {}),
+      file: path.join(path.dirname(file), "linker-account.json"),
+    },
     apiToken: randomBytes(24).toString("hex"),
     resolveMcp: {
       python,
