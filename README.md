@@ -36,19 +36,39 @@ Priorities come from real use. If something here matters to you, or is missing, 
 ## Requirements
 
 - **DaVinci Resolve Studio** with Preferences → System → General → *External scripting using* set to **Local**. Restart Resolve after changing it. The free edition blocks external scripting.
-- **Node.js 24+**
 - **Claude Code** (`claude`, logged in) and/or **Codex** (`codex`, logged in).
 - **[Git](https://git-scm.com)** and **[uv](https://docs.astral.sh/uv/)**, which Linker-Edit uses to install [davinci-resolve-mcp](https://github.com/samuelgursky/davinci-resolve-mcp) and Python for it.
 
-## Run
+## Install
+
+Download the installer for your computer from the [latest release](https://github.com/FerretMedia/linker-edit/releases/latest):
+
+| | |
+| --- | --- |
+| Windows | `Linker-Edit-<version>-win-x64.exe` |
+| macOS, Apple silicon | `Linker-Edit-<version>-mac-arm64.dmg` |
+| macOS, Intel | `Linker-Edit-<version>-mac-x64.dmg` |
+| Linux | `Linker-Edit-<version>-linux-x86_64.AppImage` |
+
+The builds aren't signed yet, so the first launch needs one extra step:
+
+- **Windows**: SmartScreen says it protected your PC. Click *More info* → *Run anyway*.
+- **macOS**: open the app once, then System Settings → Privacy & Security → *Open Anyway*.
+- **Linux**: `chmod +x` the AppImage, then run it.
+
+The first launch installs davinci-resolve-mcp into `~/LinkerEdit/davinci-resolve-mcp`. Check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
+
+The app downloads new versions by itself and the sidebar offers *Restart to update*. On macOS the sidebar links to the new download instead, because an unsigned app can't replace itself. Your projects, history and settings stay in `~/LinkerEdit`.
+
+### Or run it with Node.js
+
+With **Node.js 24+**:
 
 ```sh
 npx linker-edit@latest
 ```
 
-The first run installs davinci-resolve-mcp into `~/LinkerEdit/davinci-resolve-mcp`. Then Linker-Edit opens in its own window. Closing the window stops it; `npx linker-edit@latest --browser` opens it in your browser at http://127.0.0.1:4317 instead. Check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
-
-When a new version is out, the sidebar says so. Stop Linker-Edit (Ctrl+C) and run `npx linker-edit@latest` again. Your projects, history and settings stay in `~/LinkerEdit`.
+Linker-Edit opens in its own window. Closing the window stops it; `npx linker-edit@latest --browser` opens it in your browser at http://127.0.0.1:4317 instead. When a new version is out, the sidebar says so: stop Linker-Edit (Ctrl+C) and run `npx linker-edit@latest` again.
 
 ## Configuration
 
