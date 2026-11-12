@@ -62,12 +62,16 @@ describe("decideToolCall", () => {
     }).then((decision) => ({ decision, asked }));
   };
 
-  it("always asks before a script, even in auto mode", async () => {
-    expect(await decide("mcp__resolve__run_script", { script: "result = project.GetName()" })).toEqual({
-      decision: { allow: true },
-      asked: ["mcp__resolve__run_script"],
-    });
-    expect((await decide("mcp__resolve__run_script", { script: "x = 1" }, "auto", false)).decision).toMatchObject({ allow: false });
+  it("runs a script without asking in auto mode, and asks first in ask mode", async () => {
+    const script = { script: "result = project.GetName()" };
+    expect(await decide("mcp__resolve__run_script", script, "auto")).toEqual({ decision: { allow: true }, asked: [] });
+    expect(await decide("mcp__resolve__run_script", script, "ask")).toEqual({ decision: { allow: true }, asked: ["mcp__resolve__run_script"] });
+    expect((await decide("mcp__resolve__run_script", script, "ask", false)).decision).toMatchObject({ allow: false });
+  });
+
+  it.each<"ask" | "auto">(["auto", "ask"])("refuses a script that isn't text, in %s mode", async (mode) => {
+    expect(await decide("mcp__resolve__run_script", { script: ["x = 1"] }, mode)).toMatchObject({ decision: { allow: false }, asked: [] });
+    expect(await decide("mcp__resolve__run_script", {}, mode)).toMatchObject({ decision: { allow: false }, asked: [] });
   });
 
   it.each([
@@ -76,16 +80,24 @@ describe("decideToolCall", () => {
     "project.GetMediaPool().DeleteClips([clip])",
     "pool.DeleteTimelines([t])",
     "pm.CloseProject (project)",
-  ])("refuses a script that switches projects or deletes: %s", async (script) => {
-    expect(await decide("mcp__resolve__run_script", { script })).toEqual({ decision: { allow: false, message: FORBIDDEN_SCRIPT }, asked: [] });
+    "project.DeleteAllRenderJobs()",
+    "project.DeleteRenderJob(job_id)",
+    "project.DeleteRenderPreset('Mine')",
+    "item.ReplaceClip('D:/other.mov')",
+  ])("refuses a script that switches projects, deletes or swaps media, in both modes: %s", async (script) => {
+    for (const mode of ["auto", "ask"] as const) {
+      expect(await decide("mcp__resolve__run_script", { script }, mode)).toEqual({ decision: { allow: false, message: FORBIDDEN_SCRIPT }, asked: [] });
+    }
   });
 
   it.each(["run_script_unsafe", "delete_lut", "delete_dctl", "launch_resolve", "a_tool_from_a_newer_resolve"])(
-    "never lets agents use Resolve's %s",
+    "never lets agents use Resolve's %s, in either mode",
     async (tool) => {
-      const { decision, asked } = await decide(`mcp__resolve__${tool}`, {}, "ask");
-      expect(decision).toMatchObject({ allow: false });
-      expect(asked).toEqual([]);
+      for (const mode of ["auto", "ask"] as const) {
+        const { decision, asked } = await decide(`mcp__resolve__${tool}`, {}, mode);
+        expect(decision).toMatchObject({ allow: false });
+        expect(asked).toEqual([]);
+      }
     },
   );
 

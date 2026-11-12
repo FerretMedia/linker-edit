@@ -166,6 +166,8 @@ export function createClaudeSession(
             },
           ],
         },
+        // T3 Code's full access uses bypassPermissions, but that skips canUseTool, and with it the tools
+        // and scripts the policy refuses. So the mode stays "default" and the policy lets the rest run.
         permissionMode: "default",
         canUseTool: async (toolName, input) => {
           const decision = await decideToolCall(toolName, input, approvalMode(), () => sink.requestApproval(toolName, input));

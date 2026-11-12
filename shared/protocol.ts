@@ -2,7 +2,11 @@
 
 export type Provider = "claude" | "codex";
 
-/** "ask": Resolve writes and file edits wait for the user. "auto": everything runs. */
+/**
+ * Like T3 Code's runtime modes. "auto" (the default) is full access: everything allowed runs without asking.
+ * "ask" is supervised: Resolve changes, scripts and file edits wait for the user. What the policy refuses,
+ * it refuses in both.
+ */
 export type ApprovalMode = "ask" | "auto";
 
 export type ToolStatus = "running" | "done" | "error";

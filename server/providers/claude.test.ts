@@ -59,7 +59,7 @@ describe("Claude session", () => {
     });
   });
 
-  it("always asks before a Resolve script, refuses forbidden ones and Resolve's dangerous tools, even in auto mode", async () => {
+  it("runs a Resolve script without asking in auto mode, but still refuses forbidden ones and Resolve's dangerous tools", async () => {
     const { calls, runQuery } = scripted([]);
     const { sink, approvals } = collectingSink();
     await session(runQuery, "auto").send("go", sink, signal());
@@ -67,18 +67,20 @@ describe("Claude session", () => {
     const ask = (tool: string, input: Record<string, unknown>) =>
       canUseTool(tool, input, { signal: signal(), suggestions: [], toolUseID: "t" } as unknown as Parameters<typeof canUseTool>[2]);
     expect(await ask("mcp__resolve__run_script", { script: "result = project.GetName()" })).toMatchObject({ behavior: "allow" });
-    expect(approvals.map(({ tool }) => tool)).toEqual(["mcp__resolve__run_script"]);
+    expect(approvals).toEqual([]);
     expect(await ask("mcp__resolve__run_script", { script: 'resolve.GetProjectManager().LoadProject("Other")' })).toMatchObject({ behavior: "deny" });
     expect(await ask("mcp__resolve__run_script_unsafe", { script: "x = 1" })).toMatchObject({ behavior: "deny" });
     expect(await ask("mcp__resolve__search_scripting_api", { pattern: "Marker" })).toMatchObject({ behavior: "allow" });
-    expect(approvals).toHaveLength(1);
+    expect(approvals).toEqual([]);
+    expect(calls[0]!.options.permissionMode).toBe("default");
     expect(calls[0]!.options.disallowedTools).toContain("mcp__resolve__run_script_unsafe");
   });
 
-  it("asks only before Resolve scripts in auto mode", async () => {
-    const { sink, approvals } = collectingSink();
+  it("asks nothing in auto mode", async () => {
+    const { sink, approvals, items } = collectingSink();
     await session(replayQuery(TURN, 0), "auto").send("check", sink, signal());
-    expect(approvals.map(({ tool }) => tool)).toEqual(["mcp__resolve__run_script"]);
+    expect(approvals).toEqual([]);
+    expect(items().filter((item) => item.kind === "tool" && item.status === "error")).toEqual([]);
   });
 
   it("resumes the recorded session on the next turn", async () => {

@@ -72,7 +72,8 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 /** All app state lives here; clients get a snapshot of the thread they look at, and patches after. */
 export function createApp(options: AppOptions) {
   const { store } = options;
-  let approvalMode: ApprovalMode = "ask";
+  // Full access by default, like T3 Code: the rules are enforced in code, and the edit history undoes.
+  let approvalMode: ApprovalMode = "auto";
   let resolve: ResolveStatus = { state: "checking" };
   let preview: PreviewState = { state: "idle" };
   let previewJob: { stop(): void } | null = null;

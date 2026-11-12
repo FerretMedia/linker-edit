@@ -246,6 +246,7 @@ describe("app approvals", () => {
     );
     call = app.resolveTool;
     expect(await app.resolveTool("list_timelines", {})).toEqual({ text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true });
+    send({ type: "set_approval_mode", mode: "ask" });
     send({ type: "send", text: "build it" });
     await client.until((state) => state.approvals.length > 0);
     expect(client.state.approvals).toMatchObject([{ tool: "mcp__linker__create_timeline", input: { name: "Cut" } }]);
@@ -262,6 +263,32 @@ describe("app approvals", () => {
     ]);
     const dir = workspaceProject.dir;
     expect(ran).toEqual([`list_timelines in ${dir}`, `set_current_timeline in ${dir}`, `add_markers in ${dir}`]);
+  });
+
+  it("starts with full access: Resolve changes run without asking, and the tools' own checks still refuse", async () => {
+    const results: { text: string; isError: boolean }[] = [];
+    let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setupWith(
+      {
+        resolveTools: async (tool) => {
+          if (tool === "add_markers") throw new Error("Cut is not an AI timeline.");
+          return { text: tool };
+        },
+      },
+      async () => {
+        results.push(await call("create_timeline", { name: "Cut" }));
+        results.push(await call("add_markers", { timeline: "Cut", markers: [{ frame: 0 }] }));
+      },
+    );
+    call = app.resolveTool;
+    expect(client.state.approvalMode).toBe("auto");
+    send({ type: "send", text: "build it" });
+    await turnDone();
+    expect(results).toEqual([
+      { text: "create_timeline", isError: false },
+      { text: "Cut is not an AI timeline.", isError: true },
+    ]);
+    expect(client.state.approvals).toEqual([]);
   });
 
   it("allows pending approvals when switched to auto", async () => {

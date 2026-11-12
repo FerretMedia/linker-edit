@@ -32,7 +32,10 @@ const RESOLVE_READS = new Set([
 /** Resolve's own MCP tools that write files only into Resolve's LUT folder, after the user's OK. */
 const RESOLVE_LOOK_WRITES = new Set(["update_dctl", "generate_lut"]);
 
-/** The escape hatch: any Python against Resolve. Always asks, even in "auto" mode, and shows the script. */
+/**
+ * The escape hatch: any Python against Resolve. Scripts that break the rules are refused in every mode;
+ * the rest run like any other change, so they ask, showing the script, only in "ask" mode.
+ */
 export const RUN_SCRIPT = "run_script";
 
 /**
@@ -78,19 +81,21 @@ export function needsApproval(toolName: string, input: Record<string, unknown>):
   return true;
 }
 
-// What scripts may not do through run_script either: each thread belongs to one Resolve project, which
-// only the user switches, in Linker-Edit; and media, bins, timelines and projects are never deleted.
+// What scripts may not do through run_script, in any mode: each thread belongs to one Resolve project,
+// which only the user switches, in Linker-Edit; media, bins, timelines, projects, the user's render queue
+// and render presets are never deleted; and a clip's media is never swapped for another file. With full
+// access no one reads a script before it runs, so this check is what stops these mistakes.
 const FORBIDDEN_CALLS =
-  /\b(LoadProject|LoadCloudProject|CloseProject|CreateProject|CreateCloudProject|DeleteProject|ImportProject|ImportCloudProject|RestoreProject|RestoreCloudProject|ArchiveProject|SetCurrentDatabase|DeleteTimelines|DeleteFolders|DeleteClips|DeleteClipMattes|Quit)\s*\(/;
+  /\b(LoadProject|LoadCloudProject|CloseProject|CreateProject|CreateCloudProject|DeleteProject|ImportProject|ImportCloudProject|RestoreProject|RestoreCloudProject|ArchiveProject|SetCurrentDatabase|DeleteTimelines|DeleteFolders|DeleteClips|DeleteClipMattes|DeleteRenderJob|DeleteAllRenderJobs|DeleteRenderPreset|ReplaceClip|Quit)\s*\(/;
 
 export const FORBIDDEN_SCRIPT =
-  "Linker-Edit doesn't let scripts open, close, create or switch Resolve projects or databases, or delete media, bins or timelines. Use the linker tools (remove_clips takes clips off an AI timeline), or ask the user to switch projects in Linker-Edit's sidebar.";
+  "Linker-Edit doesn't let scripts open, close, create or switch Resolve projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media. Use the linker tools (remove_clips takes clips off an AI timeline), or ask the user to switch projects in Linker-Edit's sidebar.";
 
 export type ToolDecision = { allow: true } | { allow: false; message: string };
 
 /**
- * One policy for every agent. Denied tools and forbidden scripts are refused; run_script always waits for
- * the user's OK; other changes wait for it in "ask" mode.
+ * One policy for every agent, like T3 Code's runtime modes: "auto" is full access, "ask" is supervised.
+ * Denied tools and forbidden scripts are refused in both; in "ask" mode, changes wait for the user's OK.
  */
 export async function decideToolCall(
   toolName: string,
@@ -102,8 +107,9 @@ export async function decideToolCall(
     const tool = toolName.slice(RESOLVE_PREFIX.length);
     if (isDeniedResolveTool(tool)) return { allow: false, message: `Linker-Edit doesn't let agents use ${tool}.` };
     if (tool === RUN_SCRIPT) {
-      if (typeof input.script === "string" && FORBIDDEN_CALLS.test(input.script)) return { allow: false, message: FORBIDDEN_SCRIPT };
-      return (await ask()) ? { allow: true } : { allow: false, message: "The user declined this script." };
+      // A script that can't be checked doesn't run.
+      if (typeof input.script !== "string") return { allow: false, message: "run_script needs the script as text." };
+      if (FORBIDDEN_CALLS.test(input.script)) return { allow: false, message: FORBIDDEN_SCRIPT };
     }
   }
   if (mode === "ask" && needsApproval(toolName, input) && !(await ask())) {
