@@ -233,6 +233,38 @@ function readStored(projectDir: string): StoredTimeline[] {
     .filter((timeline) => timeline !== null);
 }
 
+/** Says which Resolve project a history folder holds, so the folder can follow a rename in Resolve. */
+const PROJECT_INFO = "project.json";
+
+function readProjectId(folder: string): string | null {
+  try {
+    const info = JSON.parse(fs.readFileSync(path.join(folder, PROJECT_INFO), "utf8")) as { id?: unknown };
+    return typeof info.id === "string" ? info.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The folder a snapshot of this Resolve project goes in, named after the project. When Resolve renamed the
+ * project, its folder is renamed too, so its history goes on instead of starting over in a new folder.
+ */
+function projectFolder(dir: string, snapshot: RawSnapshot): { folder: string; renamedFrom: string | null } {
+  const root = path.join(dir, HISTORY_ROOT);
+  const folder = path.join(root, timelineFolders([snapshot.project])[0]!);
+  const id = snapshot.project_id;
+  if (!id || readProjectId(folder) === id || !fs.existsSync(root)) return { folder, renamedFrom: null };
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const old = path.join(root, entry.name);
+    if (!entry.isDirectory() || old === folder || readProjectId(old) !== id) continue;
+    // Another folder already has the new name: keep saving where this project's history is.
+    if (fs.existsSync(folder)) return { folder: old, renamedFrom: null };
+    fs.renameSync(old, folder);
+    return { folder, renamedFrom: old };
+  }
+  return { folder, renamedFrom: null };
+}
+
 function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: StoredTimeline[]) {
   const folders = timelineFolders(timelines.map((timeline) => timeline.metadata.name));
   fs.mkdirSync(projectDir, { recursive: true });
@@ -249,6 +281,9 @@ function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: Store
     }
   });
   fs.writeFileSync(path.join(projectDir, "media.json"), jsonRows("media", mediaEntries(snapshot)));
+  if (snapshot.project_id) {
+    fs.writeFileSync(path.join(projectDir, PROJECT_INFO), `${JSON.stringify({ id: snapshot.project_id, name: snapshot.project }, null, 2)}\n`);
+  }
 }
 
 export function createHistory(options: {
@@ -280,21 +315,28 @@ export function createHistory(options: {
     const snapshot = await options.readSnapshot();
     const refusal = options.checkProject?.({ name: snapshot.project, id: snapshot.project_id ?? null });
     if (refusal) throw new Error(refusal);
-    const projectDir = path.join(dir, HISTORY_ROOT, timelineFolders([snapshot.project])[0]!);
+    const { folder: projectDir, renamedFrom } = projectFolder(dir, snapshot);
     const before = readStored(projectDir);
     const after = snapshot.timelines.map(storedTimeline);
-    if (before.length === 0 && after.length === 0) return null;
+    if (before.length === 0 && after.length === 0 && !renamedFrom) return null;
+    // Histories from before project.json get it with their next save.
+    const notedId = before.length > 0 && !!snapshot.project_id && readProjectId(projectDir) !== snapshot.project_id;
     writeStored(projectDir, snapshot, after);
 
-    const pathspec = path.relative(dir, projectDir).replaceAll("\\", "/");
-    await gitOk(dir, ["add", "-A", "--", pathspec]);
-    if ((await git(dir, ["diff", "--cached", "--quiet", "--", pathspec])).code === 0) return null;
+    const relative = (folder: string) => path.relative(dir, folder).replaceAll("\\", "/");
+    const pathspec = [relative(projectDir), ...(renamedFrom ? [relative(renamedFrom)] : [])];
+    await gitOk(dir, ["add", "-A", "--", ...pathspec]);
+    if ((await git(dir, ["diff", "--cached", "--quiet", "--", ...pathspec])).code === 0) return null;
 
-    const changes = describeChanges(before, after);
+    const changes = [
+      ...(renamedFrom ? [`Resolve project renamed from "${path.basename(renamedFrom)}" to "${snapshot.project}"`] : []),
+      ...describeChanges(before, after),
+    ];
+    if (changes.length === 0 && notedId) changes.push("Noted the Resolve project's id, so renaming it in Resolve keeps this history");
     const author = turn ? [`--author=${AGENT_NAMES[turn.provider]} <${turn.provider}@linker-edit.local>`] : [];
     await gitOk(
       dir,
-      [...fallbackIdentity, "commit", "-q", "--no-verify", ...author, "-F", "-", "--", pathspec],
+      [...fallbackIdentity, "commit", "-q", "--no-verify", ...author, "-F", "-", "--", ...pathspec],
       commitMessage(changes, turn),
     );
     const commit = (await gitOk(dir, ["rev-parse", "--short", "HEAD"])).trim();

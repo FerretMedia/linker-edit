@@ -116,17 +116,45 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
   let registry: Registry = readRegistry();
 
   function readRegistry(): Registry {
+    let problem: string | null = null;
     try {
       const saved = readJson<Registry>(registryFile);
-      if (saved?.version === VERSION) return saved;
-      if (saved) onError(new Error(`${registryFile} is from another Linker-Edit version; starting a new project list.`));
+      if (saved?.version === VERSION && Array.isArray(saved.projects)) return saved;
+      if (saved) problem = "is from another Linker-Edit version";
     } catch (error) {
-      onError(error);
+      problem = `can't be read (${error instanceof Error ? error.message : String(error)})`;
     }
-    const first: Registry = { version: VERSION, projects: [{ id: randomUUID(), dir: options.legacyDir }] };
+    if (problem) {
+      // Kept, not overwritten: the list is rebuilt from the project folders, and the old file stays to look at.
+      const kept = `${registryFile}.bad-${Date.now()}`;
+      try {
+        fs.renameSync(registryFile, kept);
+      } catch (error) {
+        onError(error);
+      }
+      onError(new Error(`${registryFile} ${problem}. It was kept as ${kept}, and the project list was rebuilt from the folders in ${root}.`));
+    }
+    const rebuilt: Registry = {
+      version: VERSION,
+      projects: [options.legacyDir, ...(problem ? projectFolders() : [])]
+        .filter((dir, index, dirs) => dirs.findIndex((other) => path.resolve(other) === path.resolve(dir)) === index)
+        .map((dir) => ({ id: randomUUID(), dir })),
+    };
     fs.mkdirSync(options.legacyDir, { recursive: true });
-    writeJson(registryFile, first);
-    return first;
+    writeJson(registryFile, rebuilt);
+    return rebuilt;
+  }
+
+  /** The project folders under the root, found by their linker-edit.json. */
+  function projectFolders(): string[] {
+    try {
+      return fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(root, entry.name, PROJECT_FILE)))
+        .map((entry) => path.join(root, entry.name));
+    } catch {
+      return [];
+    }
   }
 
   function saveRegistry() {

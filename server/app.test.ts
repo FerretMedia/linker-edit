@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
-import type { AppState, ClientMessage, HistoryEntry, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
+import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
 import type { SavedProject, SavedThread } from "./projects/store.ts";
@@ -558,6 +558,18 @@ describe("app restarts", () => {
     expect([...store.threads.get("workspace")!.values()]).toMatchObject([{ title: "cut it", resumeId: "claude-1" }]);
   });
 
+  it("saves the user's message when the turn starts, so a crash mid-turn doesn't lose it", async () => {
+    const { open, opened } = gate();
+    const { client, send, turnDone, store } = setup(() => opened);
+    send({ type: "send", text: "cut the silences" });
+    await client.until((state) => state.busy);
+    await vi.waitFor(() =>
+      expect([...store.threads.get("workspace")!.values()]).toMatchObject([{ items: [{ kind: "user", text: "cut the silences" }] }]),
+    );
+    open();
+    await turnDone();
+  });
+
   it("starts a new conversation with a summary when the earlier one can't be continued", async () => {
     const store = memoryProjectStore([
       { project: workspaceProject, threads: [savedThread({ resumeId: "gone", items: [{ id: "1", kind: "user", text: "cut it" }] })] },
@@ -759,6 +771,24 @@ describe("app projects", () => {
     const current = { status };
     return { current, checkResolve: async () => current.status };
   }
+
+  it("doesn't preview another Resolve project as this project's", async () => {
+    const renders: (string | null)[] = [];
+    const preview: PreviewRenderer = { render: (id) => (renders.push(id), { stop() {} }), file: () => null };
+    const { app, client, send } = setupWith({
+      store: memoryProjectStore([{ project: linked("Interview", "int-id") }]),
+      checkResolve: async () => connected("Promo", "promo-id"),
+      history: fakeHistory({ timeline: async () => ({ id: "t1" }) as PlayableTimeline }),
+      preview,
+    });
+    await app.refreshResolve();
+    send({ type: "render_preview", timelineId: "t1" });
+    expect(renders).toEqual([]);
+    expect(client.toasts).toEqual([expect.stringContaining('Resolve has "Promo" open')]);
+    await expect(app.playableTimeline("interview", null, null)).rejects.toThrow('Resolve has "Promo" open');
+    // A saved version comes from the edit history, not from Resolve.
+    expect(await app.playableTimeline("interview", "t1", "abc1234")).toEqual({ id: "t1" });
+  });
 
   it("refuses a turn while Resolve has another project open, and runs it once the project is open", async () => {
     const resolve = resolveWith(connected("Promo", "promo-id"));

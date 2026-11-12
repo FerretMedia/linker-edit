@@ -78,6 +78,22 @@ describe("fileProjectStore", () => {
     expect(() => store.adopt(clone)).toThrow("already a project");
   });
 
+  it("rebuilds a damaged project list from the project folders, keeping the damaged file", () => {
+    const { home, root, open, errors } = setup();
+    const store = open();
+    const a = store.create({ name: "Doc", link: null, local: {} });
+    store.saveThread(a, thread());
+    fs.writeFileSync(path.join(root, "projects.json"), '{"version": 1, "proj');
+
+    const loaded = open().load();
+    expect(loaded.map(({ project }) => project.dir)).toEqual([path.join(home, "workspace"), a.dir]);
+    expect(loaded[1]!.threads).toEqual([thread()]);
+    expect(fs.readdirSync(root).filter((name) => name.startsWith("projects.json.bad-"))).toHaveLength(1);
+    expect(String(errors[0])).toMatch(/rebuilt from the folders/);
+    // The rebuilt list is a good one: the next start reads it as it is.
+    expect(open().load().map(({ project }) => project.id)).toEqual(loaded.map(({ project }) => project.id));
+  });
+
   it("skips a damaged thread file and says so", () => {
     const { open, errors } = setup();
     const store = open();

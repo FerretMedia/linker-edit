@@ -405,8 +405,13 @@ export function createApp(options: AppOptions) {
     }
   }
 
-  function renderPreview(timelineId: string | null) {
-    if (!options.preview || resolveBusy()) return;
+  function renderPreview(client: Client, projectId: string | null, timelineId: string | null) {
+    if (!options.preview) return;
+    if (resolveBusy()) return toast(client, "Resolve is busy with a turn, a render or an open. Render when it's done.");
+    // Resolve renders whatever project it has open: only this thread's own.
+    const project = projectId ? projects.get(projectId) : undefined;
+    const refusal = project ? projectRefusal(project) : null;
+    if (refusal) return toast(client, refusal);
     preview = { state: "rendering", timeline: null, percent: 0 };
     sendMeta();
     previewJob = options.preview.render(timelineId, (event) => {
@@ -644,7 +649,7 @@ export function createApp(options: AppOptions) {
         if (current) void publishHistory(current.projectId, client);
         break;
       case "render_preview":
-        renderPreview(message.timelineId ?? null);
+        renderPreview(client, current?.projectId ?? null, message.timelineId ?? null);
         break;
       case "apply_timeline":
         void applyTimeline(client, message.projectId, message.timelineId);
@@ -736,6 +741,9 @@ export function createApp(options: AppOptions) {
     playableTimeline: async (projectId: string | null, id: string | null, commit: string | null) => {
       const project = projectId ? projects.get(projectId) : undefined;
       if (!project?.history) throw new Error("This project has no edit history, so there is nothing to play.");
+      // The live timeline comes from the project open in Resolve, which must be this one.
+      const refusal = commit ? null : projectRefusal(project);
+      if (refusal) throw new Error(refusal);
       const timeline = await project.history.timeline(id, commit);
       // As Resolve has it now, an AI timeline says which main timeline it can replace.
       const replaces = timeline && !commit ? readOrigins(project.saved.dir)[timeline.id] : undefined;
