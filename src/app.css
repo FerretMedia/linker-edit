@@ -115,9 +115,12 @@
   }
 }
 
-/* macOS's traffic lights sit in the sidebar's top corner. */
+/* macOS's traffic lights sit in the sidebar's top corner (desktop/main.ts puts them at y 19-31). The logo
+   stays at the left edge, in a row of its own below them, rather than being pushed right. */
 [data-title-bar="mac"] .title-bar-start {
-  padding-left: 5.25rem;
+  height: auto;
+  padding-top: 2.75rem;
+  padding-bottom: 0.75rem;
 }
 
 /* Windows' and Linux's window buttons sit over the corner of whichever header is rightmost. */
