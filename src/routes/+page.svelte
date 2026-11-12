@@ -130,7 +130,9 @@
   const historyEntries = $derived(server.history && server.history.projectId === app?.projectId ? server.history.entries : null);
 
   function restore(entry: HistoryEntry) {
-    setDraft(`Restore the timelines to how they were in save ${entry.commit} ("${entry.subject}").`);
+    const names = entry.timelines.map((timeline) => `"${timeline.name}"`);
+    const which = names.length ? `${names.join(", ")} as ${names.length === 1 ? "it was" : "they were"}` : "the timelines as they were";
+    setDraft(`Restore ${which} in save ${entry.commit} ("${entry.subject}") with restore_timeline.`);
     composer?.focus();
   }
 

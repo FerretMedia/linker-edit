@@ -203,6 +203,44 @@ function catFiles(cwd: string, names: string[]): Promise<(string | null)[]> {
   });
 }
 
+/**
+ * A timeline as it was in a save of the history in dir, found by its id or (byName) its exact name, with
+ * that save's media list. Null when the save or the timeline isn't there.
+ */
+export async function readSavedTimeline(
+  dir: string,
+  commit: string,
+  ref: string,
+  { byName = true }: { byName?: boolean } = {},
+): Promise<{ timeline: StoredTimeline; media: MediaEntry[] } | null> {
+  // The commit can come from a URL or an agent; a value starting with "-" would be read as a git option.
+  if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
+  const tree = await git(dir, ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", commit, "--", HISTORY_ROOT]);
+  if (tree.code !== 0) return null;
+  const metadataFiles = tree.stdout.split("\n").filter((file) => file.split("/").length === 4 && file.endsWith("/metadata.json"));
+  const metadata = (await catFiles(dir, metadataFiles.map((file) => `${commit}:${file}`))).map((text) => {
+    try {
+      return text === null ? null : (JSON.parse(text) as { id?: string; name?: string });
+    } catch {
+      return null;
+    }
+  });
+  let index = metadata.findIndex((info) => info?.id === ref);
+  if (index === -1 && byName) index = metadata.findIndex((info) => info?.name === ref);
+  if (index === -1) return null;
+  const folder = path.posix.dirname(metadataFiles[index]!);
+  const files = await catFiles(dir, [...TIMELINE_FILES, "../media.json"].map((file) => `${commit}:${path.posix.join(folder, file)}`));
+  const timeline = parseTimelineFiles((file) => files[TIMELINE_FILES.indexOf(file)] ?? null);
+  if (!timeline) return null;
+  let media: MediaEntry[] = [];
+  try {
+    media = (JSON.parse(files.at(-1) ?? "") as { media: MediaEntry[] }).media;
+  } catch {
+    // Without that save's media.json, today's media list still finds most files.
+  }
+  return { timeline, media };
+}
+
 /** Media pool item id → file path, from the media.json of every project in the history. */
 function readMedia(dir: string): Map<string, MediaEntry> {
   const media = new Map<string, MediaEntry>();
@@ -361,31 +399,12 @@ export function createHistory(options: {
       const raw = snapshot.timelines.find((candidate) => (id ? candidate.id === id : candidate.name === snapshot.current_timeline));
       return raw ? playableTimeline(storedTimeline(raw), snapshotMedia, null) : null;
     }
-    // The commit comes from a URL; a value starting with "-" would be read as a git option.
-    if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
-    const tree = await git(dir, ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", commit, "--", HISTORY_ROOT]);
-    if (tree.code !== 0) return null;
-    const metadataFiles = tree.stdout.split("\n").filter((file) => file.split("/").length === 4 && file.endsWith("/metadata.json"));
-    const metadata = await catFiles(dir, metadataFiles.map((file) => `${commit}:${file}`));
-    const index = metadata.findIndex((text) => {
-      try {
-        return text !== null && (JSON.parse(text) as { id?: string }).id === id;
-      } catch {
-        return false;
-      }
-    });
-    if (index === -1) return null;
-    const folder = path.posix.dirname(metadataFiles[index]!);
-    const files = await catFiles(dir, [...TIMELINE_FILES, "../media.json"].map((file) => `${commit}:${path.posix.join(folder, file)}`));
-    const stored = parseTimelineFiles((file) => files[TIMELINE_FILES.indexOf(file)] ?? null);
-    if (!stored) return null;
+    if (!id) return null;
+    const saved = await readSavedTimeline(dir, commit, id, { byName: false });
+    if (!saved) return null;
     const media = new Map(knownMedia());
-    try {
-      for (const entry of (JSON.parse(files.at(-1) ?? "") as { media: MediaEntry[] }).media) media.set(entry.id, entry);
-    } catch {
-      // Without that save's media.json, today's media list still finds most files.
-    }
-    return playableTimeline(stored, media, commit);
+    for (const entry of saved.media) media.set(entry.id, entry);
+    return playableTimeline(saved.timeline, media, commit);
   }
 
   async function log(limit = 50): Promise<HistoryEntry[]> {
