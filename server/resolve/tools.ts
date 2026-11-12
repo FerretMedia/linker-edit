@@ -132,6 +132,11 @@ const tools: ResolveTool[] = [
         height: { type: "integer" },
         frame_rate: { type: "number", description: "Only settable on a new, empty timeline." },
         start_timecode: { type: "string", description: 'Like "01:00:00:00".' },
+        replaces: {
+          type: "string",
+          description:
+            "When this is a new version of an existing timeline (like a tightened cut of it): that timeline's id or exact name. Once the user is happy with the new one, they can make it the main timeline.",
+        },
       },
       required: ["name"],
     },
@@ -140,7 +145,7 @@ const tools: ResolveTool[] = [
     name: "duplicate_timeline",
     kind: "write",
     description:
-      'Copies a timeline to a new one named "AI - <name>" and opens the copy. To change a timeline that isn\'t an AI timeline, copy it with this and work on the copy.',
+      'Copies a timeline to a new one named "AI - <name>" and opens the copy. To change a timeline that isn\'t an AI timeline, copy it with this and work on the copy. Once the user is happy with the copy, they can make it the main timeline.',
     inputSchema: {
       type: "object",
       properties: { timeline: timelineRef, name: { type: "string", description: 'Defaults to "<timeline> copy"; "AI - " is added.' } },

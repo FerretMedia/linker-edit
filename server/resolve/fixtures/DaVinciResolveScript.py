@@ -230,6 +230,11 @@ class Timeline:
 
     def SetName(self, name):
         log("SetName", self.data["name"], name)
+        if self.data["id"] in STATE.get("refuse_rename", []):
+            return False
+        # Resolve only takes a name no other timeline has.
+        if any(t is not self and t.data["name"] == name for t in self.project.timelines):
+            return False
         self.data["name"] = name
         return True
 
@@ -471,6 +476,17 @@ class ProjectManager:
 
     def GetCurrentDatabase(self):
         return {"DbType": "Disk", "DbName": "Local Database"}
+
+    def SaveProject(self):
+        log("SaveProject")
+        return True
+
+    def ExportProject(self, name, path, with_stills_and_luts=True):
+        log("ExportProject", name, os.path.basename(path), with_stills_and_luts)
+        if STATE.get("export_fails"):
+            return False
+        open(path, "w").write("drp")
+        return True
 
 
 class Resolve:

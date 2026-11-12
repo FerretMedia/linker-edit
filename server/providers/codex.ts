@@ -1,4 +1,5 @@
 import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOptions } from "@openai/codex-sdk";
+import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
 import { CODEX_DISABLED_RESOLVE_TOOLS } from "../policy.ts";
 import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
@@ -67,8 +68,8 @@ export function codexOptions(config: AppConfig): CodexOptions {
   return {
     config: {
       mcp_servers: {
-        // Resolve's own server, for its scripting docs only: Codex has no per-call hook to ask the user
-        // before run_script, so that and every tool that writes are switched off.
+        // Resolve's own server, for its scripting docs and launch_resolve only: Codex has no per-call hook
+        // to check a script or back the project up first, so run_script and every tool that writes are off.
         ...(resolve
           ? {
               [RESOLVE_MCP_NAME]: {
@@ -94,27 +95,35 @@ export function codexOptions(config: AppConfig): CodexOptions {
   };
 }
 
-// Codex runs non-interactively here: Resolve changes wait for the user in the Linker-Edit server, writes stay in the workspace.
-export function codexThreadOptions(config: AppConfig): ThreadOptions {
+/**
+ * Codex never asks here; Resolve changes wait for the user in the Linker-Edit server in supervised mode.
+ * Like T3 Code, full access runs without a sandbox; supervised keeps writes in the project's folder.
+ */
+export function codexThreadOptions(config: AppConfig, mode: ApprovalMode = "auto"): ThreadOptions {
   return {
     workingDirectory: config.workspaceDir,
     skipGitRepoCheck: true,
-    sandboxMode: "workspace-write",
+    sandboxMode: mode === "auto" ? "danger-full-access" : "workspace-write",
     approvalPolicy: "never",
   };
 }
 
 // No context meter or compaction: the SDK reports tokens summed over a turn, not the context size,
 // and runs no slash commands.
-export function createCodexSession(config: AppConfig, resumeId?: string): ProviderSession {
+export function createCodexSession(config: AppConfig, approvalMode: () => ApprovalMode = () => "auto", resumeId?: string): ProviderSession {
   const codex = new Codex(codexOptions(config));
-  let thread: Thread | undefined = resumeId ? codex.resumeThread(resumeId, codexThreadOptions(config)) : undefined;
+  // The sandbox is set per thread, so a thread is picked up again with the other one when the mode changes.
+  let threadMode = approvalMode();
+  let thread: Thread | undefined = resumeId ? codex.resumeThread(resumeId, codexThreadOptions(config, threadMode)) : undefined;
   let turn = 0;
 
   return {
     resumeId: () => thread?.id ?? null,
     async send(text, sink, signal) {
-      thread ??= codex.startThread(codexThreadOptions(config));
+      const mode = approvalMode();
+      if (thread?.id && mode !== threadMode) thread = codex.resumeThread(thread.id, codexThreadOptions(config, mode));
+      threadMode = mode;
+      thread ??= codex.startThread(codexThreadOptions(config, mode));
       turn += 1;
       const { events } = await thread.runStreamed(text, { signal });
       for await (const event of events) {

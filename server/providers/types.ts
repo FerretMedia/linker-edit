@@ -19,6 +19,11 @@ export interface TurnSink {
   requestApproval(tool: string, input: unknown): Promise<boolean>;
   /** Null when the size is no longer known, as after a compaction that didn't report it. */
   context(usage: ContextUsage | null): void;
+  /**
+   * Backs the open Resolve project up, once per turn, before the first change to it. Rejects when that
+   * fails, and the change must not run then. Absent where there is no project to back up.
+   */
+  backup?(): Promise<void>;
 }
 
 export interface ProviderSession {

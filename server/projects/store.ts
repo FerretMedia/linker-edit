@@ -44,7 +44,7 @@ export interface ProjectStore {
 
 /** The committed file that says which Resolve project a folder belongs to. */
 export const PROJECT_FILE = "linker-edit.json";
-const STATE_DIR = ".linker-edit";
+export const STATE_DIR = ".linker-edit";
 
 // Bump when a file changes shape; a file with another version is ignored rather than misread.
 const VERSION = 1;

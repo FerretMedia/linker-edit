@@ -2,7 +2,11 @@
 
 export type Provider = "claude" | "codex";
 
-/** "ask": Resolve writes and file edits wait for the user. "auto": everything runs. */
+/**
+ * Like T3 Code's runtime modes. "auto" (the default) is full access: everything allowed runs without asking.
+ * "ask" is supervised: Resolve changes, scripts and file edits wait for the user. What the policy refuses,
+ * it refuses in both.
+ */
 export type ApprovalMode = "ask" | "auto";
 
 export type ToolStatus = "running" | "done" | "error";
@@ -213,6 +217,8 @@ export interface PlayableTimeline {
   video: PlayableClip[];
   audio: PlayableClip[];
   markers: { time: number; color: string; name: string }[];
+  /** For an AI timeline as Resolve has it now: the main timeline it's a new version of, which it can replace. */
+  replaces?: { id: string; name: string };
 }
 
 export interface PreviewTimeline {
@@ -324,6 +330,8 @@ export interface AppMeta {
   blocked: { message: string; canOpen: boolean } | null;
   /** Linker-Edit is opening this project in Resolve. */
   opening: string | null;
+  /** Linker-Edit is making an AI timeline of this project its main one. */
+  applying: string | null;
   transcription: TranscriptionStatus;
   remote: RemoteAccess;
   /** The name of the computer this Linker-Edit runs on. */
@@ -348,6 +356,8 @@ export type ClientMessage =
   | { type: "load_history" }
   /** Without a timeline id, renders Resolve's current timeline. */
   | { type: "render_preview"; timelineId?: string }
+  /** The user is happy with an AI timeline: it takes the main timeline's place, which is kept renamed. */
+  | { type: "apply_timeline"; projectId: string; timelineId: string }
   | { type: "stop_preview" }
   | { type: "select_thread"; threadId: string }
   | { type: "new_thread"; projectId: string }

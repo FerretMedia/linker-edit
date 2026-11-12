@@ -2,11 +2,14 @@ import { expect, test } from "@playwright/test";
 
 test("a turn streams in, waits for each change to be approved, and finishes", async ({ page }) => {
   await page.goto("/");
+  // Full access by default, like T3 Code; supervised asks before each change.
+  await page.getByRole("button", { name: "Full access" }).click();
+  await expect(page.getByRole("button", { name: "Supervised" })).toBeVisible();
   await page.getByRole("textbox").fill("Check whether Resolve is reachable");
   await page.getByRole("button", { name: "Send" }).click();
 
   const approval = page.getByText(/^Allow (Resolve|tool):/).locator("..");
-  // A script through Resolve's own run_script always asks, and shows the script itself.
+  // A script through Resolve's own run_script shows the script itself.
   await expect(approval).toHaveText(/Allow Resolve:\s*run_script/);
   await expect(page.locator("pre").filter({ hasText: "result = resolve.GetVersionString()" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Allow", exact: true }).click();

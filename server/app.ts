@@ -26,6 +26,7 @@ import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
 import type { ResolveProjects } from "./resolveProjects.ts";
 import { findResolveTool } from "./resolve/tools.ts";
+import { readOrigins, type Applied } from "./resolve/versions.ts";
 import { LINKER_MCP_NAME } from "./rules.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
@@ -46,6 +47,10 @@ export interface AppOptions {
   prepareFolder?: (dir: string) => void;
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
   resolveTools?: (tool: string, input: Record<string, unknown>, dir: string) => Promise<{ text: string; images?: string[] }>;
+  /** Backs the open Resolve project up into the folder dir; where to. Agents change nothing without it. */
+  backupProject?: (dir: string) => Promise<string>;
+  /** Makes an approved AI timeline the main one, keeping the old one under another name. */
+  applyTimeline?: (dir: string, timelineId: string) => Promise<Applied>;
   /** Speech to text for the agents' transcribe tool. */
   transcriber?: Transcriber;
   /** Opening the app from the user's other devices over Tailscale. */
@@ -72,7 +77,8 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 /** All app state lives here; clients get a snapshot of the thread they look at, and patches after. */
 export function createApp(options: AppOptions) {
   const { store } = options;
-  let approvalMode: ApprovalMode = "ask";
+  // Full access by default, like T3 Code: the rules are enforced in code, and the edit history undoes.
+  let approvalMode: ApprovalMode = "auto";
   let resolve: ResolveStatus = { state: "checking" };
   let preview: PreviewState = { state: "idle" };
   let previewJob: { stop(): void } | null = null;
@@ -80,6 +86,8 @@ export function createApp(options: AppOptions) {
   // Resolve has one project open and does one thing at a time: one turn, open or render app-wide.
   let turnOwner: string | null = null;
   let opening: string | null = null;
+  // The project whose AI timeline is becoming its main one.
+  let applying: string | null = null;
   // New threads start with the agent picked last.
   let lastProvider: Provider = "claude";
   const projects = new Map<string, ProjectState>();
@@ -87,7 +95,7 @@ export function createApp(options: AppOptions) {
   const clients = new Map<Client, { threadId: string | null }>();
 
   const projectName = (saved: SavedProject) => saved.name ?? saved.link?.name ?? path.basename(saved.dir);
-  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null;
+  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || applying !== null;
 
   function addProject(saved: SavedProject, savedThreads: SavedThread[] = []): ProjectState {
     try {
@@ -114,6 +122,7 @@ export function createApp(options: AppOptions) {
       approvalMode: () => approvalMode,
       createSession: (provider, resumeId) => options.createSession(provider, () => approvalMode, project.saved.dir, resumeId),
       history: () => project.history,
+      backup: () => (options.backupProject ? options.backupProject(project.saved.dir) : Promise.resolve(null)),
       claim() {
         if (resolveBusy()) return false;
         turnOwner = saved.id;
@@ -239,6 +248,7 @@ export function createApp(options: AppOptions) {
       const target = projects.get(opening);
       return { message: `Opening "${target ? projectName(target.saved) : "the project"}" in Resolve…`, canOpen: false };
     }
+    if (applying) return { message: "Making the AI timeline the main one…", canOpen: false };
     const owner = turnOwner ? threads.get(turnOwner) : undefined;
     if (owner) {
       const where = owner.projectId === projectId ? "" : ` (${projectName(projects.get(owner.projectId)!.saved)})`;
@@ -271,6 +281,7 @@ export function createApp(options: AppOptions) {
       context: entry?.thread.context ?? null,
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
       opening,
+      applying,
       transcription: options.transcriber?.status() ?? { state: "idle" },
       remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
       computer: os.hostname(),
@@ -346,6 +357,38 @@ export function createApp(options: AppOptions) {
     if (!history) return;
     const entries = await history.log().catch(() => []);
     for (const target of client ? [client] : clients.keys()) send(target, { type: "history", projectId, entries });
+  }
+
+  /**
+   * The user approved an AI timeline: the project is backed up, then it takes the main timeline's name and
+   * place, and the main one stays, renamed. The swap lands in the edit history.
+   */
+  async function applyTimeline(client: Client, projectId: string, timelineId: string) {
+    const project = projects.get(projectId);
+    if (!project || !options.applyTimeline || typeof timelineId !== "string" || !timelineId) return;
+    if (resolveBusy()) return toast(client, "Resolve is busy with a turn, a render or an open. Try again when it's done.");
+    applying = projectId;
+    sendMeta();
+    try {
+      await refreshResolve();
+      const refusal = projectRefusal(project);
+      if (refusal) throw new Error(refusal);
+      if (options.backupProject) await options.backupProject(project.saved.dir);
+      const applied = await options.applyTimeline(project.saved.dir, timelineId);
+      toast(
+        null,
+        `"${applied.was}" is now "${applied.main.name}". The earlier version is kept as "${applied.previous.name}".`,
+        "info",
+      );
+      await project.history?.record().catch((error: unknown) => console.error("Couldn't save the edit history", error));
+      await publishHistory(projectId);
+    } catch (error) {
+      toast(client, `Couldn't make it the main timeline: ${errorText(error)}`);
+    } finally {
+      applying = null;
+      sendMeta();
+      void refreshResolve();
+    }
   }
 
   function renderPreview(timelineId: string | null) {
@@ -588,6 +631,9 @@ export function createApp(options: AppOptions) {
       case "render_preview":
         renderPreview(message.timelineId ?? null);
         break;
+      case "apply_timeline":
+        void applyTimeline(client, message.projectId, message.timelineId);
+        break;
       case "stop_preview":
         previewJob?.stop();
         break;
@@ -673,9 +719,12 @@ export function createApp(options: AppOptions) {
     },
     previewFile: (name: string) => options.preview?.file(name) ?? null,
     playableTimeline: async (projectId: string | null, id: string | null, commit: string | null) => {
-      const history = projectId ? projects.get(projectId)?.history : undefined;
-      if (!history) throw new Error("This project has no edit history, so there is nothing to play.");
-      return history.timeline(id, commit);
+      const project = projectId ? projects.get(projectId) : undefined;
+      if (!project?.history) throw new Error("This project has no edit history, so there is nothing to play.");
+      const timeline = await project.history.timeline(id, commit);
+      // As Resolve has it now, an AI timeline says which main timeline it can replace.
+      const replaces = timeline && !commit ? readOrigins(project.saved.dir)[timeline.id] : undefined;
+      return timeline && replaces ? { ...timeline, replaces } : timeline;
     },
     busy: resolveBusy,
     /**
@@ -691,6 +740,13 @@ export function createApp(options: AppOptions) {
       if (!owner?.busy || !dir) return { text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true };
       if (definition.kind === "write" && approvalMode === "ask" && !(await owner.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, input))) {
         return { text: "The user declined this action.", isError: true };
+      }
+      if (definition.kind === "write") {
+        try {
+          await owner.backup();
+        } catch (error) {
+          return { text: errorText(error), isError: true };
+        }
       }
       try {
         return { ...(await options.resolveTools(tool, input, dir)), isError: false };

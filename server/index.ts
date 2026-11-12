@@ -10,6 +10,7 @@ import { createPreviewRenderer } from "./preview/preview.ts";
 import { fileProjectStore } from "./projects/store.ts";
 import { createClaudeSession } from "./providers/claude.ts";
 import { createCodexSession } from "./providers/codex.ts";
+import { applyTimeline, backupProject } from "./resolve/versions.ts";
 import { replayQuery } from "./providers/replay.ts";
 import { createRemoteAccess } from "./remote.ts";
 import { createResolveConnection } from "./resolve/connection.ts";
@@ -41,7 +42,7 @@ const app = createApp({
   createSession: (provider, approvalMode, dir, resumeId) => {
     const projectConfig = { ...config, workspaceDir: dir };
     return provider === "codex"
-      ? createCodexSession(projectConfig, resumeId)
+      ? createCodexSession(projectConfig, approvalMode, resumeId)
       : createClaudeSession(projectConfig, approvalMode, { runQuery: replay ? replayQuery(replay) : query, resumeId });
   },
   checkResolve: () => checkResolve(resolve),
@@ -52,6 +53,9 @@ const app = createApp({
   preview: createPreviewRenderer({ dir: config.previewDir, connection: resolve }),
   resolveProjects: createResolveProjects(resolve),
   resolveTools: (tool, input, dir) => runResolveTool(resolve, tool, input, { dir }),
+  // A replayed turn never touches Resolve, so there is nothing to back up.
+  backupProject: replay ? undefined : (dir) => backupProject(resolve, dir),
+  applyTimeline: (dir, timelineId) => applyTimeline(resolve, dir, timelineId),
   prepareFolder: prepareWorkspace,
   transcriber: createTranscriber({
     dir: config.transcriptsDir,

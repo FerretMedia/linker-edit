@@ -7,6 +7,7 @@ import { ResolveError, type ResolveConnection } from "./connection.ts";
 import { findSilences, framesDir, mediaFrame, shrinkImage } from "./media.ts";
 import { renderTimeline } from "./render.ts";
 import { findResolveTool } from "./tools.ts";
+import { recordOrigin, type TimelineRef } from "./versions.ts";
 
 export interface ToolContext {
   /** The project's working folder, for exports and renders. */
@@ -48,6 +49,19 @@ function existingFile(file: string, base: string): string {
 
 /** Tools that do part or all of their work in Node, around Resolve's scripts. */
 const HANDLERS: Record<string, Handler> = {
+  // Both remember what the new AI timeline is a version of, so the user can make it the main one later.
+  async duplicate_timeline(connection, input, context) {
+    const result = await connection.runScript<{ id: string; copied_from: TimelineRef }>("tool_duplicate_timeline", input, 30);
+    recordOrigin(context.dir, result.id, result.copied_from);
+    return result;
+  },
+
+  async create_timeline(connection, input, context) {
+    const result = await connection.runScript<{ id: string; replaces?: TimelineRef }>("tool_create_timeline", input, 30);
+    if (result.replaces) recordOrigin(context.dir, result.id, result.replaces);
+    return result;
+  },
+
   async import_media(connection, input) {
     const paths = strings(input.paths);
     if (paths.length === 0) throw new Error("Pass the files to import in paths.");

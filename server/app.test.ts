@@ -63,7 +63,7 @@ function connected(project: string | null, projectId: string | null = null): Res
   };
 }
 
-type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools">> & {
+type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline">> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
 };
@@ -105,6 +105,8 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
     preview: options.preview,
     resolveProjects: options.resolveProjects,
     resolveTools: options.resolveTools,
+    backupProject: options.backupProject,
+    applyTimeline: options.applyTimeline,
   });
   const client = testClient();
   const disconnect = app.connect(client);
@@ -246,6 +248,7 @@ describe("app approvals", () => {
     );
     call = app.resolveTool;
     expect(await app.resolveTool("list_timelines", {})).toEqual({ text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true });
+    send({ type: "set_approval_mode", mode: "ask" });
     send({ type: "send", text: "build it" });
     await client.until((state) => state.approvals.length > 0);
     expect(client.state.approvals).toMatchObject([{ tool: "mcp__linker__create_timeline", input: { name: "Cut" } }]);
@@ -262,6 +265,117 @@ describe("app approvals", () => {
     ]);
     const dir = workspaceProject.dir;
     expect(ran).toEqual([`list_timelines in ${dir}`, `set_current_timeline in ${dir}`, `add_markers in ${dir}`]);
+  });
+
+  it("starts with full access: Resolve changes run without asking, and the tools' own checks still refuse", async () => {
+    const results: { text: string; isError: boolean }[] = [];
+    let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setupWith(
+      {
+        resolveTools: async (tool) => {
+          if (tool === "add_markers") throw new Error("Cut is not an AI timeline.");
+          return { text: tool };
+        },
+      },
+      async () => {
+        results.push(await call("create_timeline", { name: "Cut" }));
+        results.push(await call("add_markers", { timeline: "Cut", markers: [{ frame: 0 }] }));
+      },
+    );
+    call = app.resolveTool;
+    expect(client.state.approvalMode).toBe("auto");
+    send({ type: "send", text: "build it" });
+    await turnDone();
+    expect(results).toEqual([
+      { text: "create_timeline", isError: false },
+      { text: "Cut is not an AI timeline.", isError: true },
+    ]);
+    expect(client.state.approvals).toEqual([]);
+  });
+
+  it("backs the project up once per turn, before its first Resolve change, and changes nothing when it can't", async () => {
+    const results: { text: string; isError: boolean }[] = [];
+    const backups: string[] = [];
+    const ran: string[] = [];
+    let fail = false;
+    let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setupWith(
+      {
+        resolveTools: async (tool) => {
+          ran.push(tool);
+          return { text: tool };
+        },
+        backupProject: async (dir) => {
+          backups.push(dir);
+          if (fail) throw new Error("Resolve couldn't export the project.");
+          return "backups/Doc.drp";
+        },
+      },
+      async () => {
+        results.push(await call("list_timelines", {}));
+        results.push(await call("create_timeline", { name: "A" }));
+        results.push(await call("add_clips", {}));
+      },
+      async () => {
+        results.push(await call("create_timeline", { name: "B" }));
+        results.push(await call("create_timeline", { name: "C" }));
+      },
+    );
+    call = app.resolveTool;
+    send({ type: "send", text: "one" });
+    await turnDone();
+    expect(backups).toEqual([workspaceProject.dir]);
+    expect(ran).toEqual(["list_timelines", "create_timeline", "add_clips"]);
+    expect(client.state.items).toContainEqual(expect.objectContaining({ kind: "notice", text: "Backed up the Resolve project to backups/Doc.drp before changing it." }));
+
+    fail = true;
+    send({ type: "send", text: "two" });
+    await turnDone();
+    // A failed backup is tried again before the next change, and nothing runs without one.
+    expect(backups).toHaveLength(3);
+    expect(ran).toHaveLength(3);
+    expect(results.slice(3)).toEqual([
+      {
+        text: "Linker-Edit backs the Resolve project up before every change and couldn't this time, so nothing was changed: Resolve couldn't export the project.",
+        isError: true,
+      },
+      expect.objectContaining({ isError: true }),
+    ]);
+  });
+
+  it("makes an AI timeline the main one when the user asks, after a backup", async () => {
+    const order: string[] = [];
+    const { client, send } = setupWith({
+      backupProject: async () => {
+        order.push("backup");
+        return "backups/Doc.drp";
+      },
+      applyTimeline: async (dir, timelineId) => {
+        order.push(`apply ${timelineId} in ${dir}`);
+        return { main: { id: timelineId, name: "Edit" }, previous: { id: "t1", name: "Edit (before AI 2026-11-12 09.30)" }, was: "AI - Tight" };
+      },
+    });
+    send({ type: "apply_timeline", projectId: workspaceProject.id, timelineId: "t2" });
+    await client.until((state) => state.applying === workspaceProject.id);
+    await client.until((state) => state.applying === null);
+    expect(order).toEqual(["backup", `apply t2 in ${workspaceProject.dir}`]);
+    expect(client.toasts).toEqual(['"AI - Tight" is now "Edit". The earlier version is kept as "Edit (before AI 2026-11-12 09.30)".']);
+  });
+
+  it("doesn't touch the timelines when the backup fails", async () => {
+    const applied: string[] = [];
+    const { client, send } = setupWith({
+      backupProject: () => Promise.reject(new Error("Resolve couldn't export the project.")),
+      applyTimeline: async (_dir, timelineId) => {
+        applied.push(timelineId);
+        return { main: { id: timelineId, name: "Edit" }, previous: { id: "t1", name: "Edit (old)" }, was: "AI - Tight" };
+      },
+    });
+    send({ type: "apply_timeline", projectId: workspaceProject.id, timelineId: "t2" });
+    await client.until((state) => state.applying === workspaceProject.id);
+    await client.until((state) => state.applying === null);
+    expect(applied).toEqual([]);
+    expect(client.toasts).toEqual(["Couldn't make it the main timeline: Resolve couldn't export the project."]);
   });
 
   it("allows pending approvals when switched to auto", async () => {

@@ -67,17 +67,17 @@
       class="flex h-7 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-60"
       title={asking
         ? provider === "codex"
-          ? "Resolve changes wait for your OK. Codex's shell commands and file edits run sandboxed in the project folder. Click to let everything run."
-          : "Changes wait for your OK. Click to let everything run."
-        : "Everything runs. Click to approve changes first."}
+          ? "Supervised: Resolve changes wait for your OK. Codex's shell commands and file edits run sandboxed in the project folder. Click for full access."
+          : "Supervised: changes and scripts wait for your OK. Click for full access."
+        : "Full access: changes run without asking. Only AI timelines change, nothing is deleted, and the edit history keeps every version. Click to approve changes first."}
       onclick={() => onSetApprovalMode(asking ? "auto" : "ask")}
     >
       {#if asking}
         <ShieldCheck class="size-3.5" />
-        Ask before changes
+        Supervised
       {:else}
         <ShieldOff class="size-3.5" />
-        Auto-approve
+        Full access
       {/if}
     </button>
     <div class="flex-1"></div>
