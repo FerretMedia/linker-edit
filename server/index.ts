@@ -1,7 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
 import { releaseName } from "#shared/release-name.ts";
+import type { DesktopToServer } from "#shared/protocol.ts";
 import { createApp } from "./app.ts";
+import { createAppUpdates } from "./appUpdate.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
@@ -36,6 +38,13 @@ const remote = createRemoteAccess({ port: config.port, servePort: config.tailsca
 // The browser comes back to this server after signing in at Linker.
 const linker = createLinker({ ...config.linker, redirectUri: `http://127.0.0.1:${config.port}/api/linker/callback` });
 
+// The desktop app started this server and talks to it over IPC: its own updates go through here.
+const appUpdates =
+  process.env.LINKER_EDIT_DESKTOP && process.send
+    ? createAppUpdates({ send: (message) => process.send?.(message), busy: () => app.busy() })
+    : undefined;
+if (appUpdates) process.on("message", (message: DesktopToServer) => appUpdates.receive(message));
+
 const app = createApp({
   version: VERSION,
   store: fileProjectStore({ root: config.projectsDir, legacyDir: config.workspaceDir }),
@@ -63,6 +72,7 @@ const app = createApp({
   }),
   remote,
   linker,
+  appUpdates,
 });
 
 export const url = `http://127.0.0.1:${config.port}`;

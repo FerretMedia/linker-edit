@@ -16,6 +16,7 @@ import type {
   ResolveStatus,
   ServerMessage,
 } from "../shared/protocol.ts";
+import type { AppUpdates } from "./appUpdate.ts";
 import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
 import type { LinkerService } from "./linker.ts";
@@ -57,6 +58,8 @@ export interface AppOptions {
   remote?: RemoteAccessService;
   /** The optional Linker account. */
   linker?: LinkerService;
+  /** The updates of the desktop app this server runs in; none with `npx linker-edit`. */
+  appUpdates?: Pick<AppUpdates, "status" | "onStatus" | "check" | "install" | "cancel">;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -276,6 +279,7 @@ export function createApp(options: AppOptions) {
       resolve,
       version: options.version,
       update,
+      appUpdate: options.appUpdates?.status() ?? null,
       workspaceDir: project?.saved.dir ?? null,
       preview,
       context: entry?.thread.context ?? null,
@@ -299,6 +303,7 @@ export function createApp(options: AppOptions) {
   options.transcriber?.onStatus(sendMeta);
   options.remote?.onStatus(sendMeta);
   options.linker?.onStatus(sendMeta);
+  options.appUpdates?.onStatus(sendMeta);
 
   function sendSnapshot(client: Client) {
     const view = clients.get(client);
@@ -691,6 +696,15 @@ export function createApp(options: AppOptions) {
         break;
       case "linker_sign_out":
         void options.linker?.signOut();
+        break;
+      case "check_app_update":
+        options.appUpdates?.check();
+        break;
+      case "install_app_update":
+        options.appUpdates?.install();
+        break;
+      case "cancel_app_update":
+        options.appUpdates?.cancel();
         break;
     }
   }

@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { ServerToDesktop } from "#shared/protocol.ts";
 import { releaseName } from "#shared/release-name.ts";
 import { APP_ROOT } from "./config.ts";
 import { VERSION } from "./updates.ts";
@@ -28,10 +29,12 @@ if (command === "setup") {
 
 const { server, url } = await import("./index.ts");
 const open = () => {
-  if (command === "--serve") process.send?.({ type: "ready", url });
+  if (command === "--serve") process.send?.({ type: "ready", url } satisfies ServerToDesktop);
   else if (command === "--browser") openBrowser(url);
   else void openWindow(url);
 };
+// The desktop app that started this server is gone, say after a crash: don't hold its port and files.
+if (command === "--serve") process.on("disconnect", () => process.exit(0));
 if (server.listening) open();
 else server.once("listening", open);
 

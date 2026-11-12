@@ -1,7 +1,8 @@
 // The desktop window. It shows this computer's Linker-Edit, or the one on another of the user's computers over Tailscale.
 // `linker-edit` starts the server and then this, with the server's address in LINKER_EDIT_URL. The installed app
-// has no LINKER_EDIT_URL: it starts the server it ships with, and keeps itself up to date from GitHub releases.
-import { execFile, fork, type ChildProcess } from "node:child_process";
+// has no LINKER_EDIT_URL: it starts the server it ships with, and keeps itself up to date from GitHub releases
+// (desktop/updater.ts).
+import { execFile, execFileSync, fork, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -15,10 +16,12 @@ import {
   type IpcMainInvokeEvent,
   type TitleBarOverlayOptions,
 } from "electron";
-import type { Computers, DesktopUpdate } from "../shared/protocol.ts";
+import type { Computers, DesktopToServer, ServerToDesktop } from "../shared/protocol.ts";
+import { RELEASES_URL } from "../shared/release-name.ts";
+import { legacyUpdate } from "./update-state.ts";
+import { createUpdates, type Updates } from "./updater.ts";
 
 const APP_DIR = path.join(import.meta.dirname, "..");
-const RELEASES_URL = "https://github.com/FerretMedia/linker-edit/releases/latest";
 // `npm run dev:desktop` points it at the Vite dev server.
 const given = process.env.LINKER_EDIT_URL ?? (app.isPackaged ? null : "http://localhost:5317");
 
@@ -26,7 +29,9 @@ let home = given ?? "";
 // Only these origins may load in the window: this computer, and the computers it last listed.
 const allowed = new Set<string>();
 let server: ChildProcess | null = null;
-let update: DesktopUpdate | null = null;
+// The server is being stopped on purpose, to install an update.
+let stoppingServer = false;
+let updates: Updates | null = null;
 let quitting = false;
 
 const originOf = (url: string) => {
@@ -151,13 +156,29 @@ async function startServer(log: string): Promise<string> {
   const env: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: "1", LINKER_EDIT_DESKTOP: "1" };
   const shellPath = await loginShellPath();
   if (shellPath) env.PATH = shellPath;
-  const child = fork(path.join(APP_DIR, "dist", "linker-edit.js"), ["--serve"], { env, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+  const child = fork(path.join(APP_DIR, "dist", "linker-edit.js"), ["--serve"], {
+    env,
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    // Its own process group, so stopping it stops what it started too (stopServer). Windows goes by process tree.
+    detached: process.platform !== "win32",
+  });
   server = child;
   child.stdout?.pipe(output);
   child.stderr?.pipe(output);
   return new Promise((resolve, reject) => {
-    child.on("message", (message: { type?: string; url?: string }) => {
-      if (message.type === "ready" && message.url) resolve(message.url);
+    child.on("message", (message: ServerToDesktop) => {
+      switch (message.type) {
+        case "ready":
+          if (updates) sendToServer({ type: "update_state", state: updates.state() });
+          resolve(message.url);
+          break;
+        case "check_update":
+          void updates?.check();
+          break;
+        case "install_update":
+          void updates?.install();
+          break;
+      }
     });
     child.on("error", reject);
     child.on("exit", (code) => {
@@ -165,6 +186,64 @@ async function startServer(log: string): Promise<string> {
       reject(new Error(`It stopped (exit ${code}).`));
     });
   });
+}
+
+function sendToServer(message: DesktopToServer) {
+  if (server?.connected) server.send(message);
+}
+
+/**
+ * Stops the server and every process it started: the agents (claude, codex), ffmpeg, and the helpers that run
+ * this app's own binary. Any of them still running keeps the installer from replacing its files.
+ */
+function killServer(child: ChildProcess, signal: "SIGTERM" | "SIGKILL" = "SIGTERM") {
+  if (child.pid === undefined) return;
+  try {
+    if (process.platform === "win32") {
+      execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    } else {
+      process.kill(-child.pid, signal);
+    }
+  } catch {
+    // Already gone, or only the server is left.
+    child.kill(signal);
+  }
+}
+
+async function stopServer() {
+  const child = server;
+  if (!child) return;
+  stoppingServer = true;
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.once("exit", () => resolve());
+  });
+  killServer(child);
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  // What it started may outlive it on macOS and Linux; they share its process group.
+  if (process.platform !== "win32") killServer(child, "SIGKILL");
+}
+
+/** Starts the server and shows it. Quits when it can't start, or when it stops without being asked to. */
+async function runServer(window: BrowserWindow, log: string): Promise<boolean> {
+  stoppingServer = false;
+  try {
+    goHome(window, await startServer(log));
+  } catch (error) {
+    dialog.showErrorBox(
+      "Linker-Edit couldn't start",
+      `${error instanceof Error ? error.message : String(error)}\n\n${tail(log)}\n\nThe full log is in ${log}`,
+    );
+    app.quit();
+    return false;
+  }
+  server?.on("exit", () => {
+    if (app.isReady() && !quitting && !stoppingServer) {
+      dialog.showErrorBox("Linker-Edit stopped", `${tail(log)}\n\nThe full log is in ${log}`);
+      app.quit();
+    }
+  });
+  return true;
 }
 
 /** The end of the server's log, for error messages. */
@@ -176,26 +255,55 @@ function tail(log: string): string {
   }
 }
 
-/** Downloads new releases in the background and tells the page when one is ready. */
-async function keepUpToDate(window: BrowserWindow) {
+/**
+ * Keeps the app up to date from GitHub releases. The server shows the update to every page and asks to install it
+ * once nothing is busy with Resolve. LINKER_EDIT_UPDATE_FEED points it at another feed, for scripts/update-smoke.ts.
+ */
+async function keepUpToDate(window: BrowserWindow, serverLog: string) {
   const { autoUpdater } = (await import("electron-updater")).default;
-  const announce = (next: DesktopUpdate) => {
-    update = next;
-    if (!window.isDestroyed()) window.webContents.send("update", next);
-  };
-  // An unsigned Mac app can't replace itself, so macOS only says where to get the new version.
-  autoUpdater.autoDownload = process.platform !== "darwin";
-  autoUpdater.on("update-available", (info) => {
-    if (!autoUpdater.autoDownload) announce({ version: info.version, state: "download", url: RELEASES_URL });
+  const feed = process.env.LINKER_EDIT_UPDATE_FEED;
+  if (feed) {
+    autoUpdater.setFeedURL({ provider: "generic", url: feed });
+    // A test feed has no blockmaps to download only what changed.
+    autoUpdater.disableDifferentialDownload = true;
+  }
+  const record = path.join(app.getPath("userData"), "update-install.json");
+  const log = path.join(app.getPath("logs"), "updates.log");
+  updates = createUpdates({
+    updater: autoUpdater,
+    currentVersion: app.getVersion(),
+    // An unsigned Mac app can't replace itself, so macOS only says where to get the new version.
+    canInstall: process.platform !== "darwin",
+    releasesUrl: RELEASES_URL,
+    readRecord() {
+      try {
+        return JSON.parse(fs.readFileSync(record, "utf8")) as unknown;
+      } catch {
+        return null;
+      }
+    },
+    writeRecord(value) {
+      try {
+        if (value) fs.writeFileSync(record, JSON.stringify(value));
+        else fs.rmSync(record, { force: true });
+      } catch (error) {
+        console.error(`Couldn't keep the update record: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    },
+    stopServer,
+    resumeServer: async () => void (await runServer(window, serverLog)),
+    onState(state) {
+      sendToServer({ type: "update_state", state });
+      // Pages of older Linker-Edits, on the user's other computers, still listen here.
+      if (!window.isDestroyed()) window.webContents.send("update", legacyUpdate(state));
+    },
+    log(line) {
+      console.log(`Update: ${line}`);
+      fs.appendFile(log, `${new Date().toISOString()} ${line}\n`, () => {});
+    },
   });
-  autoUpdater.on("update-downloaded", (info) => announce({ version: info.version, state: "ready" }));
-  autoUpdater.on("error", (error) => console.error(`Update check failed: ${error.message}`));
-  const check = () => void autoUpdater.checkForUpdates().catch(() => {});
-  check();
-  setInterval(check, 6 * 60 * 60 * 1000);
-  ipcMain.handle("install-update", (event) => {
-    if (update?.state === "ready" && originOf(event.senderFrame?.url ?? "") === originOf(home)) autoUpdater.quitAndInstall();
-  });
+  sendToServer({ type: "update_state", state: updates.state() });
+  updates.start();
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -207,7 +315,9 @@ void app.whenReady().then(async () => {
   ipcMain.handle("open", (_event, url: unknown) => {
     if (typeof url === "string" && allowed.has(originOf(url) ?? "")) void window.loadURL(url);
   });
-  ipcMain.handle("update", () => update);
+  // What pages of older Linker-Edits ask; newer ones get the update from the server.
+  ipcMain.handle("update", () => (updates ? legacyUpdate(updates.state()) : null));
+  ipcMain.handle("install-update", () => sendToServer({ type: "install_requested" }));
   // A folder picked here only means something to this computer's own server, not to another computer's page.
   const fromHome = (event: IpcMainInvokeEvent) => Boolean(home) && originOf(event.senderFrame?.url ?? "") === originOf(home);
   ipcMain.handle("can-pick-folder", (event) => fromHome(event));
@@ -226,27 +336,15 @@ void app.whenReady().then(async () => {
   if (given) return;
 
   const log = path.join(app.getPath("logs"), "server.log");
-  try {
-    goHome(window, await startServer(log));
-  } catch (error) {
-    dialog.showErrorBox(
-      "Linker-Edit couldn't start",
-      `${error instanceof Error ? error.message : String(error)}\n\n${tail(log)}\n\nThe full log is in ${log}`,
-    );
-    app.quit();
-    return;
-  }
-  server?.on("exit", () => {
-    if (app.isReady() && !quitting) {
-      dialog.showErrorBox("Linker-Edit stopped", `${tail(log)}\n\nThe full log is in ${log}`);
-      app.quit();
-    }
-  });
-  void keepUpToDate(window);
+  if (await runServer(window, log)) void keepUpToDate(window, log);
 });
 
 app.on("before-quit", () => {
   quitting = true;
 });
-app.on("will-quit", () => server?.kill());
+app.on("will-quit", () => {
+  // electron-updater installs a downloaded release once the app has quit, so nothing may hold the app's files.
+  updates?.quitting();
+  if (server) killServer(server);
+});
 app.on("window-all-closed", () => app.quit());
