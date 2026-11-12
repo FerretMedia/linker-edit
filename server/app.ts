@@ -715,6 +715,15 @@ export function createApp(options: AppOptions) {
       case "linker_sign_out":
         void options.linker?.signOut();
         break;
+      case "transcription_setup":
+        options.transcriber?.setup().then(
+          () => toast(client, "Transcription is set up.", "info"),
+          (error: unknown) => toast(client, `Couldn't set up transcription: ${errorText(error)}`),
+        );
+        break;
+      case "transcription_cancel":
+        options.transcriber?.cancelSetup();
+        break;
     }
   }
 

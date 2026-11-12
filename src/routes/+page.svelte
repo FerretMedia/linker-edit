@@ -230,6 +230,8 @@
       onRemoteAccess={() => (dialog = { kind: "remote" })}
       onLinkerCancel={() => server.send({ type: "linker_cancel_sign_in" })}
       onLinkerSignOut={() => server.send({ type: "linker_sign_out" })}
+      onTranscriptionSetup={() => server.send({ type: "transcription_setup" })}
+      onTranscriptionCancel={() => server.send({ type: "transcription_cancel" })}
     />
 
     <main class="flex min-w-0 flex-1 flex-col">

@@ -19,7 +19,7 @@ import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
 import { fileSettings } from "./settings.ts";
-import { prepareTools } from "./transcribe/tools.ts";
+import { prepareTools, toolsReady } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
 
@@ -60,7 +60,8 @@ const app = createApp({
   prepareFolder: prepareWorkspace,
   transcriber: createTranscriber({
     dir: config.transcriptsDir,
-    prepare: (onProgress) => prepareTools(config.toolsDir, config.whisperCli, onProgress),
+    prepare: (onProgress, signal) => prepareTools(config.toolsDir, config.whisperCli, onProgress, signal),
+    ready: () => toolsReady(config.toolsDir, config.whisperCli),
   }),
   remote,
   linker,
