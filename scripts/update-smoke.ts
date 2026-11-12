@@ -244,7 +244,15 @@ function leftovers(): string[] {
   return spawnSync("pgrep", ["-af", app.dir], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);
 }
 
+if (leftovers().length) fail(`Linker-Edit already runs from ${app.dir}; quit it first. Only one copy runs at a time.\n${leftovers().join("\n")}`);
 const first = launch("first-run");
+// A copy that quits at once, say because another copy runs, would only show up as a timeout.
+const quitEarly = (code: number | null) => {
+  console.error(logs());
+  cleanUp();
+  fail(`The app quit before the update was downloaded (exit ${code}).`);
+};
+first.once("exit", quitEarly);
 let socket: WebSocket | null = null;
 
 if (process.platform === "darwin") {
@@ -253,6 +261,7 @@ if (process.platform === "darwin") {
     if (found.update.availableVersion !== next || !found.update.downloadUrl) throw new Error(JSON.stringify(found.update));
     found.socket.close();
   });
+  first.off("exit", quitEarly);
   cleanUp();
   console.log("\nThe update was offered. macOS apps without a Developer ID can't install by themselves, so that's all here.");
   process.exit(0);
@@ -262,6 +271,7 @@ await check("The page sees the update downloaded, with its notes", async () => {
   // The app looks 15 seconds after it starts.
   const found = await waitForUpdate((update) => update.status === "downloaded", 120_000);
   socket = found.socket;
+  first.off("exit", quitEarly);
   const { downloadedVersion, notes } = found.update;
   if (downloadedVersion !== next) throw new Error(`Downloaded ${downloadedVersion}, not ${next}.`);
   if (notes[0] !== NOTE) throw new Error(`The notes were ${JSON.stringify(notes)}.`);

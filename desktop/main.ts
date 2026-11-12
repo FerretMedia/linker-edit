@@ -306,9 +306,13 @@ async function keepUpToDate(window: BrowserWindow, serverLog: string) {
   updates.start();
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// A second copy only brings the first one's window forward (second-instance below); it starts no server of its
+// own, which would also wipe the running one's log.
+const primary = app.requestSingleInstanceLock();
+if (!primary) app.quit();
 
 void app.whenReady().then(async () => {
+  if (!primary) return;
   if (home) allowed.add(new URL(home).origin);
   const window = createWindow();
   ipcMain.handle("computers", () => listComputers());

@@ -144,15 +144,15 @@ jobs:
           test -f release/linux-unpacked/resources/app/server/resolve/scripts/tool_add_clips.py
           # No setuid sandbox helper in an unpacked build, and no display without xvfb.
           LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" xvfb-run -a "$app" --no-sandbox > "$RUNNER_TEMP/app.log" 2>&1 &
-          started=$!
           curl --silent --fail --retry 60 --retry-delay 1 --retry-all-errors http://127.0.0.1:4391/ | grep -q "<html" || {
             cat "$RUNNER_TEMP/app.log" ~/.config/Linker-Edit/logs/server.log
             exit 1
           }
           cat ~/.config/Linker-Edit/logs/server.log
-          # The app lets one copy run at a time; the update test starts its own.
-          kill "$started"
-          for _ in $(seq 30); do pgrep -f release/linux-unpacked > /dev/null || break; sleep 1; done
+          # The app lets one copy run at a time; the update test starts its own. Stopping xvfb-run leaves the app.
+          pkill -f release/linux-unpacked || true
+          for _ in $(seq 15); do pgrep -f release/linux-unpacked > /dev/null || break; sleep 1; done
+          pkill -9 -f release/linux-unpacked || true
       # Downloads an update from a feed on the runner, restarts to install it, and checks the app stopped its server.
       - name: Try updates
         run: xvfb-run -a node scripts/update-smoke.ts
