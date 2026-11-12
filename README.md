@@ -203,7 +203,7 @@ Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previo
 
 Ask for anything that depends on what's said, such as "transcribe the interview clips" or "cut the bits where I mention pricing". The agent transcribes the clips it needs with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`large-v3-turbo`) on this machine. Nothing is uploaded, and it costs nothing.
 
-- **First use downloads the speech engine** into `~/LinkerEdit/tools`: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. The sidebar shows the progress. On macOS and Linux, install whisper.cpp first (`brew install whisper-cpp` on a Mac) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
+- **First use downloads the speech engine** into `~/LinkerEdit/tools`: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. Until it's downloaded, the sidebar offers **Set up** so it can happen before an agent needs it, and shows the progress with **Cancel**. On macOS and Linux, install whisper.cpp first (`brew install whisper-cpp` on a Mac) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
 - **It's fast.** On an RTX 2060, a 3-minute clip takes about 9 seconds, model loading included.
 - **Each transcript is kept** in `~/LinkerEdit/transcripts`, as text and as JSON with per-word times, until the clip's file changes. Asking again is instant.
 - **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.

@@ -70,10 +70,49 @@ describe("transcriber", () => {
       "File not found.",
     ]);
     expect(statuses.filter((status) => status.state === "transcribing").map((status) => status.done)).toEqual([0, 1, 2]);
-    expect(statuses.at(-1)).toEqual({ state: "idle" });
+    expect(statuses.at(-1)).toEqual({ state: "idle", ready: true });
 
     const text = describeResults(results);
     expect(text).toContain("[0.50-1.25] Hallo daar.");
     expect(text).toContain("Couldn't transcribe: Whisper failed");
+  });
+
+  it("sets up ahead of the first transcription, and a cancelled setup says so and can start again", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-transcriber-"));
+    const file = path.join(root, "a.wav");
+    fs.writeFileSync(file, "audio");
+    const signals: AbortSignal[] = [];
+    let downloaded = false;
+    const transcriber = createTranscriber({
+      dir: path.join(root, "transcripts"),
+      ready: () => downloaded,
+      prepare: (onProgress, signal) => {
+        signals.push(signal);
+        onProgress("Downloading the speech model", 10);
+        return new Promise((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+          if (signals.length > 1) {
+            downloaded = true;
+            resolve({ ffmpeg: "ffmpeg", whisperCli: "whisper-cli", model: "m", vadModel: "v", label: "test" });
+          }
+        });
+      },
+      transcribeFile: async () => {
+        throw new Error("not in this test");
+      },
+    });
+    expect(transcriber.status()).toEqual({ state: "idle", ready: false });
+
+    const first = transcriber.setup();
+    const waiting = transcriber.transcribe([file]);
+    expect(transcriber.status()).toEqual({ state: "preparing", step: "Downloading the speech model", percent: 10 });
+    transcriber.cancelSetup();
+    await expect(first).rejects.toThrow("Setting up transcription was cancelled.");
+    expect(await waiting).toEqual([{ file, error: "Setting up transcription was cancelled." }]);
+    expect(transcriber.status()).toEqual({ state: "idle", ready: false });
+
+    await transcriber.setup();
+    expect(signals).toHaveLength(2);
+    expect(transcriber.status()).toEqual({ state: "idle", ready: true });
   });
 });
