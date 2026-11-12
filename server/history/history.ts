@@ -61,11 +61,15 @@ export interface History {
  */
 export type ProjectCheck = (open: { name: string; id: string | null }) => string | null;
 
-/** Resolve's open project with every timeline, read in as many script runs as it takes. */
-export async function readResolveSnapshot(connection: ResolveConnection): Promise<RawSnapshot> {
+/** Which timelines a snapshot needs: all of them, or one by id, or (id null) the one Resolve shows. */
+export type SnapshotScope = { only: string | null } | undefined;
+
+/** Resolve's open project with every timeline (or the one asked for), read in as many script runs as it takes. */
+export async function readResolveSnapshot(connection: ResolveConnection, scope?: SnapshotScope): Promise<RawSnapshot> {
   type Page = RawSnapshot & { remaining: string[] };
+  const ids = scope?.only ? [scope.only] : null;
   // Scripts stop after 60 seconds, so each run stops after 40 and says which timelines are left.
-  const first = await connection.runScript<Page>("snapshot", { ids: null, budget: 40 }, 60);
+  const first = await connection.runScript<Page>("snapshot", { ids, current_only: !!scope && !scope.only, budget: 40 }, 60);
   const timelines = [...first.timelines];
   let remaining = first.remaining;
   while (remaining.length) {
@@ -288,13 +292,17 @@ function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: Store
 
 export function createHistory(options: {
   dir: string;
-  readSnapshot: () => Promise<RawSnapshot>;
+  /** A save reads every timeline; the live preview asks for one only. */
+  readSnapshot: (scope?: SnapshotScope) => Promise<RawSnapshot>;
   checkProject?: ProjectCheck;
 }): History {
   const { dir } = options;
   let identity: Promise<string[]> | null = null;
   // Media seen in live snapshots, so the quick preview finds media no save has recorded yet.
   const snapshotMedia = new Map<string, MediaEntry>();
+  // The media lists of the saved projects, read once and again after each save: every thumbnail asks.
+  let savedMedia: Map<string, MediaEntry> | null = null;
+  const knownMedia = () => (savedMedia ??= readMedia(dir));
   // Saves run one at a time, so a turn's "before" save always lands before its "after" save.
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -322,6 +330,7 @@ export function createHistory(options: {
     // Histories from before project.json get it with their next save.
     const notedId = before.length > 0 && !!snapshot.project_id && readProjectId(projectDir) !== snapshot.project_id;
     writeStored(projectDir, snapshot, after);
+    savedMedia = null;
 
     const relative = (folder: string) => path.relative(dir, folder).replaceAll("\\", "/");
     const pathspec = [relative(projectDir), ...(renamedFrom ? [relative(renamedFrom)] : [])];
@@ -347,7 +356,7 @@ export function createHistory(options: {
   async function timeline(id: string | null, commit: string | null): Promise<PlayableTimeline | null> {
     await prepare();
     if (!commit) {
-      const snapshot = await options.readSnapshot();
+      const snapshot = await options.readSnapshot({ only: id });
       for (const entry of mediaEntries(snapshot)) snapshotMedia.set(entry.id, entry);
       const raw = snapshot.timelines.find((candidate) => (id ? candidate.id === id : candidate.name === snapshot.current_timeline));
       return raw ? playableTimeline(storedTimeline(raw), snapshotMedia, null) : null;
@@ -370,7 +379,7 @@ export function createHistory(options: {
     const files = await catFiles(dir, [...TIMELINE_FILES, "../media.json"].map((file) => `${commit}:${path.posix.join(folder, file)}`));
     const stored = parseTimelineFiles((file) => files[TIMELINE_FILES.indexOf(file)] ?? null);
     if (!stored) return null;
-    const media = readMedia(dir);
+    const media = new Map(knownMedia());
     try {
       for (const entry of (JSON.parse(files.at(-1) ?? "") as { media: MediaEntry[] }).media) media.set(entry.id, entry);
     } catch {
@@ -408,7 +417,7 @@ export function createHistory(options: {
       folders.flatMap((folder) => TIMELINE_FILES.flatMap((file) => [`${hash}^:${folder}/${file}`, `${hash}:${folder}/${file}`])),
     );
     const blobs = new Map((await catFiles(dir, names)).map((text, index) => [names[index]!, text]));
-    const media = readMedia(dir);
+    const media = knownMedia();
     const isImage = (id: string) => mediaType(media.get(id)?.path)?.kind === "image";
     return commits.map(({ hash, folders, entry }) => {
       const side = (rev: string) =>
@@ -471,7 +480,7 @@ export function createHistory(options: {
       return result;
     },
     mediaFile(id) {
-      const file = (snapshotMedia.get(id) ?? readMedia(dir).get(id))?.path;
+      const file = (snapshotMedia.get(id) ?? knownMedia().get(id))?.path;
       const type = mediaType(file);
       return file && type && fs.existsSync(file) ? { path: file, type: type.type } : null;
     },

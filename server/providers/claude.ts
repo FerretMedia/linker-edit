@@ -144,7 +144,10 @@ export function createClaudeSession(
 
   async function send(text: string, sink: TurnSink, signal: AbortSignal) {
     const abortController = new AbortController();
-    signal.addEventListener("abort", () => abortController.abort(), { once: true });
+    // A compaction and the turn after it share one signal, so each send takes its listener off again.
+    const stop = () => abortController.abort();
+    if (signal.aborted) stop();
+    signal.addEventListener("abort", stop, { once: true });
 
     const run = runQuery({
       prompt: text,
@@ -210,7 +213,11 @@ export function createClaudeSession(
       },
     });
 
-    for await (const message of run) handle(message, sink);
+    try {
+      for await (const message of run) handle(message, sink);
+    } finally {
+      signal.removeEventListener("abort", stop);
+    }
   }
 
   return {

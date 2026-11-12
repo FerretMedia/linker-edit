@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AppConfig } from "../config.ts";
+import { VERSION } from "../updates.ts";
 import { apiEnv } from "./api.ts";
 
 const SERVER_DIR = path.join(import.meta.dirname, "..");
@@ -20,6 +21,6 @@ export function linkerMcpCommand(config: AppConfig) {
   return {
     command: process.execPath,
     args: [script("linker-mcp.js", path.join("agents", "linkerMcp.ts"))],
-    env: { ...runAsNode, ...apiEnv(config.port, config.apiToken) },
+    env: { ...runAsNode, ...apiEnv(config.port, config.apiToken), LINKER_EDIT_VERSION: VERSION },
   };
 }

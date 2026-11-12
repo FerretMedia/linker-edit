@@ -84,6 +84,10 @@ describe("decideToolCall", () => {
     "project.DeleteRenderJob(job_id)",
     "project.DeleteRenderPreset('Mine')",
     "item.ReplaceClip('D:/other.mov')",
+    'load = pm.LoadProject\nload("Other")',
+    'getattr(pm, "Load" + "Project")("Other")',
+    'eval("pm.Load" + "Project(1)")',
+    'exec(code)',
   ])("refuses a script that switches projects, deletes or swaps media, in both modes: %s", async (script) => {
     for (const mode of ["auto", "ask"] as const) {
       expect(await decide("mcp__resolve__run_script", { script }, mode)).toEqual({ decision: { allow: false, message: FORBIDDEN_SCRIPT }, asked: [] });

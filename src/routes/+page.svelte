@@ -25,7 +25,25 @@
   server.connect();
 
   // One draft per thread, like T3 Code, so switching threads never sends a draft to the wrong one.
-  let drafts = $state<Record<string, string>>({});
+  // Kept in this browser too, so a reload or a restart of the app doesn't lose what was typed.
+  const DRAFTS_KEY = "linker-edit:drafts";
+  function loadDrafts(): Record<string, string> {
+    try {
+      const saved = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}") as unknown;
+      return saved && typeof saved === "object" ? (saved as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
+  }
+  let drafts = $state<Record<string, string>>(loadDrafts());
+  $effect(() => {
+    const kept = Object.fromEntries(Object.entries(drafts).filter(([, text]) => text.trim()));
+    try {
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(kept));
+    } catch {
+      // Private windows and full storage only cost the drafts after a reload.
+    }
+  });
   const draftKey = $derived(server.state?.threadId ?? "");
   const draft = $derived(drafts[draftKey] ?? "");
   const setDraft = (value: string, key = draftKey) => (drafts[key] = value);

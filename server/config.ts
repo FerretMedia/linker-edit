@@ -83,12 +83,16 @@ export function loadConfig(
   if (window !== undefined && !(Number.isInteger(window) && window >= 100_000 && window <= 1_000_000)) {
     throw new Error(`autoCompactWindow in ${file} must be a whole number from 100000 to 1000000.`);
   }
+  const port = user.port ?? 4317;
+  if (!(Number.isInteger(port) && port > 0 && port < 65536)) {
+    throw new Error(`port in ${file} must be a port number.`);
+  }
   const tailscalePort = user.tailscalePort ?? 8443;
   if (!(Number.isInteger(tailscalePort) && tailscalePort > 0 && tailscalePort < 65536)) {
     throw new Error(`tailscalePort in ${file} must be a port number.`);
   }
   return {
-    port: user.port ?? 4317,
+    port,
     projectsDir: user.projectsDir ?? path.join(HOME_DIR, "projects"),
     workspaceDir: user.workspaceDir ?? path.join(HOME_DIR, "workspace"),
     previewDir: user.previewDir ?? path.join(HOME_DIR, "previews"),

@@ -198,9 +198,12 @@ async function keepUpToDate(window: BrowserWindow) {
   });
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// A second copy only brings the first one forward (see "second-instance"); it never opens a window itself.
+const firstInstance = app.requestSingleInstanceLock();
+if (!firstInstance) app.quit();
 
 void app.whenReady().then(async () => {
+  if (!firstInstance) return;
   if (home) allowed.add(new URL(home).origin);
   const window = createWindow();
   ipcMain.handle("computers", () => listComputers());

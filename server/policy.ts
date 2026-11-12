@@ -94,11 +94,14 @@ export function needsApproval(toolName: string, input: Record<string, unknown>):
 // which only the user switches, in Linker-Edit; media, bins, timelines, projects, the user's render queue
 // and render presets are never deleted; and a clip's media is never swapped for another file. With full
 // access no one reads a script before it runs, so this check is what stops these mistakes.
+// Matched as names, called or not, so `f = pm.LoadProject; f("x")` is refused too. Python can still build
+// a name at run time, so getattr and code from strings are refused as well. The backup is the real safety
+// net: this check stops mistakes, it can't stop a script written to get around it.
 const FORBIDDEN_CALLS =
-  /\b(LoadProject|LoadCloudProject|CloseProject|CreateProject|CreateCloudProject|DeleteProject|ImportProject|ImportCloudProject|RestoreProject|RestoreCloudProject|ArchiveProject|SetCurrentDatabase|DeleteTimelines|DeleteFolders|DeleteClips|DeleteClipMattes|DeleteRenderJob|DeleteAllRenderJobs|DeleteRenderPreset|ReplaceClip|Quit)\s*\(/;
+  /\b(LoadProject|LoadCloudProject|CloseProject|CreateProject|CreateCloudProject|DeleteProject|ImportProject|ImportCloudProject|RestoreProject|RestoreCloudProject|ArchiveProject|SetCurrentDatabase|DeleteTimelines|DeleteFolders|DeleteClips|DeleteClipMattes|DeleteRenderJob|DeleteAllRenderJobs|DeleteRenderPreset|ReplaceClip|Quit)\b|\b(getattr|eval|exec|compile|__import__)\s*\(|__getattribute__/;
 
 export const FORBIDDEN_SCRIPT =
-  "Linker-Edit doesn't let scripts open, close, create or switch Resolve projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media. Use the linker tools (remove_clips takes clips off an AI timeline), or ask the user to switch projects in Linker-Edit's sidebar.";
+  "Linker-Edit doesn't let scripts open, close, create or switch Resolve projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media, and scripts may not name those calls or use getattr, eval or exec. Use the linker tools (remove_clips takes clips off an AI timeline), or ask the user to switch projects in Linker-Edit's sidebar.";
 
 export type ToolDecision = { allow: true } | { allow: false; message: string };
 
