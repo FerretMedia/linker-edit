@@ -13,7 +13,8 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Chat with Claude or Codex** about your open Resolve project. They read it and edit it directly with Linker-Edit's own Resolve tools, which run through the MCP server that comes with DaVinci Resolve Studio. There's nothing extra to install.
 - **Projects and threads.** Each Resolve project gets its own threads and edit history in the sidebar, whether it lives on this computer, on a network database or in Blackmagic Cloud.
 - **Your existing work is safe.** The agent never modifies, renames or deletes your timelines, media, bins or projects. It builds new `AI - …` timelines next to yours instead, and Linker-Edit's tools refuse to change any other timeline.
-- **No Allow clicks, no surprises.** Like T3 Code, agents start with **Full access**: changes run without asking, because the rules are built into the tools and the edit history keeps every version. Switch to **Supervised** in the composer to Allow or Deny each change yourself.
+- **No Allow clicks, no surprises.** Like T3 Code, agents start with **Full access**: changes run without asking. The project is backed up before each turn's first change, agents work on their own `AI - …` copies, and the edit history keeps every version. Switch to **Supervised** in the composer to Allow or Deny each change yourself.
+- **You decide what becomes the real edit.** When you're happy with an AI version of a timeline, click **Use as main timeline** in the preview. It takes your timeline's name, and your old one stays next to it as `<name> (before AI …)`.
 - **Transcripts.** The agent hears what's said in your footage, in most languages, on your own GPU, with a time for every word.
 - **The agent sees.** It looks at frames of your footage, and at its own timelines exactly as Resolve renders them, titles and grade included, to pick shots and check its work.
 - **Silence cutting.** It finds pauses straight from the audio, quickly and precisely, and builds a tightened timeline from what's left.
@@ -106,7 +107,12 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 
 ## How approvals work
 
-Like T3 Code, there are two modes, switched in the composer. **Full access** (the default) runs every allowed change without asking. **Supervised** shows Allow/Deny before each change. What Linker-Edit refuses, it refuses in both modes, so full access never means anything goes.
+Like T3 Code, there are two modes, switched in the composer. **Full access** (the default) runs every allowed change without asking: Claude runs with `bypassPermissions`, and Codex without a sandbox. **Supervised** shows Allow/Deny before each change, and keeps Codex sandboxed to the project's folder. What Linker-Edit refuses, it refuses in both modes, so full access never means anything goes.
+
+Three things keep full access safe:
+- **Backups.** Before the first change to Resolve in each turn, Linker-Edit saves the project and exports it as a `.drp` file into `backups/` in the project's folder (the newest 30 are kept). If that fails, the change doesn't run. Restore one with **File → Import Project** in Resolve.
+- **AI copies.** Agents only change `AI - …` timelines: a copy of yours (`duplicate_timeline`), or a new one that says which of yours it replaces (`create_timeline` with `replaces`).
+- **You apply.** Only you make an AI timeline the main one, with **Use as main timeline** in the preview panel (it asks once more). Nothing is overwritten: your timeline is renamed `<name> (before AI <date>)` and the AI one takes its name. Agents have no tool for this.
 
 Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server. Each tool either reads the project or changes it:
 
@@ -120,7 +126,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
   - The media pool: `import_media`, `organize_media`, `transcribe_in_resolve`.
   - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
-- **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits and commands ask only in Supervised mode; Codex's shell commands and file edits run sandboxed to the project's folder.
+- **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits and commands ask only in Supervised mode; Codex's shell commands and file edits run without a sandbox with full access, and sandboxed to the project's folder in Supervised mode.
 
 The rules are built into the tools, not only into the agent's instructions:
 - they only change timelines named `AI - …`;
@@ -128,11 +134,11 @@ The rules are built into the tools, not only into the agent's instructions:
 - none of them opens another project. You switch projects in Linker-Edit.
 
 Claude also gets Resolve's own MCP server:
-- **Its scripting API and docs**, to look things up. These run straight away.
-- **Its `run_script` tool**, as an escape hatch for what Linker-Edit's tools can't do yet. With full access a script runs straight away; in Supervised mode it shows Allow/Deny with the full script.
+- **Its scripting API and docs**, to look things up, and `launch_resolve` to start Resolve. These run straight away.
+- **Its `run_script` tool**, as an escape hatch for what Linker-Edit's tools can't do yet. The project is backed up first. With full access a script runs straight away; in Supervised mode it shows Allow/Deny with the full script.
 - **Refused outright, in both modes:** scripts that open, close or switch projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media.
 
-Codex gets only the read-only docs tools, because it has no way to ask before a script. No agent gets Resolve's `run_script_unsafe` tool, or its tools for deleting LUTs or launching Resolve.
+These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Codex gets only the read-only docs tools and `launch_resolve`, because it has no hook to check a script or back the project up first. No agent gets Resolve's `run_script_unsafe` tool, or its tools for deleting LUTs.
 
 ## Projects and threads
 

@@ -5,19 +5,21 @@ import { describe, expect, it, vi } from "vitest";
 import { createCodexSession } from "./codex.ts";
 import { collectingSink, FIXTURES, testConfig } from "./testing.ts";
 
-const fake = vi.hoisted(() => ({ options: [] as unknown[], turns: [] as ThreadEvent[][], resumed: [] as string[] }));
+const fake = vi.hoisted(() => ({ options: [] as unknown[], turns: [] as ThreadEvent[][], resumed: [] as string[], sandboxes: [] as string[] }));
 
 vi.mock("@openai/codex-sdk", () => ({
   Codex: class {
     constructor(options: unknown) {
       fake.options.push(options);
     }
-    resumeThread(id: string) {
+    resumeThread(id: string, options?: { sandboxMode: string }) {
       fake.resumed.push(id);
-      return { ...this.startThread(), id };
+      return { ...this.startThread(options), id };
     }
-    startThread() {
+    startThread(options?: { sandboxMode: string }) {
+      if (options) fake.sandboxes.push(options.sandboxMode);
       return {
+        id: "thread-new",
         runStreamed: async () => ({
           events: (async function* () {
             yield* fake.turns.shift() ?? [];
@@ -61,10 +63,24 @@ describe("Codex session", () => {
 
   it("continues a thread from before a restart", async () => {
     fake.turns = [[]];
-    const codex = createCodexSession(testConfig, "thread-1");
+    const codex = createCodexSession(testConfig, () => "auto", "thread-1");
     expect(codex.resumeId()).toBe("thread-1");
     await codex.send("go on", collectingSink().sink, new AbortController().signal);
     expect(fake.resumed).toEqual(["thread-1"]);
+  });
+
+  it("runs without a sandbox with full access and sandboxed when supervised, like T3 Code", async () => {
+    fake.turns = [[], [], []];
+    fake.sandboxes = [];
+    fake.resumed = [];
+    let mode: "ask" | "auto" = "auto";
+    const codex = createCodexSession(testConfig, () => mode);
+    await codex.send("one", collectingSink().sink, new AbortController().signal);
+    mode = "ask";
+    await codex.send("two", collectingSink().sink, new AbortController().signal);
+    await codex.send("three", collectingSink().sink, new AbortController().signal);
+    expect(fake.sandboxes).toEqual(["danger-full-access", "workspace-write"]);
+    expect(fake.resumed).toEqual(["thread-new"]);
   });
 
   it("shows failed turns and stream errors", async () => {
@@ -83,6 +99,7 @@ describe("Codex session", () => {
     createCodexSession(testConfig);
     const options = fake.options.at(-1) as CodexOptions;
     expect(JSON.stringify(options.config)).not.toContain("\\\\");
+    expect(JSON.stringify(options.config)).not.toContain("launch_resolve");
     expect(options.config).toMatchObject({
       mcp_servers: {
         resolve: {

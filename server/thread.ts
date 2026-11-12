@@ -21,6 +21,8 @@ export interface ThreadHost {
   shared(): boolean;
   /** A save landed in the project's history. */
   saved(): Promise<void>;
+  /** Backs the open Resolve project up: where to, or null when backups are off, as in tests. */
+  backup(): Promise<string | null>;
   /** Anything in the thread's meta or summary changed. */
   changed(): void;
   item(item: ChatItem): void;
@@ -122,6 +124,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     // Kept outside the chat items, so a turn's Resolve writes are still saved if its thread is deleted.
     const tools = new Map<string, { name?: string; input?: unknown }>();
     let reply = "";
+    // One backup per turn, before its first change; a failed one is tried again before the next change.
+    let backedUp: Promise<void> | null = null;
 
     const sink: TurnSink = {
       upsert: (patch) => {
@@ -143,6 +147,20 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
           approvals.set(requestId, { request: { id: requestId, tool, input }, settle });
           host.changed();
         });
+      },
+      backup: () => {
+        backedUp ??= host.backup().then(
+          (file) => {
+            if (file) sink.notice(`Backed up the Resolve project to ${file} before changing it.`);
+          },
+          (error: unknown) => {
+            backedUp = null;
+            throw new Error(
+              `Linker-Edit backs the Resolve project up before every change and couldn't this time, so nothing was changed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          },
+        );
+        return backedUp;
       },
       context: (usage) => {
         if (live() && session === turnSession) {
@@ -298,6 +316,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     /** Asks the user during this thread's turn; false when no turn is running. */
     requestApproval: (tool: string, input: unknown): Promise<boolean> =>
       activeSink ? activeSink.requestApproval(tool, input) : Promise.resolve(false),
+    /** Backs the project up before the running turn's first change; rejects when that fails. */
+    backup: (): Promise<void> => activeSink?.backup?.() ?? Promise.reject(new Error("No turn is running.")),
     rename(next: string) {
       title = next.trim().slice(0, 120) || title;
       host.changed();

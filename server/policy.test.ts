@@ -90,7 +90,12 @@ describe("decideToolCall", () => {
     }
   });
 
-  it.each(["run_script_unsafe", "delete_lut", "delete_dctl", "launch_resolve", "a_tool_from_a_newer_resolve"])(
+  it("lets agents start Resolve, asking only in ask mode", async () => {
+    expect(await decide("mcp__resolve__launch_resolve", {}, "auto")).toEqual({ decision: { allow: true }, asked: [] });
+    expect(await decide("mcp__resolve__launch_resolve", {}, "ask")).toEqual({ decision: { allow: true }, asked: ["mcp__resolve__launch_resolve"] });
+  });
+
+  it.each(["run_script_unsafe", "delete_lut", "delete_dctl", "a_tool_from_a_newer_resolve"])(
     "never lets agents use Resolve's %s, in either mode",
     async (tool) => {
       for (const mode of ["auto", "ask"] as const) {

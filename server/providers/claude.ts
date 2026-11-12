@@ -1,7 +1,7 @@
 import { query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
-import { CLAUDE_DISALLOWED_RESOLVE_TOOLS, decideToolCall } from "../policy.ts";
+import { CLAUDE_DISALLOWED_RESOLVE_TOOLS, decideToolCall, refusal, RESOLVE_RUN_SCRIPT } from "../policy.ts";
 import { EDITING_RULES, LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "../rules.ts";
 import { linkerMcpCommand } from "../agents/commands.ts";
 import { shortenToolOutput } from "./shorten.ts";
@@ -43,6 +43,17 @@ function cacheTtlMs(usage: MessageUsage): number | undefined {
   if ((usage.cache_creation?.ephemeral_1h_input_tokens ?? 0) > 0) return 60 * 60_000;
   if ((usage.cache_creation?.ephemeral_5m_input_tokens ?? 0) > 0) return 5 * 60_000;
   return undefined;
+}
+
+// Claude Code refuses bypassPermissions as root; supervised permissions still work there.
+const RUNS_AS_ROOT = process.platform !== "win32" && process.getuid?.() === 0;
+
+/**
+ * Like T3 Code: full access is bypassPermissions, supervised is "default" with canUseTool asking. The mode
+ * is read when a turn starts; Linker-Edit's own Resolve tools follow a switch straight away.
+ */
+export function claudePermissionMode(mode: ApprovalMode): "bypassPermissions" | "default" {
+  return mode === "auto" && !RUNS_AS_ROOT ? "bypassPermissions" : "default";
 }
 
 export function createClaudeSession(
@@ -151,6 +162,29 @@ export function createClaudeSession(
         disallowedTools: CLAUDE_DISALLOWED_RESOLVE_TOOLS,
         ...(config.autoCompactWindow === undefined ? {} : { settings: { autoCompactWindow: config.autoCompactWindow } }),
         hooks: {
+          // Runs in every permission mode, bypassPermissions included: refuses what the policy refuses,
+          // and backs the project up before a script changes it.
+          PreToolUse: [
+            {
+              matcher: `mcp__${RESOLVE_MCP_NAME}__.*`,
+              hooks: [
+                async (input) => {
+                  if (input.hook_event_name !== "PreToolUse") return {};
+                  const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+                  let reason = refusal(input.tool_name, toolInput);
+                  if (!reason && input.tool_name === RESOLVE_RUN_SCRIPT && sink.backup) {
+                    reason = await sink.backup().then(
+                      () => null,
+                      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+                    );
+                  }
+                  return reason
+                    ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }
+                    : {};
+                },
+              ],
+            },
+          ],
           PostToolUse: [
             {
               matcher: `mcp__${RESOLVE_MCP_NAME}__.*`,
@@ -166,9 +200,9 @@ export function createClaudeSession(
             },
           ],
         },
-        // T3 Code's full access uses bypassPermissions, but that skips canUseTool, and with it the tools
-        // and scripts the policy refuses. So the mode stays "default" and the policy lets the rest run.
-        permissionMode: "default",
+        permissionMode: claudePermissionMode(approvalMode()),
+        allowDangerouslySkipPermissions: claudePermissionMode(approvalMode()) === "bypassPermissions",
+        // Asked in supervised mode, and under bypass only for what Claude Code still forwards, as T3 Code does.
         canUseTool: async (toolName, input) => {
           const decision = await decideToolCall(toolName, input, approvalMode(), () => sink.requestApproval(toolName, input));
           return decision.allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: decision.message };

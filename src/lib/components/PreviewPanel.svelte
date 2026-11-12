@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Clapperboard, CircleAlert, History, LoaderCircle, MonitorPlay, RefreshCw, Scissors, X } from "@lucide/svelte";
+  import { Check, Clapperboard, CircleAlert, History, LoaderCircle, MonitorPlay, RefreshCw, Scissors, X } from "@lucide/svelte";
   import type { PlayableTimeline, PreviewState, ResolveStatus } from "#shared/protocol.ts";
   import PlayerControls from "#lib/components/PlayerControls.svelte";
   import TimelinePlayer from "#lib/components/TimelinePlayer.svelte";
@@ -14,6 +14,7 @@
     busy,
     onTarget,
     onRender,
+    onApply,
     onStop,
     onClose,
   }: {
@@ -25,6 +26,8 @@
     busy: boolean;
     onTarget: (target: PreviewTarget) => void;
     onRender: (timelineId: string) => void;
+    /** Makes an approved AI timeline the main one. */
+    onApply: (timelineId: string) => void;
     onStop: () => void;
     onClose: () => void;
   } = $props();
@@ -46,6 +49,9 @@
   let fullscreen = $state(false);
   let stage: HTMLElement | undefined = $state();
   let video: HTMLVideoElement | undefined = $state();
+  // Making a timeline the main one renames two timelines in Resolve, so it takes a second click.
+  let confirmApply = $state(false);
+  const replaces = $derived(!target.commit ? (timeline?.replaces ?? null) : null);
 
   const rendered = $derived(preview.state === "ready" && timeline && preview.timeline.id === timeline.id ? preview : null);
   const renderingThis = $derived(preview.state === "rendering");
@@ -78,6 +84,7 @@
           time = 0;
           playing = false;
           chosen = "cut";
+          confirmApply = false;
         }
         timeline = body;
       })
@@ -196,6 +203,41 @@
         </button>
       {/if}
     </div>
+
+    {#if replaces && timeline}
+      <div class="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs">
+        <span class="min-w-0 flex-1 text-muted-foreground">
+          {#if confirmApply}
+            This takes the name <span class="font-medium text-foreground">"{replaces.name}"</span>, and the current one stays as
+            "{replaces.name} (before AI …)". The project is backed up first.
+          {:else}
+            A new version of <span class="font-medium text-foreground">"{replaces.name}"</span>. Happy with it?
+          {/if}
+        </span>
+        {#if confirmApply}
+          <button type="button" class="h-7 rounded-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground" onclick={() => (confirmApply = false)}>
+            Cancel
+          </button>
+        {/if}
+        <button
+          type="button"
+          class="flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 font-medium transition-colors enabled:hover:bg-accent disabled:opacity-40"
+          disabled={busy}
+          title={busy ? "Wait for the agent to finish." : `Make this the main "${replaces.name}" timeline`}
+          onclick={() => {
+            if (!confirmApply) {
+              confirmApply = true;
+              return;
+            }
+            confirmApply = false;
+            onApply(timeline!.id);
+          }}
+        >
+          <Check class="size-3.5" />
+          {confirmApply ? `Replace "${replaces.name}"` : "Use as main timeline"}
+        </button>
+      </div>
+    {/if}
 
     <div class="grid grid-cols-2 gap-0.5 rounded-lg border bg-card p-0.5">
       {#each MODES as mode (mode.value)}

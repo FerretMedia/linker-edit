@@ -126,7 +126,7 @@
     previewTarget.projectId === app?.projectId ? previewTarget.target : { id: null, commit: null },
   );
   const resolveBusy = $derived(
-    !!app && (app.busy || app.opening !== null || app.projects.some((candidate) => candidate.threads.some((entry) => entry.busy))),
+    !!app && (app.busy || app.opening !== null || app.applying !== null || app.projects.some((candidate) => candidate.threads.some((entry) => entry.busy))),
   );
 
   function openPreview(target: PreviewTarget) {
@@ -378,6 +378,7 @@
         target={currentTarget}
         onTarget={(target) => openPreview(target)}
         onRender={(timelineId) => server.send({ type: "render_preview", timelineId })}
+        onApply={(timelineId) => app?.projectId && server.send({ type: "apply_timeline", projectId: app.projectId, timelineId })}
         onStop={() => server.send({ type: "stop_preview" })}
         onClose={() => (panel = null)}
       />
