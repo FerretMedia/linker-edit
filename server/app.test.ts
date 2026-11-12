@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
@@ -63,7 +63,7 @@ function connected(project: string | null, projectId: string | null = null): Res
   };
 }
 
-type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline">> & {
+type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings">> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
 };
@@ -107,6 +107,7 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
     resolveTools: options.resolveTools,
     backupProject: options.backupProject,
     applyTimeline: options.applyTimeline,
+    settings: options.settings,
   });
   const client = testClient();
   const disconnect = app.connect(client);
@@ -192,6 +193,37 @@ describe("app turns", () => {
       { tone: "error", text: "CLI not logged in" },
       { tone: "info", text: "Stopped." },
     ]);
+  });
+
+  it("stops a turn's Resolve tool with it, and keeps Resolve taken until the tool has wound down", async () => {
+    let toolSignal: AbortSignal | undefined;
+    let finish = () => {};
+    let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setupWith(
+      {
+        resolveTools: (_tool, _input, _dir, signal) => {
+          toolSignal = signal;
+          return new Promise((resolve) => (finish = () => resolve({ text: "stopped" })));
+        },
+      },
+      (_sink, signal) =>
+        new Promise<void>((resolve) => {
+          void call("render_timeline", {});
+          signal.addEventListener("abort", () => resolve());
+        }),
+    );
+    call = app.resolveTool;
+    send({ type: "send", text: "render it" });
+    await vi.waitFor(() => expect(toolSignal).toBeDefined());
+    send({ type: "stop" });
+    await turnDone();
+    expect(toolSignal!.aborted).toBe(true);
+    expect(app.busy()).toBe(true);
+    expect(client.state.blocked?.message).toMatch(/stopped turn/);
+    expect(await app.resolveTool("list_timelines", {})).toMatchObject({ isError: true });
+    finish();
+    await client.until(() => !app.busy());
+    expect(client.state.blocked).toBeNull();
   });
 
   it("ignores a send while a turn is running", async () => {
@@ -291,6 +323,16 @@ describe("app approvals", () => {
       { text: "Cut is not an AI timeline.", isError: true },
     ]);
     expect(client.state.approvals).toEqual([]);
+  });
+
+  it("keeps supervised mode across restarts", () => {
+    const saved: { approvalMode?: "ask" | "auto" } = {};
+    const settings = { load: () => ({ ...saved }), save: (changes: typeof saved) => void Object.assign(saved, changes) };
+    const first = setupWith({ settings });
+    first.send({ type: "set_approval_mode", mode: "ask" });
+    expect(saved).toEqual({ approvalMode: "ask" });
+    first.disconnect();
+    expect(setupWith({ settings }).client.state.approvalMode).toBe("ask");
   });
 
   it("backs the project up once per turn, before its first Resolve change, and changes nothing when it can't", async () => {

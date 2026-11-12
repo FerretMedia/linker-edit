@@ -25,6 +25,7 @@ import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
 import type { ResolveProjects } from "./resolveProjects.ts";
+import type { SettingsStore } from "./settings.ts";
 import { findResolveTool } from "./resolve/tools.ts";
 import { readOrigins, type Applied } from "./resolve/versions.ts";
 import { LINKER_MCP_NAME } from "./rules.ts";
@@ -46,7 +47,12 @@ export interface AppOptions {
   /** Gets a project folder ready for agents, such as its AGENTS.md. */
   prepareFolder?: (dir: string) => void;
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
-  resolveTools?: (tool: string, input: Record<string, unknown>, dir: string) => Promise<{ text: string; images?: string[] }>;
+  resolveTools?: (
+    tool: string,
+    input: Record<string, unknown>,
+    dir: string,
+    signal?: AbortSignal,
+  ) => Promise<{ text: string; images?: string[] }>;
   /** Backs the open Resolve project up into the folder dir; where to. Agents change nothing without it. */
   backupProject?: (dir: string) => Promise<string>;
   /** Makes an approved AI timeline the main one, keeping the old one under another name. */
@@ -57,6 +63,8 @@ export interface AppOptions {
   remote?: RemoteAccessService;
   /** The optional Linker account. */
   linker?: LinkerService;
+  /** Choices kept across restarts, such as supervised mode. */
+  settings?: SettingsStore;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -78,7 +86,8 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 export function createApp(options: AppOptions) {
   const { store } = options;
   // Full access by default, like T3 Code: the rules are enforced in code, and the edit history undoes.
-  let approvalMode: ApprovalMode = "auto";
+  // A switch to supervised is kept, so a restart never quietly turns it back into full access.
+  let approvalMode: ApprovalMode = options.settings?.load().approvalMode ?? "auto";
   let resolve: ResolveStatus = { state: "checking" };
   let preview: PreviewState = { state: "idle" };
   let previewJob: { stop(): void } | null = null;
@@ -88,6 +97,9 @@ export function createApp(options: AppOptions) {
   let opening: string | null = null;
   // The project whose AI timeline is becoming its main one.
   let applying: string | null = null;
+  // Agents' Resolve tool calls still running. A stopped turn ends before a render it started has wound
+  // down, and Resolve stays taken until it has.
+  let toolCalls = 0;
   // New threads start with the agent picked last.
   let lastProvider: Provider = "claude";
   const projects = new Map<string, ProjectState>();
@@ -95,7 +107,7 @@ export function createApp(options: AppOptions) {
   const clients = new Map<Client, { threadId: string | null }>();
 
   const projectName = (saved: SavedProject) => saved.name ?? saved.link?.name ?? path.basename(saved.dir);
-  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || applying !== null;
+  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || applying !== null || toolCalls > 0;
 
   function addProject(saved: SavedProject, savedThreads: SavedThread[] = []): ProjectState {
     try {
@@ -249,6 +261,7 @@ export function createApp(options: AppOptions) {
       return { message: `Opening "${target ? projectName(target.saved) : "the project"}" in Resolve…`, canOpen: false };
     }
     if (applying) return { message: "Making the AI timeline the main one…", canOpen: false };
+    if (previewJob) return { message: "Resolve is rendering a preview. Send when it's done, or stop it in the preview panel.", canOpen: false };
     const owner = turnOwner ? threads.get(turnOwner) : undefined;
     if (owner) {
       const where = owner.projectId === projectId ? "" : ` (${projectName(projects.get(owner.projectId)!.saved)})`;
@@ -257,6 +270,7 @@ export function createApp(options: AppOptions) {
         canOpen: false,
       };
     }
+    if (toolCalls > 0) return { message: "Waiting for Resolve to finish the stopped turn's last step…", canOpen: false };
     const project = projects.get(projectId)!;
     const refusal = projectRefusal(project);
     return refusal ? { message: refusal, canOpen: !!project.saved.link && !!options.resolveProjects } : null;
@@ -616,6 +630,7 @@ export function createApp(options: AppOptions) {
         // Anything but "ask" would let every call run.
         if (message.mode !== "ask" && message.mode !== "auto") break;
         approvalMode = message.mode;
+        options.settings?.save({ approvalMode });
         if (approvalMode === "auto") for (const { thread } of threads.values()) thread.settleAllApprovals(true);
         sendMeta();
         break;
@@ -738,6 +753,8 @@ export function createApp(options: AppOptions) {
       const owner = entry?.thread;
       const dir = entry ? projects.get(entry.projectId)?.saved.dir : undefined;
       if (!owner?.busy || !dir) return { text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true };
+      const signal = owner.signal ?? undefined;
+      if (signal?.aborted) return { text: "The user stopped this turn.", isError: true };
       if (definition.kind === "write" && approvalMode === "ask" && !(await owner.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, input))) {
         return { text: "The user declined this action.", isError: true };
       }
@@ -748,10 +765,14 @@ export function createApp(options: AppOptions) {
           return { text: errorText(error), isError: true };
         }
       }
+      toolCalls += 1;
       try {
-        return { ...(await options.resolveTools(tool, input, dir)), isError: false };
+        return { ...(await options.resolveTools(tool, input, dir, signal)), isError: false };
       } catch (error) {
         return { text: errorText(error), isError: true };
+      } finally {
+        toolCalls -= 1;
+        if (toolCalls === 0) sendMeta();
       }
     },
     /** For the agents' MCP server: the transcripts as text, or what went wrong per file. */

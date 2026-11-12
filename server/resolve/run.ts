@@ -18,6 +18,8 @@ export interface ToolContext {
   ffmpeg?: () => string;
   /** How often long jobs are checked on. */
   pollMs?: number;
+  /** Aborts when the user stops the turn: long jobs such as renders stop with it. */
+  signal?: AbortSignal;
 }
 
 export interface ToolResult {
@@ -172,6 +174,8 @@ const HANDLERS: Record<string, Handler> = {
       status = await connection.runScript<Status>("scene_cuts_status", { timeline }, 10);
       const job = status.status.JobStatus ?? "";
       if (!/^(Initializing|Analyzing|Processing|Running|InProgress|In Progress|Cutting)$/i.test(job) || Date.now() > deadline) break;
+      // Resolve finishes the cut by itself; a stopped turn only stops waiting for it.
+      if (context.signal?.aborted) throw new Error("Stopped by the user while Resolve was still detecting scene cuts.");
       await sleep(context.pollMs ?? 2000);
     }
     return { timeline: status.name, clips_before: started?.before ?? null, clips_after: status.clips, status: status.status };
@@ -199,10 +203,16 @@ const HANDLERS: Record<string, Handler> = {
       () => {},
       context.pollMs ?? 1000,
     );
-    // An hour at most, so a stuck render doesn't hold Resolve forever.
+    // An hour at most, so a stuck render doesn't hold Resolve forever; stopping the turn stops it too.
     const timer = setTimeout(job.stop, 60 * 60_000);
+    if (context.signal?.aborted) job.stop();
+    context.signal?.addEventListener("abort", job.stop, { once: true });
     const started = Date.now();
-    const result = await job.finished.finally(() => clearTimeout(timer));
+    const result = await job.finished.finally(() => {
+      clearTimeout(timer);
+      context.signal?.removeEventListener("abort", job.stop);
+    });
+    if (result.event === "error" && result.stopped && context.signal?.aborted) throw new Error("Render stopped by the user.");
     if (result.event !== "done") throw new Error(result.event === "error" ? result.message : "The render didn't finish.");
     return { file: result.file, timeline: result.timeline.name, seconds: Math.round((Date.now() - started) / 1000) };
   },

@@ -107,7 +107,7 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 
 ## How approvals work
 
-Like T3 Code, there are two modes, switched in the composer. **Full access** (the default) runs every allowed change without asking: Claude runs with `bypassPermissions`, and Codex without a sandbox. **Supervised** shows Allow/Deny before each change, and keeps Codex sandboxed to the project's folder. What Linker-Edit refuses, it refuses in both modes, so full access never means anything goes.
+Like T3 Code, there are two modes, switched in the composer. **Full access** (the default) runs every allowed change without asking: Claude runs with `bypassPermissions`, and Codex without a sandbox. **Supervised** shows Allow/Deny before each change, and keeps Codex sandboxed to the project's folder. The mode you pick is kept across restarts, in `~/LinkerEdit/settings.json`. What Linker-Edit refuses, it refuses in both modes, so full access never means anything goes.
 
 Three things keep full access safe:
 - **Backups.** Before the first change to Resolve in each turn, Linker-Edit saves the project and exports it as a `.drp` file into `backups/` in the project's folder (the newest 30 are kept). If that fails, the change doesn't run. Restore one with **File → Import Project** in Resolve.

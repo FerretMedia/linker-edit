@@ -54,6 +54,8 @@ export interface AppConfig {
   toolsDir: string;
   whisperCli?: string;
   tailscalePort: number;
+  /** The user's choices kept across restarts, such as supervised mode. */
+  settingsFile: string;
   /** Signing in with a Linker account; file is where the sign-in is kept. */
   linker: { authServer: string; appUrl: string; clientId?: string; file: string };
   /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
@@ -94,6 +96,7 @@ export function loadConfig(
     toolsDir: user.toolsDir ?? path.join(HOME_DIR, "tools"),
     ...(user.whisperCli ? { whisperCli: user.whisperCli } : {}),
     tailscalePort,
+    settingsFile: path.join(path.dirname(file), "settings.json"),
     linker: {
       authServer: user.linkerAuthServer ?? "https://clerk.linker.cool",
       appUrl: user.linkerAppUrl ?? "https://app.linker.cool",

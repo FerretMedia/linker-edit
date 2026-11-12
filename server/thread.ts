@@ -275,6 +275,10 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     get busy() {
       return turn !== null;
     },
+    /** Aborts when the running turn is stopped; null between turns. */
+    get signal(): AbortSignal | null {
+      return turn?.signal ?? null;
+    },
     get archived() {
       return archivedAt !== null;
     },

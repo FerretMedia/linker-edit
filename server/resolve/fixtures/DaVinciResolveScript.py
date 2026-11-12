@@ -460,6 +460,7 @@ class Project:
         return {"JobStatus": "Complete", "CompletionPercentage": 100}
 
     def StopRendering(self):
+        log("StopRendering")
         return True
 
     def DeleteRenderJob(self, job):

@@ -18,6 +18,7 @@ import { runResolveTool } from "./resolve/run.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
+import { fileSettings } from "./settings.ts";
 import { prepareTools } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
@@ -52,7 +53,7 @@ const app = createApp({
     : (dir, checkProject) => createHistory({ dir, readSnapshot: () => readResolveSnapshot(resolve), checkProject }),
   preview: createPreviewRenderer({ dir: config.previewDir, connection: resolve }),
   resolveProjects: createResolveProjects(resolve),
-  resolveTools: (tool, input, dir) => runResolveTool(resolve, tool, input, { dir }),
+  resolveTools: (tool, input, dir, signal) => runResolveTool(resolve, tool, input, { dir, signal }),
   // A replayed turn never touches Resolve, so there is nothing to back up.
   backupProject: replay ? undefined : (dir) => backupProject(resolve, dir),
   applyTimeline: (dir, timelineId) => applyTimeline(resolve, dir, timelineId),
@@ -63,6 +64,7 @@ const app = createApp({
   }),
   remote,
   linker,
+  settings: fileSettings(config.settingsFile),
 });
 
 export const url = `http://127.0.0.1:${config.port}`;

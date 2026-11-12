@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOptions } from "@openai/codex-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
@@ -12,8 +13,9 @@ function mcpResultText(item: Extract<ThreadItem, { type: "mcp_tool_call" }>): st
   return item.result.content.map((part) => (part.type === "text" ? part.text : `[${part.type}]`)).join("\n");
 }
 
-function handleItem(item: ThreadItem, sink: TurnSink, turn: number) {
-  // Codex item ids restart at item_0 every turn.
+function handleItem(item: ThreadItem, sink: TurnSink, turn: string) {
+  // Codex item ids restart at item_0 every turn, and a session's own count restarts with the server, so a
+  // turn gets an id that no earlier turn in the chat has.
   const id = `${turn}:${item.id}`;
   switch (item.type) {
     case "agent_message":
@@ -115,7 +117,6 @@ export function createCodexSession(config: AppConfig, approvalMode: () => Approv
   // The sandbox is set per thread, so a thread is picked up again with the other one when the mode changes.
   let threadMode = approvalMode();
   let thread: Thread | undefined = resumeId ? codex.resumeThread(resumeId, codexThreadOptions(config, threadMode)) : undefined;
-  let turn = 0;
 
   return {
     resumeId: () => thread?.id ?? null,
@@ -124,7 +125,7 @@ export function createCodexSession(config: AppConfig, approvalMode: () => Approv
       if (thread?.id && mode !== threadMode) thread = codex.resumeThread(thread.id, codexThreadOptions(config, mode));
       threadMode = mode;
       thread ??= codex.startThread(codexThreadOptions(config, mode));
-      turn += 1;
+      const turn = randomUUID();
       const { events } = await thread.runStreamed(text, { signal });
       for await (const event of events) {
         if (event.type === "item.started" || event.type === "item.updated" || event.type === "item.completed") {
