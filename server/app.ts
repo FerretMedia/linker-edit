@@ -90,6 +90,8 @@ export function createApp(options: AppOptions) {
   let approvalMode: ApprovalMode = options.settings?.load().approvalMode ?? "auto";
   let resolve: ResolveStatus = { state: "checking" };
   let preview: PreviewState = { state: "idle" };
+  // The project the preview is of: other projects' threads see none. Resolve renders one at a time.
+  let previewProject: string | null = null;
   let previewJob: { stop(): void } | null = null;
   let update: string | null = null;
   // Resolve has one project open and does one thing at a time: one turn, open or render app-wide.
@@ -147,7 +149,7 @@ export function createApp(options: AppOptions) {
       resolveConnected: () => resolve.state === "connected",
       shared: () => project.saved.link?.kind === "cloud",
       saved: async () => {
-        if (preview.state === "ready") preview = { ...preview, outdated: true };
+        if (preview.state === "ready" && previewProject === projectId) preview = { ...preview, outdated: true };
         await publishHistory(projectId);
       },
       changed: sendMeta,
@@ -291,7 +293,7 @@ export function createApp(options: AppOptions) {
       version: options.version,
       update,
       workspaceDir: project?.saved.dir ?? null,
-      preview,
+      preview: previewProject === (entry?.projectId ?? null) ? preview : { state: "idle" },
       context: entry?.thread.context ?? null,
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
       opening,
@@ -412,6 +414,7 @@ export function createApp(options: AppOptions) {
     const project = projectId ? projects.get(projectId) : undefined;
     const refusal = project ? projectRefusal(project) : null;
     if (refusal) return toast(client, refusal);
+    previewProject = projectId;
     preview = { state: "rendering", timeline: null, percent: 0 };
     sendMeta();
     previewJob = options.preview.render(timelineId, (event) => {

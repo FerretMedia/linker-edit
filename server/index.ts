@@ -50,7 +50,7 @@ const app = createApp({
   // A replayed turn never touched Resolve, so there is nothing to save.
   createHistory: replay
     ? undefined
-    : (dir, checkProject) => createHistory({ dir, readSnapshot: () => readResolveSnapshot(resolve), checkProject }),
+    : (dir, checkProject) => createHistory({ dir, readSnapshot: (scope) => readResolveSnapshot(resolve, scope), checkProject }),
   preview: createPreviewRenderer({ dir: config.previewDir, connection: resolve }),
   resolveProjects: createResolveProjects(resolve),
   resolveTools: (tool, input, dir, signal) => runResolveTool(resolve, tool, input, { dir, signal }),

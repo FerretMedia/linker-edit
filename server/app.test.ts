@@ -772,6 +772,20 @@ describe("app projects", () => {
     return { current, checkResolve: async () => current.status };
   }
 
+  it("shows a preview only in its own project's threads", () => {
+    const preview: PreviewRenderer = { render: () => ({ stop() {} }), file: () => null };
+    const { client, send } = setupWith({
+      store: memoryProjectStore([{ project: linked("Interview", null) }, { project: linked("Promo", null) }]),
+      preview,
+    });
+    expect(client.state.projectId).toBe("interview");
+    send({ type: "render_preview" });
+    expect(client.state.preview).toMatchObject({ state: "rendering" });
+    send({ type: "new_thread", projectId: "promo" });
+    expect(client.state.preview).toEqual({ state: "idle" });
+    expect(client.state.blocked?.message).toMatch(/rendering a preview/);
+  });
+
   it("doesn't preview another Resolve project as this project's", async () => {
     const renders: (string | null)[] = [];
     const preview: PreviewRenderer = { render: (id) => (renders.push(id), { stop() {} }), file: () => null };
