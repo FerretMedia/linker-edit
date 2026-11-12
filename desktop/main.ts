@@ -64,7 +64,8 @@ const overlay = (): TitleBarOverlayOptions => ({
 
 const titleBar = (): BrowserWindowConstructorOptions =>
   process.platform === "darwin"
-    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 19 } }
+    ? // The overlay tells the page where the traffic lights end (env(titlebar-area-x)), so the logo clears them.
+      { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 18, y: 19 }, titleBarOverlay: true }
     : { titleBarStyle: "hidden", titleBarOverlay: overlay() };
 
 function createWindow(): BrowserWindow {

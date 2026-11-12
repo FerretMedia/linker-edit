@@ -1,14 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The app icon: Linker's logo tile (static/favicon.svg) with the margin
+       macOS expects around an icon. icon.png is this, rendered at 1024 px by
+       scripts/render-icon.ts; electron-builder makes the .ico and .icns from it. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5b6cf5"/>
-      <stop offset="1" stop-color="#2a36b8"/>
-    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur" />
+      <feOffset in="blur" dx="-9" dy="-9" result="up" />
+      <feFlood flood-color="#a01d90" />
+      <feComposite in2="up" operator="in" result="pink" />
+      <feOffset in="blur" dx="9" dy="9" result="down" />
+      <feFlood flood-color="#4545e6" />
+      <feComposite in2="down" operator="in" result="blue" />
+      <feMerge>
+        <feMergeNode in="pink" />
+        <feMergeNode in="blue" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
-  <g transform="translate(512 512) rotate(-45)" fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round">
-    <path d="M -50 -100 H -190 A 100 100 0 0 0 -190 100 H -50"/>
-    <path d="M 50 -100 H 190 A 100 100 0 0 1 190 100 H 50"/>
-    <path d="M -120 0 H 120"/>
-  </g>
+  <svg x="100" y="100" width="824" height="824" viewBox="120 120 560 560">
+    <rect x="120" y="120" width="560" height="560" rx="117" fill="#09090b" />
+    <g fill="#fff" filter="url(#glow)">
+      <rect x="198" y="192" width="154" height="275" rx="19" />
+      <rect x="353" y="468" width="249" height="140" rx="19" />
+    </g>
+  </svg>
 </svg>

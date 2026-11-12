@@ -115,9 +115,11 @@
   }
 }
 
-/* macOS's traffic lights sit in the sidebar's top corner. */
+/* macOS's traffic lights sit in the sidebar's top corner, left of the logo. desktop/main.ts turns on the
+   window controls overlay, so titlebar-area-x is where the buttons really end: newer macOS draws them larger,
+   and a zoomed-out page shrinks a fixed gap but not them. In full screen they hide and the logo moves back. */
 [data-title-bar="mac"] .title-bar-start {
-  padding-left: 5.25rem;
+  padding-left: max(1rem, calc(env(titlebar-area-x, 5.5rem) + 0.75rem));
 }
 
 /* Windows' and Linux's window buttons sit over the corner of whichever header is rightmost. */

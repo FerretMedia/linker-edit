@@ -4,7 +4,6 @@
     Archive,
     AudioLines,
     ChevronRight,
-    Clapperboard,
     Cloud,
     FolderOpen,
     HardDrive,
@@ -32,6 +31,7 @@
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
   import ComputerPicker from "./ComputerPicker.svelte";
   import LinkerAccountRow from "./LinkerAccount.svelte";
+  import LinkerLogo from "./LinkerLogo.svelte";
   import RowMenu from "./RowMenu.svelte";
 
   let {
@@ -234,9 +234,7 @@
 
 <aside class="flex w-64 shrink-0 flex-col border-r bg-sidebar">
   <div class="title-bar title-bar-start flex h-13 shrink-0 items-center gap-2 px-4">
-    <span class="flex size-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-      <Clapperboard class="size-3.5" strokeWidth={2.25} />
-    </span>
+    <LinkerLogo class="size-5 text-foreground" />
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
     <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : releaseName(version)}</span>
   </div>

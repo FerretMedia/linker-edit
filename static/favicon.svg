@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="120 120 560 560">
+	<!-- Linker's logo, from the Linker app (apps/app/static/favicon.svg): two cards
+	     in an L, lit pink from the top left and blue from the bottom right. Drawn on
+	     the 800 × 800 canvas of the logo file, whose mark is centred at 400, 400; the
+	     viewBox crops it to a tile. -->
+	<defs>
+		<filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+			<feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur" />
+			<feOffset in="blur" dx="-9" dy="-9" result="up" />
+			<feFlood flood-color="#a01d90" />
+			<feComposite in2="up" operator="in" result="pink" />
+			<feOffset in="blur" dx="9" dy="9" result="down" />
+			<feFlood flood-color="#4545e6" />
+			<feComposite in2="down" operator="in" result="blue" />
+			<feMerge>
+				<feMergeNode in="pink" />
+				<feMergeNode in="blue" />
+				<feMergeNode in="SourceGraphic" />
+			</feMerge>
+		</filter>
+	</defs>
+	<rect x="120" y="120" width="560" height="560" rx="117" fill="#09090b" />
+	<g fill="#fff" filter="url(#glow)">
+		<rect x="198" y="192" width="154" height="275" rx="19" />
+		<rect x="353" y="468" width="249" height="140" rx="19" />
+	</g>
+</svg>
