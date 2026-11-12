@@ -122,7 +122,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - `export_timeline`, which only writes a file into the project folder;
   - `set_current_timeline`, which only changes which timeline Resolve shows.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
-  - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`.
+  - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
   - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
   - The media pool: `import_media`, `organize_media`, `transcribe_in_resolve`.
   - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
@@ -172,9 +172,9 @@ Each project folder is a Git repository. Linker-Edit saves the open Resolve proj
 
 Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.json`, `markers.json` and `metadata.json`, one clip per line, so `git log -p` reads like an edit decision list. Media is never stored.
 
-**History** in the top right lists the project's saves, newest first, with what changed per timeline; saves made in the open thread are marked. **Restore** on a save writes the undo request into the composer for you to send.
+**History** in the top right lists the project's saves, newest first, with what changed per timeline; saves made in the open thread are marked. **Restore** on a save writes the undo request, naming its timelines, into the composer for you to send.
 
-Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
+Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version with the `restore_timeline` tool, in one step: a new `AI - … (restored …)` timeline with the saved size, frame rate, clips on their tracks, clip settings, disabled clips and markers. When the saved timeline still exists, the restored one can replace it with **Use as main timeline**. It never edits or deletes a timeline to undo. Color grades, effects, titles and generators aren't saved yet; the tool lists what it left out.
 
 You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.
 
