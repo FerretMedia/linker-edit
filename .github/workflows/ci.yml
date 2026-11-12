@@ -149,6 +149,13 @@ jobs:
             exit 1
           }
           cat ~/.config/Linker-Edit/logs/server.log
+          # The app lets one copy run at a time; the update test starts its own. Stopping xvfb-run leaves the app.
+          pkill -f release/linux-unpacked || true
+          for _ in $(seq 15); do pgrep -f release/linux-unpacked > /dev/null || break; sleep 1; done
+          pkill -9 -f release/linux-unpacked || true
+      # Downloads an update from a feed on the runner, restarts to install it, and checks the app stopped its server.
+      - name: Try updates
+        run: xvfb-run -a node scripts/update-smoke.ts
 
   # The one check to require before merging. It fails when any job above fails, is cancelled or is
   # skipped, so adding or splitting jobs needs no change to the merge rules. Add every job to `needs`.

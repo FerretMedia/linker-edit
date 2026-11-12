@@ -25,3 +25,17 @@ export function versionOfName(name: string): string | null {
   if (n !== undefined && Number(n) < 2) return null;
   return `${year}.${Number(month) * 100 + Number(day)}.${n === undefined ? 0 : Number(n) - 1}`;
 }
+
+/** Where every release is, to download one by hand. */
+export const RELEASES_URL = "https://github.com/FerretMedia/linker-edit/releases/latest";
+
+/** Whether version a comes after version b; both are YYYY.MDD.N. */
+export function isNewer(a: string, b: string): boolean {
+  const x = a.split(".").map(Number);
+  const y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (x[i] ?? 0) - (y[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}

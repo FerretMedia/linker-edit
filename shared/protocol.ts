@@ -298,16 +298,53 @@ export interface Computer {
 /** GET /api/computers: this computer's name, and the user's other computers found over Tailscale. */
 export interface Computers {
   name: string;
+  /** This computer's Linker-Edit; missing from older ones. */
+  version?: string;
   others: Computer[];
   /** Added by the desktop app: this computer's own Linker-Edit address. */
   home?: string;
 }
 
 /**
- * An update to the installed desktop app. "ready" installs on restart; "download" is for macOS, where an
- * app that isn't signed can't replace itself, so the user downloads the new version from `url`.
+ * What the first desktop apps told their pages about an update; the preload still offers it to pages of older
+ * Linker-Edits on the user's other computers. "ready" installs on restart; "download" means download it by hand.
  */
 export type DesktopUpdate = { version: string; state: "ready" } | { version: string; state: "download"; url: string };
+
+/**
+ * Where the installed desktop app is with its own updates. desktop/update-state.ts moves it from one status to the
+ * next; the app's server passes it on to every page, so another of the user's computers shows its own.
+ */
+export interface DesktopUpdateState {
+  status: "idle" | "checking" | "up-to-date" | "available" | "downloading" | "downloaded" | "error";
+  /** The version running now. */
+  currentVersion: string;
+  /** The newest release, once a check found one. */
+  availableVersion: string | null;
+  /** The release downloaded and ready to install on restart. */
+  downloadedVersion: string | null;
+  /** While downloading. */
+  percent: number | null;
+  /** What's new in the available release, a few short lines. */
+  notes: string[];
+  /** When the last check finished, as an ISO date. */
+  checkedAt: string | null;
+  /** What went wrong, for the "error" status, or an install that failed with an update still downloaded. */
+  error: string | null;
+  /**
+   * The release page, when the app can't install it by itself: unsigned Mac apps can't replace themselves, so
+   * the update is downloaded by hand.
+   */
+  downloadUrl: string | null;
+  /** An install of this version was started, but the app came back on the old version. */
+  notApplied: string | null;
+}
+
+/** AppMeta.appUpdate: the desktop app's update state, plus what this Linker-Edit is doing about it. */
+export interface AppUpdate extends DesktopUpdateState {
+  /** The user asked to restart to update while Linker-Edit was busy with Resolve; it restarts once it's done. */
+  waiting: boolean;
+}
 
 export interface AppMeta {
   projects: ProjectSummary[];
@@ -321,8 +358,10 @@ export interface AppMeta {
   approvals: ApprovalRequest[];
   resolve: ResolveStatus;
   version: string;
-  /** A newer Linker-Edit on npm, or null. */
+  /** A newer Linker-Edit on npm, or null. For `npx linker-edit`; the desktop app has appUpdate instead. */
   update: string | null;
+  /** The updates of the desktop app this Linker-Edit runs in; null when it isn't one, as with `npx`. */
+  appUpdate: AppUpdate | null;
   /** The thread's project folder. */
   workspaceDir: string | null;
   preview: PreviewState;
@@ -383,7 +422,24 @@ export type ClientMessage =
   | { type: "linker_sign_out" }
   /** Downloads the speech engine now, or stops that download. */
   | { type: "transcription_setup" }
-  | { type: "transcription_cancel" };
+  | { type: "transcription_cancel" }
+  /** Looks for a new release of the desktop app now. */
+  | { type: "check_app_update" }
+  /** Restarts the desktop app into the downloaded release, once nothing is busy with Resolve. */
+  | { type: "install_app_update" }
+  /** Doesn't restart after all when Linker-Edit is done. */
+  | { type: "cancel_app_update" };
+
+/** Between the desktop app (desktop/main.ts) and the server it starts, over the child process's IPC channel. */
+export type DesktopToServer =
+  | { type: "update_state"; state: DesktopUpdateState }
+  /** A page of an older Linker-Edit asked to restart to update; the server waits until Resolve is free. */
+  | { type: "install_requested" };
+export type ServerToDesktop =
+  | { type: "ready"; url: string }
+  | { type: "check_update" }
+  /** Nothing is busy with Resolve: install now. */
+  | { type: "install_update" };
 
 export type ServerMessage =
   | { type: "snapshot"; state: AppState }

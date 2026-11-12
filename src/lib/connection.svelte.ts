@@ -21,6 +21,8 @@ class ServerConnection {
   /** A message the server didn't send to the agent, to put back in the composer. */
   onRefused: ((threadId: string, text: string) => void) | null = null;
   #socket: WebSocket | null = null;
+  /** The server's version when this page connected; a restart into a new release reloads the page. */
+  #version: string | null = null;
   #toastId = 0;
   #folderRequest = 0;
   #folderReplies = new Map<number, (listing: FolderListing | { error: string }) => void>();
@@ -46,7 +48,17 @@ class ServerConnection {
       }
       else if (message.type === "refused") this.onRefused?.(message.threadId, message.text);
       else if (message.type === "toast") this.toast(message.text, message.tone);
-      else this.state = applyServerMessage(this.state, message);
+      else {
+        if (message.type === "snapshot") {
+          // This page's code came from the old version, as when another computer restarted to update.
+          if (this.#version !== null && message.state.version !== this.#version) {
+            location.reload();
+            return;
+          }
+          this.#version = message.state.version;
+        }
+        this.state = applyServerMessage(this.state, message);
+      }
     };
   }
 

@@ -64,7 +64,7 @@ The builds aren't signed yet, so the first launch needs one extra step:
 
 Start Resolve, check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
 
-The app downloads new versions by itself and the sidebar offers *Restart to update*. On macOS the sidebar links to the new download instead, because an unsigned app can't replace itself. Your projects, history and settings stay in `~/LinkerEdit`.
+The app looks for a new version a few seconds after it starts and then every hour; click the version next to the logo to look now. It downloads a new version by itself, and the sidebar shows what's new and offers *Restart to update*. If an agent is still working in Resolve, it restarts once the turn is done instead of stopping it halfway through an edit. Quitting the app installs a downloaded update too. On macOS the sidebar links to the new download instead, because an unsigned app can't replace itself. Your projects, history and settings stay in `~/LinkerEdit`.
 
 ### Or run it with Node.js
 
@@ -217,7 +217,7 @@ Chat from another computer, such as a laptop on the couch or a PC at the office,
 2. On the edit machine, open the computer menu at the top of the sidebar, choose **Remote access…**, then **Turn on**.
 3. On the other computer, run Linker-Edit too, open the same computer menu and pick the edit machine. Everything you send now goes to the edit machine; pick **this computer** to go back.
 
-Only your own computers show up in that menu, and only once remote access is on and Linker-Edit is running on them. The address in the dialog, like `https://studio.tail1234.ts.net:8443`, also works in a browser on your devices, such as a tablet.
+Only your own computers show up in that menu, and only once remote access is on and Linker-Edit is running on them. The menu shows each computer's version, and marks one that's behind; open it, and its sidebar offers to restart Linker-Edit there into the new version. The address in the dialog, like `https://studio.tail1234.ts.net:8443`, also works in a browser on your devices, such as a tablet.
 
 - **Only your devices get in.** Linker-Edit lets in devices logged in to the Tailscale account that owns the edit machine. Other people on a shared tailnet and tagged devices are turned away.
 - **The first time, Tailscale may ask you to allow it.** If Tailscale Serve or HTTPS certificates are off for your tailnet, the dialog shows Tailscale's link to turn them on. Then click **Turn on** again.
@@ -237,6 +237,7 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
+- `node scripts/update-smoke.ts`, after `npm run build && node scripts/build-desktop.ts --dir`: starts the unpacked desktop app against an update feed on your computer and checks that it downloads the update, stops its server and quits to install it, and says so when the install didn't take. On Linux, run it under `xvfb-run`.
 - `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing

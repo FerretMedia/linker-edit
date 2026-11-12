@@ -184,7 +184,7 @@ export function createServer(
     if (urlPath === "/api/computers") {
       remote
         .computers()
-        .then((others) => json(200, { name: os.hostname(), others }))
+        .then((others) => json(200, { name: os.hostname(), version: app.version, others }))
         .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
       return;
     }

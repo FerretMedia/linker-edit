@@ -208,6 +208,7 @@
       resolve={app.resolve}
       version={app.version}
       update={app.update}
+      appUpdate={app.appUpdate}
       transcription={app.transcription}
       remote={app.remote}
       computer={app.computer}
@@ -232,6 +233,9 @@
       onLinkerSignOut={() => server.send({ type: "linker_sign_out" })}
       onTranscriptionSetup={() => server.send({ type: "transcription_setup" })}
       onTranscriptionCancel={() => server.send({ type: "transcription_cancel" })}
+      onCheckAppUpdate={() => server.send({ type: "check_app_update" })}
+      onInstallAppUpdate={() => server.send({ type: "install_app_update" })}
+      onCancelAppUpdate={() => server.send({ type: "cancel_app_update" })}
     />
 
     <main class="flex min-w-0 flex-1 flex-col">

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { Check, ChevronsUpDown, Globe, Monitor } from "@lucide/svelte";
   import type { Computers, RemoteAccess } from "#shared/protocol.ts";
+  import { isNewer, releaseName } from "#shared/release-name.ts";
   import { desktop } from "#lib/desktop.ts";
 
   let { computer, remote, onRemoteAccess }: { computer: string; remote: RemoteAccess; onRemoteAccess: () => void } = $props();
@@ -14,7 +15,13 @@
 
   const here = location.origin;
   const away = $derived(list !== null && new URL(list.home).origin !== here);
-  const entries = $derived(list ? [{ name: list.name, url: list.home, home: true }, ...list.others.map((other) => ({ ...other, home: false }))] : []);
+  const entries = $derived(
+    list
+      ? [{ name: list.name, url: list.home, version: list.version ?? "", home: true }, ...list.others.map((other) => ({ ...other, home: false }))]
+      : [],
+  );
+  // A computer behind the others updates when its own app does: open it to restart it into the new release.
+  const newest = $derived(entries.reduce((max, entry) => (entry.version && isNewer(entry.version, max) ? entry.version : max), "0.0.0"));
 
   async function load() {
     if (!desktop) return;
@@ -77,6 +84,16 @@
           >
             <Monitor class="size-3.5 shrink-0 text-muted-foreground" />
             <span class="min-w-0 flex-1 truncate">{entry.name}</span>
+            {#if entry.version && isNewer(newest, entry.version)}
+              <span
+                class="shrink-0 rounded border border-warning/40 px-1 text-2xs text-warning"
+                title="{entry.name} runs {releaseName(entry.version)}, older than {releaseName(newest)}. Open it to update it."
+              >
+                {releaseName(entry.version)}
+              </span>
+            {:else if entry.version}
+              <span class="shrink-0 text-2xs text-muted-foreground">{releaseName(entry.version)}</span>
+            {/if}
             {#if entry.home}<span class="shrink-0 text-2xs text-muted-foreground">this computer</span>{/if}
             {#if current}<Check class="size-3.5 shrink-0" />{/if}
           </button>
