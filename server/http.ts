@@ -143,7 +143,7 @@ const escapeHtml = (text: string) =>
 /** A small page in the browser tab that signed in, which Linker-Edit itself doesn't show. */
 export function linkerPage(title: string, text: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)} · Linker-Edit</title>
+<title>${escapeHtml(title)} · Linker-Edit</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:15px/1.5 system-ui,sans-serif;background:#0b0b0c;color:#e8e8ea}
 main{max-width:26rem;padding:2rem}h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0;color:#a1a1aa}
 @media (prefers-color-scheme: light){body{background:#fafafa;color:#18181b}p{color:#52525b}}</style></head>
