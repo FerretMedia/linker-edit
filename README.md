@@ -122,7 +122,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - `export_timeline`, which only writes a file into the project folder;
   - `set_current_timeline`, which only changes which timeline Resolve shows.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
-  - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`.
+  - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
   - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
   - The media pool: `import_media`, `organize_media`, `transcribe_in_resolve`.
   - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
@@ -172,9 +172,9 @@ Each project folder is a Git repository. Linker-Edit saves the open Resolve proj
 
 Each timeline is a folder under `resolve/<project>/` with `cuts.json`, `audio.json`, `markers.json` and `metadata.json`, one clip per line, so `git log -p` reads like an edit decision list. Media is never stored.
 
-**History** in the top right lists the project's saves, newest first, with what changed per timeline; saves made in the open thread are marked. **Restore** on a save writes the undo request into the composer for you to send.
+**History** in the top right lists the project's saves, newest first, with what changed per timeline; saves made in the open thread are marked. **Restore** on a save writes the undo request, naming its timelines, into the composer for you to send.
 
-Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version as a new `AI - … (restored …)` timeline; it never edits or deletes a timeline to undo. Color grades and effects aren't saved yet, so a rebuilt version has the cuts, clip settings and markers, not the grade.
+Ask "what did you change?" or "undo the last change". The agent reads this history and rebuilds the earlier version with the `restore_timeline` tool, in one step: a new `AI - … (restored …)` timeline with the saved size, frame rate, clips on their tracks, clip settings, disabled clips and markers. When the saved timeline still exists, the restored one can replace it with **Use as main timeline**. It never edits or deletes a timeline to undo. Color grades, effects, titles and generators aren't saved yet; the tool lists what it left out.
 
 You can share the history like any Git repository (`git remote add`, `git push`), but merging two people's histories back into Resolve isn't supported yet.
 
@@ -203,7 +203,7 @@ Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previo
 
 Ask for anything that depends on what's said, such as "transcribe the interview clips" or "cut the bits where I mention pricing". The agent transcribes the clips it needs with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`large-v3-turbo`) on this machine. Nothing is uploaded, and it costs nothing.
 
-- **First use downloads the speech engine** into `~/LinkerEdit/tools`: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. The sidebar shows the progress. On macOS and Linux, install whisper.cpp first (`brew install whisper-cpp` on a Mac) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
+- **First use downloads the speech engine** into `~/LinkerEdit/tools`: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. Until it's downloaded, the sidebar offers **Set up** so it can happen before an agent needs it, and shows the progress with **Cancel**. On macOS and Linux, install whisper.cpp first (`brew install whisper-cpp` on a Mac) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
 - **It's fast.** On an RTX 2060, a 3-minute clip takes about 9 seconds, model loading included.
 - **Each transcript is kept** in `~/LinkerEdit/transcripts`, as text and as JSON with per-word times, until the clip's file changes. Asking again is instant.
 - **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.

@@ -21,7 +21,7 @@ Rules:
 
 Resolve tools:
 - Read: resolve_context, list_timelines, get_timeline, list_media, get_clip_properties, get_transcription. Narrow get_timeline and list_media to what you need on long projects.
-- Edit: create_timeline, duplicate_timeline, add_clips, remove_clips, set_clip_properties, add_markers, remove_markers, set_tracks, add_title, set_color, detect_scene_cuts, import_timeline, and set_current_timeline to show a timeline.
+- Edit: create_timeline, duplicate_timeline, add_clips, remove_clips, set_clip_properties, add_markers, remove_markers, set_tracks, add_title, set_color, detect_scene_cuts, import_timeline, restore_timeline (a saved version from the edit history), and set_current_timeline to show a timeline.
 - Media pool: import_media, organize_media (bins, clip colors, flags, metadata such as "Comments" for selects), transcribe_in_resolve.
 - See: view_frames shows you frames as images, of a timeline (exactly as Resolve renders it, titles and grade included) or of a media file. Look at the footage before choosing shots by how they look, and check what you built before you report back. A few frames per call: each image costs context.
 - Silences: find_silences gives a file's silent and speech ranges in seconds, quickly and without transcribing. To cut silences, build a new timeline from the speech ranges with add_clips (source frame = seconds × the clip's fps), one clip per range, back to back. Check the transcript too when a pause may be meaningful.
@@ -42,7 +42,7 @@ Edit history:
 - Each timeline folder holds metadata.json, cuts.json (video clips, one per line), audio.json and markers.json. A clip's "media" is its media pool item id, "start"/"end" are timeline frames, "source_start"/"source_end" are frames in the source clip, and "properties" lists only values that differ from Resolve's defaults. Color grades and effects are not saved yet.
 - Commits by Claude or Codex are your turns: the message has the prompt, the Resolve actions and the changes. Other commits are changes made in Resolve outside Linker-Edit: by the user, or by collaborators on a shared project.
 - When the user asks what changed, to undo, or to go back to an earlier version, read the history first: git log -- resolve, then git show or git diff on the commits involved.
-- Undo by building, never by deleting: create_timeline "<name> (restored <commit>)" with the saved metadata's size and frame rate, then add_clips with that commit's cuts.json rows (type "video") and audio.json rows (type "audio") as they are: media, source_start, source_end, start and track. Then reapply properties (set_clip_properties) and markers (add_markers), read the timeline back, and compare it with the saved version. When the earlier version still exists unchanged as its own timeline, open it (set_current_timeline) instead of rebuilding.`;
+- Undo by building, never by deleting: restore_timeline rebuilds a timeline from a save as a new "AI - <name> (restored <commit>)" timeline, with its settings, clips, properties and markers, in one call. Read it back (get_timeline), compare it with the saved version, and tell the user what it left out. When the earlier version still exists unchanged as its own timeline, open it (set_current_timeline) instead of rebuilding.`;
 
 const MANAGED_MARKER = "<!-- managed by Linker-Edit; edits here are overwritten -->";
 

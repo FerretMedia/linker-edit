@@ -9,7 +9,9 @@ export interface TranscriberOptions {
   /** Where transcripts are kept, one .json (with word times) and one .txt per media file. */
   dir: string;
   /** Finds or downloads the engine; called once, again only after it failed. */
-  prepare: (onProgress: SetupProgress) => Promise<WhisperTools>;
+  prepare: (onProgress: SetupProgress, signal: AbortSignal) => Promise<WhisperTools>;
+  /** Whether the engine is already downloaded, checked without downloading; unknown when left out. */
+  ready?: () => boolean;
   transcribeFile?: typeof transcribeFile;
 }
 
@@ -63,9 +65,13 @@ export function describeResults(results: TranscriptResult[], budget = 40_000): s
 
 /** Transcribes media files one at a time, since they share the GPU, and keeps each transcript until its file changes. */
 export function createTranscriber(options: TranscriberOptions) {
-  let status: TranscriptionStatus = { state: "idle" };
+  // Known once checked or prepared; undefined while nothing says.
+  let ready: boolean | undefined = options.ready?.();
+  const idle = (): TranscriptionStatus => (ready === undefined ? { state: "idle" } : { state: "idle", ready });
+  let status: TranscriptionStatus = idle();
   const listeners = new Set<(status: TranscriptionStatus) => void>();
   let tools: Promise<WhisperTools> | null = null;
+  let setupAbort: AbortController | null = null;
   let queue: Promise<unknown> = Promise.resolve();
   let done = 0;
   let total = 0;
@@ -77,10 +83,23 @@ export function createTranscriber(options: TranscriberOptions) {
   }
 
   function prepare(): Promise<WhisperTools> {
-    tools ??= options.prepare((step, percent) => setStatus({ state: "preparing", step, percent })).catch((error: unknown) => {
-      tools = null;
-      throw error;
-    });
+    if (tools) return tools;
+    const abort = new AbortController();
+    setupAbort = abort;
+    tools = options.prepare((step, percent) => setStatus({ state: "preparing", step, percent }), abort.signal).then(
+      (prepared) => {
+        ready = true;
+        return prepared;
+      },
+      (error: unknown) => {
+        tools = null;
+        ready = options.ready?.() ?? ready;
+        throw abort.signal.aborted ? new Error("Setting up transcription was cancelled.") : error;
+      },
+    );
+    void tools.finally(() => {
+      if (setupAbort === abort) setupAbort = null;
+    }).catch(() => {});
     return tools;
   }
 
@@ -133,7 +152,7 @@ export function createTranscriber(options: TranscriberOptions) {
         done += 1;
         if (done === total) {
           done = total = 0;
-          setStatus({ state: "idle" });
+          setStatus(idle());
         }
       }
     });
@@ -144,6 +163,20 @@ export function createTranscriber(options: TranscriberOptions) {
 
   return {
     status: () => status,
+    /** Downloads the engine now, rather than with the first transcription. */
+    async setup(): Promise<void> {
+      if (status.state === "transcribing") return;
+      try {
+        await prepare();
+      } finally {
+        // A transcription may have started meanwhile; it reports its own status.
+        if ((status as TranscriptionStatus).state !== "transcribing") setStatus(idle());
+      }
+    },
+    /** Stops a download in progress; transcriptions waiting for it fail and say so. */
+    cancelSetup() {
+      setupAbort?.abort();
+    },
     onStatus(listener: (status: TranscriptionStatus) => void): () => void {
       listeners.add(listener);
       return () => listeners.delete(listener);

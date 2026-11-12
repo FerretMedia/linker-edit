@@ -57,6 +57,8 @@
     onRemoteAccess,
     onLinkerCancel,
     onLinkerSignOut,
+    onTranscriptionSetup,
+    onTranscriptionCancel,
   }: {
     resolve: ResolveStatus;
     version: string;
@@ -80,6 +82,8 @@
     onRemoteAccess: () => void;
     onLinkerCancel: () => void;
     onLinkerSignOut: () => void;
+    onTranscriptionSetup: () => void;
+    onTranscriptionCancel: () => void;
   } = $props();
 
   // The installed app updates itself; `update` is the npm release, for `npx linker-edit`.
@@ -128,11 +132,15 @@
   const transcribing = $derived.by(() => {
     switch (transcription.state) {
       case "idle":
-        return null;
+        // Offered up front, so an agent's first transcription doesn't wait on a long download.
+        return transcription.ready === false
+          ? { title: "Transcription isn't set up", detail: "A one-time download of up to 1.6 GB", action: "setup" as const }
+          : null;
       case "preparing":
         return {
           title: transcription.percent === null ? transcription.step : `${transcription.step} · ${transcription.percent}%`,
           detail: "Only the first time",
+          action: "cancel" as const,
         };
       case "transcribing":
         return {
@@ -340,6 +348,15 @@
         <span class="block truncate text-xs font-medium">{transcribing.title}</span>
         <span class="mt-0.5 block truncate text-2xs text-muted-foreground">{transcribing.detail}</span>
       </span>
+      {#if transcribing.action}
+        <button
+          type="button"
+          class="shrink-0 text-2xs text-primary hover:underline"
+          onclick={transcribing.action === "setup" ? onTranscriptionSetup : onTranscriptionCancel}
+        >
+          {transcribing.action === "setup" ? "Set up" : "Cancel"}
+        </button>
+      {/if}
     </div>
   {/if}
 

@@ -237,6 +237,20 @@ const tools: ResolveTool[] = [
     },
   },
   {
+    name: "restore_timeline",
+    kind: "write",
+    description:
+      'Rebuilds a timeline exactly as it was in a save of the edit history, as a new "AI - <name> (restored <commit>)" timeline: its size, frame rate and start timecode, every clip on its track, clip properties, disabled clips and markers. Nothing that exists changes. When the saved timeline still exists, the restored one can replace it once the user approves. Titles, generators, color grades and effects aren\'t in the history; the result lists what was left out. Use this to undo or go back to a saved version.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        commit: { type: "string", description: "The save's commit hash, from git log -- resolve or the user." },
+        timeline: { type: "string", description: "The timeline's id or exact name in that save." },
+      },
+      required: ["commit", "timeline"],
+    },
+  },
+  {
     name: "import_media",
     kind: "write",
     description: 'Imports files on this computer into a media pool bin, made when missing ("AI imports" by default). Returns the new clips\' ids.',
