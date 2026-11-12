@@ -15,15 +15,12 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  # Picks the version and tags the commit. Tagging first means a run that fails later never hands its
-  # version to another commit; the next run takes the next number.
+  # Picks the version from today's date and the time. Nothing is tagged until every installer has built.
   version:
     name: Version
     needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       name: ${{ steps.version.outputs.name }}
@@ -34,20 +31,12 @@ jobs:
           echo "::error::Releases are made from main, not ${GITHUB_REF_NAME}."
           exit 1
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
       - name: Pick the version
         id: version
-        run: node scripts/release-version.ts $(git tag --list 'v*') >> "$GITHUB_OUTPUT"
-      - name: Tag
-        env:
-          NAME: ${{ steps.version.outputs.name }}
-        run: |
-          git tag "v$NAME"
-          git push origin "v$NAME"
+        run: node scripts/release-version.ts >> "$GITHUB_OUTPUT"
 
   # Each installer is built on its own platform: the agents' programs are installed per platform and architecture.
   desktop:
@@ -74,7 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: v${{ needs.version.outputs.name }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -121,7 +110,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: v${{ needs.version.outputs.name }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -134,11 +123,20 @@ jobs:
           path: ${{ runner.temp }}/desktop
       - name: Gather the installers
         run: node scripts/release-assets.ts "$RUNNER_TEMP/desktop" "$RUNNER_TEMP/assets"
+      # A day has one release: releasing again that day replaces it, tag and all.
+      - name: Replace today's earlier release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v$NAME" > /dev/null 2>&1; then
+            gh release delete "v$NAME" --cleanup-tag --yes
+          fi
+          git push origin --delete "v$NAME" 2> /dev/null || true
       # The installed apps update from this release's latest*.yml files.
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v$NAME" "$RUNNER_TEMP"/assets/* --verify-tag --title "Linker-Edit $NAME" --generate-notes
+        run: gh release create "v$NAME" "$RUNNER_TEMP"/assets/* --target "$GITHUB_SHA" --title "Linker-Edit $NAME" --generate-notes
       # npm refuses provenance from a private repository, so the package waits until the repo is public.
       - name: Stamp the version
         if: ${{ !github.event.repository.private }}

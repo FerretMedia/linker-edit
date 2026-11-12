@@ -11,11 +11,10 @@ GitHub → Actions → **Release** → Run workflow, on `main`.
 
 The workflow runs CI, then:
 
-1. Names the release after today's date (UTC), like Linker's releases: `2026.11.08` is the first release on 8 November 2026 and `2026.11.08.2` the second. That name is on the tag, the GitHub release, the installers and in the app. npm and the app updater need three numbers without leading zeros that sort in order, so underneath, the release's version is `YYYY.MDD.N`: `2026.1108.0`, then `2026.1108.1`. That's what's stamped into `package.json` and what npm shows. `shared/release-name.ts` maps one to the other.
-2. Tags the commit `v<name>`. A run that fails after this skips that release; the next run takes the next number. (The first two releases, from before the names, are tagged `v2026.1111.0` and `v2026.1111.1`.)
-3. Builds the installers, each on its own platform: the agents' programs ship inside the app, and npm installs only the current platform's.
-4. Once every installer has built, creates the GitHub release with them and notes generated from the merged PRs. The `latest*.yml` files are what installed apps check for updates; the two Mac builds' lists are merged into one `latest-mac.yml`.
-5. Builds and publishes the npm package with provenance. While the repository is private this step is skipped: npm refuses provenance from a private repository.
+1. Names the release after today's date (UTC), like Linker's releases: `2026.11.08` is the release of 8 November 2026. That name is on the tag (`v2026.11.08`), the GitHub release, the installers and in the app. A day has one release: running the workflow again that day replaces it. npm and the app updater need three numbers without leading zeros that sort in order, so underneath, the release's version is `YYYY.MDD.HHMM`, the UTC time it was made: `2026.1108.1430`. That's what's stamped into `package.json` and what npm shows, and a release that replaces the day's earlier one has a later time, so installed apps still update to it. `shared/release-name.ts` turns a version into its name.
+2. Builds the installers from the commit the workflow ran on, each on its own platform: the agents' programs ship inside the app, and npm installs only the current platform's. Nothing is tagged yet, so a run that fails leaves the releases as they were.
+3. Once every installer has built, deletes the day's earlier release and its tag if there is one, then tags the commit and creates the GitHub release with them and notes generated from the merged PRs. The `latest*.yml` files are what installed apps check for updates; the two Mac builds' lists are merged into one `latest-mac.yml`.
+4. Builds and publishes the npm package with provenance. While the repository is private this step is skipped: npm refuses provenance from a private repository.
 
 The repository's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check 15 seconds after they start and then every hour (desktop), or once a day (npm), and show the update in the sidebar.
 
