@@ -8,15 +8,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(APP_ROOT, "package.json"), "utf
  * instead, 2026.11.07: see shared/release-name.ts. */
 export const VERSION = pkg.version;
 
-export function isNewer(candidate: string, current: string): boolean {
-  const a = candidate.split(".").map(Number);
-  const b = current.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (a[i] ?? 0) - (b[i] ?? 0);
-    if (diff !== 0) return diff > 0;
-  }
-  return false;
-}
+export { isNewer } from "#shared/release-name.ts";
 
 /** The latest version on npm, or null when the registry can't be reached. */
 export async function latestVersion(): Promise<string | null> {

@@ -1,5 +1,7 @@
 // What pages in the desktop window may ask of it: which of the user's computers run Linker-Edit, switching to
-// one, the app's own updates, the system's folder dialog, and where the window's own buttons sit. The types are DesktopBridge in src/lib/desktop.ts.
+// one, the system's folder dialog, and where the window's own buttons sit. The types are DesktopBridge in
+// src/lib/desktop.ts. update, onUpdate and installUpdate are for pages of older Linker-Edits on the user's other
+// computers; newer pages get the app's updates from the server.
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("linkerEditDesktop", {

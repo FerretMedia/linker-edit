@@ -16,9 +16,8 @@
     SquarePen,
     Trash,
   } from "@lucide/svelte";
-  import { onMount } from "svelte";
   import type {
-    DesktopUpdate,
+    AppUpdate,
     LinkerAccount,
     ProjectSummary,
     RemoteAccess,
@@ -27,8 +26,8 @@
     TranscriptionStatus,
   } from "#shared/protocol.ts";
   import { releaseName } from "#shared/release-name.ts";
-  import { desktop } from "#lib/desktop.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
+  import AppUpdateCard from "./AppUpdateCard.svelte";
   import ComputerPicker from "./ComputerPicker.svelte";
   import LinkerAccountRow from "./LinkerAccount.svelte";
   import LinkerLogo from "./LinkerLogo.svelte";
@@ -38,6 +37,7 @@
     resolve,
     version,
     update,
+    appUpdate,
     transcription,
     remote,
     computer,
@@ -57,10 +57,14 @@
     onRemoteAccess,
     onLinkerCancel,
     onLinkerSignOut,
+    onCheckAppUpdate,
+    onInstallAppUpdate,
+    onCancelAppUpdate,
   }: {
     resolve: ResolveStatus;
     version: string;
     update: string | null;
+    appUpdate: AppUpdate | null;
     transcription: TranscriptionStatus;
     remote: RemoteAccess;
     computer: string;
@@ -80,14 +84,25 @@
     onRemoteAccess: () => void;
     onLinkerCancel: () => void;
     onLinkerSignOut: () => void;
+    onCheckAppUpdate: () => void;
+    onInstallAppUpdate: () => void;
+    onCancelAppUpdate: () => void;
   } = $props();
 
-  // The installed app updates itself; `update` is the npm release, for `npx linker-edit`.
-  let appUpdate = $state<DesktopUpdate | null>(null);
-  onMount(() => {
-    void desktop?.update?.().then((next) => (appUpdate = next));
-    return desktop?.onUpdate?.((next) => (appUpdate = next));
+  // The desktop app updates itself (appUpdate); `update` is the npm release, for `npx linker-edit`.
+  // After "Check for updates", the card also says when there's nothing new, for a few seconds.
+  let asked = $state(false);
+  const remotePage = !["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+  $effect(() => {
+    if (!asked || appUpdate?.status === "checking") return;
+    const timer = setTimeout(() => (asked = false), 6000);
+    return () => clearTimeout(timer);
   });
+
+  function checkForUpdates() {
+    asked = true;
+    onCheckAppUpdate();
+  }
 
   const COLLAPSED_KEY = "linker-edit.collapsed-projects";
   let collapsed = $state(new Set<string>(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]") as string[]));
@@ -236,7 +251,18 @@
   <div class="title-bar title-bar-start flex h-13 shrink-0 items-center gap-2 px-4">
     <LinkerLogo class="size-5 text-foreground" />
     <span class="text-sm font-semibold tracking-tight">Linker-Edit</span>
-    <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : releaseName(version)}</span>
+    {#if appUpdate}
+      <button
+        type="button"
+        class="ml-auto rounded px-1 text-2xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        title="Check for updates"
+        onclick={checkForUpdates}
+      >
+        {version === "0.0.0" ? "dev" : releaseName(version)}
+      </button>
+    {:else}
+      <span class="ml-auto text-2xs text-muted-foreground">{version === "0.0.0" ? "dev" : releaseName(version)}</span>
+    {/if}
   </div>
 
   <ComputerPicker {computer} {remote} {onRemoteAccess} />
@@ -344,23 +370,15 @@
   {/if}
 
   {#if appUpdate}
-    <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
-      {#if appUpdate.state === "ready"}
-        <span class="block text-xs font-medium">Linker-Edit {releaseName(appUpdate.version)} is ready</span>
-        <button
-          type="button"
-          class="mt-0.5 text-2xs text-primary hover:underline"
-          onclick={() => void desktop?.installUpdate?.()}
-        >
-          Restart to update
-        </button>
-      {:else}
-        <span class="block text-xs font-medium">Linker-Edit {releaseName(appUpdate.version)} is out</span>
-        <a class="mt-0.5 block text-2xs text-primary hover:underline" href={appUpdate.url} target="_blank" rel="noreferrer">
-          Download it
-        </a>
-      {/if}
-    </div>
+    <AppUpdateCard
+      update={appUpdate}
+      {computer}
+      {remotePage}
+      {asked}
+      onInstall={onInstallAppUpdate}
+      onCancel={onCancelAppUpdate}
+      onCheck={checkForUpdates}
+    />
   {:else if update}
     <div class="mx-2 rounded-lg px-2.5 py-2 shadow-[0_0_0_1px_var(--border)]">
       <span class="block text-xs font-medium">Linker-Edit {update} is out</span>

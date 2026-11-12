@@ -17,7 +17,17 @@ The workflow runs CI, then:
 4. Once every installer has built, creates the GitHub release with them and notes generated from the merged PRs. The `latest*.yml` files are what installed apps check for updates; the two Mac builds' lists are merged into one `latest-mac.yml`.
 5. Builds and publishes the npm package with provenance. While the repository is private this step is skipped: npm refuses provenance from a private repository.
 
-The repository's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check once a few hours (desktop) or once a day (npm) and show the update in the sidebar.
+The repository's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check 15 seconds after they start and then every hour (desktop), or once a day (npm), and show the update in the sidebar.
+
+## How the desktop app updates
+
+- `desktop/updater.ts` drives electron-updater. `desktop/update-state.ts` moves its state from status to status, like T3 Code's update machine: checking, available, downloading, downloaded, up to date, error.
+- The app sends that state to its server over IPC (`server/appUpdate.ts`), and the server shows it to every page. A page on another of your computers shows that computer's update and can restart it.
+- *Restart to update* waits until nothing is busy with Resolve: no turn, render or open. Then the app stops the server and everything it started (the agents, ffmpeg, the helpers running the app's own binary), because any of them still running keeps the installer from replacing its files. Then it runs the installer silently, which opens the app again.
+- Before installing, it writes `update-install.json` in the app's data folder. If the app comes back on the old version, the sidebar says the update didn't install and offers to try again or download it.
+- Its log is `updates.log`, next to `server.log`.
+
+Before a release that changes any of this, run the update smoke test (see the README's Testing section). CI runs it on Linux.
 
 Before a release that changes how Linker-Edit drives Resolve (`server/resolve/`), run `npm run test:live` against a scratch project.
 
@@ -42,7 +52,7 @@ Releases build unsigned for now: Windows shows SmartScreen on first launch, and 
 | `CSC_LINK`, `CSC_KEY_PASSWORD` | The code signing certificate (`.p12`, base64) and its password. A Developer ID Application certificate on macOS, or an Authenticode one on Windows. |
 | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Notarizing the Mac app, so macOS opens it without asking. |
 
-With a Developer ID, Mac apps can update themselves too: set `autoDownload` to true on macOS in `desktop/main.ts`.
+With a Developer ID, Mac apps can update themselves too: set `canInstall` to true on macOS in `desktop/main.ts`.
 
 ## One-time npm setup
 
