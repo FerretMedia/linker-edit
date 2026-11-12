@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
-import type { AppState, ClientMessage, HistoryEntry, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
+import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
 import type { SavedProject, SavedThread } from "./projects/store.ts";
@@ -63,7 +63,7 @@ function connected(project: string | null, projectId: string | null = null): Res
   };
 }
 
-type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline">> & {
+type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings">> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
 };
@@ -107,6 +107,7 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
     resolveTools: options.resolveTools,
     backupProject: options.backupProject,
     applyTimeline: options.applyTimeline,
+    settings: options.settings,
   });
   const client = testClient();
   const disconnect = app.connect(client);
@@ -192,6 +193,37 @@ describe("app turns", () => {
       { tone: "error", text: "CLI not logged in" },
       { tone: "info", text: "Stopped." },
     ]);
+  });
+
+  it("stops a turn's Resolve tool with it, and keeps Resolve taken until the tool has wound down", async () => {
+    let toolSignal: AbortSignal | undefined;
+    let finish = () => {};
+    let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+    const { app, client, send, turnDone } = setupWith(
+      {
+        resolveTools: (_tool, _input, _dir, signal) => {
+          toolSignal = signal;
+          return new Promise((resolve) => (finish = () => resolve({ text: "stopped" })));
+        },
+      },
+      (_sink, signal) =>
+        new Promise<void>((resolve) => {
+          void call("render_timeline", {});
+          signal.addEventListener("abort", () => resolve());
+        }),
+    );
+    call = app.resolveTool;
+    send({ type: "send", text: "render it" });
+    await vi.waitFor(() => expect(toolSignal).toBeDefined());
+    send({ type: "stop" });
+    await turnDone();
+    expect(toolSignal!.aborted).toBe(true);
+    expect(app.busy()).toBe(true);
+    expect(client.state.blocked?.message).toMatch(/stopped turn/);
+    expect(await app.resolveTool("list_timelines", {})).toMatchObject({ isError: true });
+    finish();
+    await client.until(() => !app.busy());
+    expect(client.state.blocked).toBeNull();
   });
 
   it("ignores a send while a turn is running", async () => {
@@ -291,6 +323,16 @@ describe("app approvals", () => {
       { text: "Cut is not an AI timeline.", isError: true },
     ]);
     expect(client.state.approvals).toEqual([]);
+  });
+
+  it("keeps supervised mode across restarts", () => {
+    const saved: { approvalMode?: "ask" | "auto" } = {};
+    const settings = { load: () => ({ ...saved }), save: (changes: typeof saved) => void Object.assign(saved, changes) };
+    const first = setupWith({ settings });
+    first.send({ type: "set_approval_mode", mode: "ask" });
+    expect(saved).toEqual({ approvalMode: "ask" });
+    first.disconnect();
+    expect(setupWith({ settings }).client.state.approvalMode).toBe("ask");
   });
 
   it("backs the project up once per turn, before its first Resolve change, and changes nothing when it can't", async () => {
@@ -516,6 +558,18 @@ describe("app restarts", () => {
     expect([...store.threads.get("workspace")!.values()]).toMatchObject([{ title: "cut it", resumeId: "claude-1" }]);
   });
 
+  it("saves the user's message when the turn starts, so a crash mid-turn doesn't lose it", async () => {
+    const { open, opened } = gate();
+    const { client, send, turnDone, store } = setup(() => opened);
+    send({ type: "send", text: "cut the silences" });
+    await client.until((state) => state.busy);
+    await vi.waitFor(() =>
+      expect([...store.threads.get("workspace")!.values()]).toMatchObject([{ items: [{ kind: "user", text: "cut the silences" }] }]),
+    );
+    open();
+    await turnDone();
+  });
+
   it("starts a new conversation with a summary when the earlier one can't be continued", async () => {
     const store = memoryProjectStore([
       { project: workspaceProject, threads: [savedThread({ resumeId: "gone", items: [{ id: "1", kind: "user", text: "cut it" }] })] },
@@ -717,6 +771,38 @@ describe("app projects", () => {
     const current = { status };
     return { current, checkResolve: async () => current.status };
   }
+
+  it("shows a preview only in its own project's threads", () => {
+    const preview: PreviewRenderer = { render: () => ({ stop() {} }), file: () => null };
+    const { client, send } = setupWith({
+      store: memoryProjectStore([{ project: linked("Interview", null) }, { project: linked("Promo", null) }]),
+      preview,
+    });
+    expect(client.state.projectId).toBe("interview");
+    send({ type: "render_preview" });
+    expect(client.state.preview).toMatchObject({ state: "rendering" });
+    send({ type: "new_thread", projectId: "promo" });
+    expect(client.state.preview).toEqual({ state: "idle" });
+    expect(client.state.blocked?.message).toMatch(/rendering a preview/);
+  });
+
+  it("doesn't preview another Resolve project as this project's", async () => {
+    const renders: (string | null)[] = [];
+    const preview: PreviewRenderer = { render: (id) => (renders.push(id), { stop() {} }), file: () => null };
+    const { app, client, send } = setupWith({
+      store: memoryProjectStore([{ project: linked("Interview", "int-id") }]),
+      checkResolve: async () => connected("Promo", "promo-id"),
+      history: fakeHistory({ timeline: async () => ({ id: "t1" }) as PlayableTimeline }),
+      preview,
+    });
+    await app.refreshResolve();
+    send({ type: "render_preview", timelineId: "t1" });
+    expect(renders).toEqual([]);
+    expect(client.toasts).toEqual([expect.stringContaining('Resolve has "Promo" open')]);
+    await expect(app.playableTimeline("interview", null, null)).rejects.toThrow('Resolve has "Promo" open');
+    // A saved version comes from the edit history, not from Resolve.
+    expect(await app.playableTimeline("interview", "t1", "abc1234")).toEqual({ id: "t1" });
+  });
 
   it("refuses a turn while Resolve has another project open, and runs it once the project is open", async () => {
     const resolve = resolveWith(connected("Promo", "promo-id"));

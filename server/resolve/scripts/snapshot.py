@@ -3,7 +3,7 @@
 # Field choice follows Vit (github.com/LucasHJin/vit, MIT): cuts, audio, markers and settings, with media
 # referenced by media pool item so a timeline can be rebuilt with AppendToTimeline.
 #
-# ARGS: {"ids": null | [timeline id, ...], "budget": seconds}. Scripts may run 60 seconds at most, so this
+# ARGS: {"ids": null | [timeline id, ...], "current_only": bool, "budget": seconds}. Scripts may run 60 seconds at most, so this
 # stops after `budget` seconds and lists what it didn't get to in "remaining"; Node asks again for those.
 import time
 
@@ -68,7 +68,10 @@ p = need_project()
 current = call(p, "GetCurrentTimeline")
 timelines = all_timelines()
 wanted = ARGS.get("ids")
-if wanted is not None:
+if ARGS.get("current_only"):
+    # The preview of what Resolve shows now needs only that timeline, not the whole project.
+    timelines = [current] if current else []
+elif wanted is not None:
     timelines = [t for t in timelines if call(t, "GetUniqueId") in wanted]
 done = []
 remaining = []

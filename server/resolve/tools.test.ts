@@ -48,8 +48,8 @@ function setup() {
     fs.existsSync(`${stateFile}.log`)
       ? fs.readFileSync(`${stateFile}.log`, "utf8").trim().split("\n").map((line) => JSON.parse(line) as unknown[])
       : [];
-  const tool = async <T = Record<string, unknown>>(name: string, input: Record<string, unknown> = {}) => {
-    const result = await runResolveTool(connection, name, input, context);
+  const tool = async <T = Record<string, unknown>>(name: string, input: Record<string, unknown> = {}, extra: Partial<ToolContext> = {}) => {
+    const result = await runResolveTool(connection, name, input, { ...context, ...extra });
     return { ...result, json: JSON.parse(result.text) as T };
   };
   return { dir, project, calls, tool };
@@ -255,6 +255,16 @@ describe.skipIf(!hasPython)("Resolve tools", () => {
       ["SetCurrentRenderFormatAndCodec", "mov", "ProRes422HQ"],
       ["SetCurrentTimeline", "Edit"],
     ]);
+  });
+
+  it("stops a render when the user stops the turn, and still puts Resolve back", async () => {
+    const { tool, project, calls } = setup();
+    const stopped = new AbortController();
+    stopped.abort();
+    expect(await refusal(tool("render_timeline", { timeline: "AI - Cut" }, { signal: stopped.signal }))).toBe("Render stopped by the user.");
+    expect(calls().map((call) => call[0])).toContain("StopRendering");
+    expect(calls().at(-1)).toEqual(["SetCurrentTimeline", "Edit"]);
+    expect(fs.existsSync(path.join(project, "renders", "AI - Cut.mp4"))).toBe(false);
   });
 
   it("renders audio only, and with a preset", async () => {

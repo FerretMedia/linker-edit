@@ -20,7 +20,8 @@ import { runResolveTool } from "./resolve/run.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
-import { prepareTools } from "./transcribe/tools.ts";
+import { fileSettings } from "./settings.ts";
+import { prepareTools, toolsReady } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
 
@@ -58,20 +59,22 @@ const app = createApp({
   // A replayed turn never touched Resolve, so there is nothing to save.
   createHistory: replay
     ? undefined
-    : (dir, checkProject) => createHistory({ dir, readSnapshot: () => readResolveSnapshot(resolve), checkProject }),
+    : (dir, checkProject) => createHistory({ dir, readSnapshot: (scope) => readResolveSnapshot(resolve, scope), checkProject }),
   preview: createPreviewRenderer({ dir: config.previewDir, connection: resolve }),
   resolveProjects: createResolveProjects(resolve),
-  resolveTools: (tool, input, dir) => runResolveTool(resolve, tool, input, { dir }),
+  resolveTools: (tool, input, dir, signal) => runResolveTool(resolve, tool, input, { dir, signal }),
   // A replayed turn never touches Resolve, so there is nothing to back up.
   backupProject: replay ? undefined : (dir) => backupProject(resolve, dir),
   applyTimeline: (dir, timelineId) => applyTimeline(resolve, dir, timelineId),
   prepareFolder: prepareWorkspace,
   transcriber: createTranscriber({
     dir: config.transcriptsDir,
-    prepare: (onProgress) => prepareTools(config.toolsDir, config.whisperCli, onProgress),
+    prepare: (onProgress, signal) => prepareTools(config.toolsDir, config.whisperCli, onProgress, signal),
+    ready: () => toolsReady(config.toolsDir, config.whisperCli),
   }),
   remote,
   linker,
+  settings: fileSettings(config.settingsFile),
   appUpdates,
 });
 

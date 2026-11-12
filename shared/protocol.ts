@@ -255,7 +255,8 @@ export const COMPACT_SUGGESTION_MIN_TOKENS = 200_000;
 
 /** Speech-to-text work on this machine. Percent is null while unpacking; Whisper itself reports no progress. */
 export type TranscriptionStatus =
-  | { state: "idle" }
+  /** ready: whether the speech engine is downloaded; left out while unknown. */
+  | { state: "idle"; ready?: boolean }
   | { state: "preparing"; step: string; percent: number | null }
   | { state: "transcribing"; file: string; done: number; total: number };
 
@@ -419,6 +420,9 @@ export type ClientMessage =
   /** Stops waiting for a Linker sign-in started in the browser (GET /api/linker/sign-in starts one). */
   | { type: "linker_cancel_sign_in" }
   | { type: "linker_sign_out" }
+  /** Downloads the speech engine now, or stops that download. */
+  | { type: "transcription_setup" }
+  | { type: "transcription_cancel" }
   /** Looks for a new release of the desktop app now. */
   | { type: "check_app_update" }
   /** Restarts the desktop app into the downloaded release, once nothing is busy with Resolve. */

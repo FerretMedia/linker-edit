@@ -61,11 +61,15 @@ export interface History {
  */
 export type ProjectCheck = (open: { name: string; id: string | null }) => string | null;
 
-/** Resolve's open project with every timeline, read in as many script runs as it takes. */
-export async function readResolveSnapshot(connection: ResolveConnection): Promise<RawSnapshot> {
+/** Which timelines a snapshot needs: all of them, or one by id, or (id null) the one Resolve shows. */
+export type SnapshotScope = { only: string | null } | undefined;
+
+/** Resolve's open project with every timeline (or the one asked for), read in as many script runs as it takes. */
+export async function readResolveSnapshot(connection: ResolveConnection, scope?: SnapshotScope): Promise<RawSnapshot> {
   type Page = RawSnapshot & { remaining: string[] };
+  const ids = scope?.only ? [scope.only] : null;
   // Scripts stop after 60 seconds, so each run stops after 40 and says which timelines are left.
-  const first = await connection.runScript<Page>("snapshot", { ids: null, budget: 40 }, 60);
+  const first = await connection.runScript<Page>("snapshot", { ids, current_only: !!scope && !scope.only, budget: 40 }, 60);
   const timelines = [...first.timelines];
   let remaining = first.remaining;
   while (remaining.length) {
@@ -199,6 +203,44 @@ function catFiles(cwd: string, names: string[]): Promise<(string | null)[]> {
   });
 }
 
+/**
+ * A timeline as it was in a save of the history in dir, found by its id or (byName) its exact name, with
+ * that save's media list. Null when the save or the timeline isn't there.
+ */
+export async function readSavedTimeline(
+  dir: string,
+  commit: string,
+  ref: string,
+  { byName = true }: { byName?: boolean } = {},
+): Promise<{ timeline: StoredTimeline; media: MediaEntry[] } | null> {
+  // The commit can come from a URL or an agent; a value starting with "-" would be read as a git option.
+  if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
+  const tree = await git(dir, ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", commit, "--", HISTORY_ROOT]);
+  if (tree.code !== 0) return null;
+  const metadataFiles = tree.stdout.split("\n").filter((file) => file.split("/").length === 4 && file.endsWith("/metadata.json"));
+  const metadata = (await catFiles(dir, metadataFiles.map((file) => `${commit}:${file}`))).map((text) => {
+    try {
+      return text === null ? null : (JSON.parse(text) as { id?: string; name?: string });
+    } catch {
+      return null;
+    }
+  });
+  let index = metadata.findIndex((info) => info?.id === ref);
+  if (index === -1 && byName) index = metadata.findIndex((info) => info?.name === ref);
+  if (index === -1) return null;
+  const folder = path.posix.dirname(metadataFiles[index]!);
+  const files = await catFiles(dir, [...TIMELINE_FILES, "../media.json"].map((file) => `${commit}:${path.posix.join(folder, file)}`));
+  const timeline = parseTimelineFiles((file) => files[TIMELINE_FILES.indexOf(file)] ?? null);
+  if (!timeline) return null;
+  let media: MediaEntry[] = [];
+  try {
+    media = (JSON.parse(files.at(-1) ?? "") as { media: MediaEntry[] }).media;
+  } catch {
+    // Without that save's media.json, today's media list still finds most files.
+  }
+  return { timeline, media };
+}
+
 /** Media pool item id → file path, from the media.json of every project in the history. */
 function readMedia(dir: string): Map<string, MediaEntry> {
   const media = new Map<string, MediaEntry>();
@@ -233,6 +275,38 @@ function readStored(projectDir: string): StoredTimeline[] {
     .filter((timeline) => timeline !== null);
 }
 
+/** Says which Resolve project a history folder holds, so the folder can follow a rename in Resolve. */
+const PROJECT_INFO = "project.json";
+
+function readProjectId(folder: string): string | null {
+  try {
+    const info = JSON.parse(fs.readFileSync(path.join(folder, PROJECT_INFO), "utf8")) as { id?: unknown };
+    return typeof info.id === "string" ? info.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The folder a snapshot of this Resolve project goes in, named after the project. When Resolve renamed the
+ * project, its folder is renamed too, so its history goes on instead of starting over in a new folder.
+ */
+function projectFolder(dir: string, snapshot: RawSnapshot): { folder: string; renamedFrom: string | null } {
+  const root = path.join(dir, HISTORY_ROOT);
+  const folder = path.join(root, timelineFolders([snapshot.project])[0]!);
+  const id = snapshot.project_id;
+  if (!id || readProjectId(folder) === id || !fs.existsSync(root)) return { folder, renamedFrom: null };
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const old = path.join(root, entry.name);
+    if (!entry.isDirectory() || old === folder || readProjectId(old) !== id) continue;
+    // Another folder already has the new name: keep saving where this project's history is.
+    if (fs.existsSync(folder)) return { folder: old, renamedFrom: null };
+    fs.renameSync(old, folder);
+    return { folder, renamedFrom: old };
+  }
+  return { folder, renamedFrom: null };
+}
+
 function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: StoredTimeline[]) {
   const folders = timelineFolders(timelines.map((timeline) => timeline.metadata.name));
   fs.mkdirSync(projectDir, { recursive: true });
@@ -249,17 +323,24 @@ function writeStored(projectDir: string, snapshot: RawSnapshot, timelines: Store
     }
   });
   fs.writeFileSync(path.join(projectDir, "media.json"), jsonRows("media", mediaEntries(snapshot)));
+  if (snapshot.project_id) {
+    fs.writeFileSync(path.join(projectDir, PROJECT_INFO), `${JSON.stringify({ id: snapshot.project_id, name: snapshot.project }, null, 2)}\n`);
+  }
 }
 
 export function createHistory(options: {
   dir: string;
-  readSnapshot: () => Promise<RawSnapshot>;
+  /** A save reads every timeline; the live preview asks for one only. */
+  readSnapshot: (scope?: SnapshotScope) => Promise<RawSnapshot>;
   checkProject?: ProjectCheck;
 }): History {
   const { dir } = options;
   let identity: Promise<string[]> | null = null;
   // Media seen in live snapshots, so the quick preview finds media no save has recorded yet.
   const snapshotMedia = new Map<string, MediaEntry>();
+  // The media lists of the saved projects, read once and again after each save: every thumbnail asks.
+  let savedMedia: Map<string, MediaEntry> | null = null;
+  const knownMedia = () => (savedMedia ??= readMedia(dir));
   // Saves run one at a time, so a turn's "before" save always lands before its "after" save.
   let queue: Promise<unknown> = Promise.resolve();
 
@@ -280,21 +361,29 @@ export function createHistory(options: {
     const snapshot = await options.readSnapshot();
     const refusal = options.checkProject?.({ name: snapshot.project, id: snapshot.project_id ?? null });
     if (refusal) throw new Error(refusal);
-    const projectDir = path.join(dir, HISTORY_ROOT, timelineFolders([snapshot.project])[0]!);
+    const { folder: projectDir, renamedFrom } = projectFolder(dir, snapshot);
     const before = readStored(projectDir);
     const after = snapshot.timelines.map(storedTimeline);
-    if (before.length === 0 && after.length === 0) return null;
+    if (before.length === 0 && after.length === 0 && !renamedFrom) return null;
+    // Histories from before project.json get it with their next save.
+    const notedId = before.length > 0 && !!snapshot.project_id && readProjectId(projectDir) !== snapshot.project_id;
     writeStored(projectDir, snapshot, after);
+    savedMedia = null;
 
-    const pathspec = path.relative(dir, projectDir).replaceAll("\\", "/");
-    await gitOk(dir, ["add", "-A", "--", pathspec]);
-    if ((await git(dir, ["diff", "--cached", "--quiet", "--", pathspec])).code === 0) return null;
+    const relative = (folder: string) => path.relative(dir, folder).replaceAll("\\", "/");
+    const pathspec = [relative(projectDir), ...(renamedFrom ? [relative(renamedFrom)] : [])];
+    await gitOk(dir, ["add", "-A", "--", ...pathspec]);
+    if ((await git(dir, ["diff", "--cached", "--quiet", "--", ...pathspec])).code === 0) return null;
 
-    const changes = describeChanges(before, after);
+    const changes = [
+      ...(renamedFrom ? [`Resolve project renamed from "${path.basename(renamedFrom)}" to "${snapshot.project}"`] : []),
+      ...describeChanges(before, after),
+    ];
+    if (changes.length === 0 && notedId) changes.push("Noted the Resolve project's id, so renaming it in Resolve keeps this history");
     const author = turn ? [`--author=${AGENT_NAMES[turn.provider]} <${turn.provider}@linker-edit.local>`] : [];
     await gitOk(
       dir,
-      [...fallbackIdentity, "commit", "-q", "--no-verify", ...author, "-F", "-", "--", pathspec],
+      [...fallbackIdentity, "commit", "-q", "--no-verify", ...author, "-F", "-", "--", ...pathspec],
       commitMessage(changes, turn),
     );
     const commit = (await gitOk(dir, ["rev-parse", "--short", "HEAD"])).trim();
@@ -305,36 +394,17 @@ export function createHistory(options: {
   async function timeline(id: string | null, commit: string | null): Promise<PlayableTimeline | null> {
     await prepare();
     if (!commit) {
-      const snapshot = await options.readSnapshot();
+      const snapshot = await options.readSnapshot({ only: id });
       for (const entry of mediaEntries(snapshot)) snapshotMedia.set(entry.id, entry);
       const raw = snapshot.timelines.find((candidate) => (id ? candidate.id === id : candidate.name === snapshot.current_timeline));
       return raw ? playableTimeline(storedTimeline(raw), snapshotMedia, null) : null;
     }
-    // The commit comes from a URL; a value starting with "-" would be read as a git option.
-    if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
-    const tree = await git(dir, ["-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", commit, "--", HISTORY_ROOT]);
-    if (tree.code !== 0) return null;
-    const metadataFiles = tree.stdout.split("\n").filter((file) => file.split("/").length === 4 && file.endsWith("/metadata.json"));
-    const metadata = await catFiles(dir, metadataFiles.map((file) => `${commit}:${file}`));
-    const index = metadata.findIndex((text) => {
-      try {
-        return text !== null && (JSON.parse(text) as { id?: string }).id === id;
-      } catch {
-        return false;
-      }
-    });
-    if (index === -1) return null;
-    const folder = path.posix.dirname(metadataFiles[index]!);
-    const files = await catFiles(dir, [...TIMELINE_FILES, "../media.json"].map((file) => `${commit}:${path.posix.join(folder, file)}`));
-    const stored = parseTimelineFiles((file) => files[TIMELINE_FILES.indexOf(file)] ?? null);
-    if (!stored) return null;
-    const media = readMedia(dir);
-    try {
-      for (const entry of (JSON.parse(files.at(-1) ?? "") as { media: MediaEntry[] }).media) media.set(entry.id, entry);
-    } catch {
-      // Without that save's media.json, today's media list still finds most files.
-    }
-    return playableTimeline(stored, media, commit);
+    if (!id) return null;
+    const saved = await readSavedTimeline(dir, commit, id, { byName: false });
+    if (!saved) return null;
+    const media = new Map(knownMedia());
+    for (const entry of saved.media) media.set(entry.id, entry);
+    return playableTimeline(saved.timeline, media, commit);
   }
 
   async function log(limit = 50): Promise<HistoryEntry[]> {
@@ -366,7 +436,7 @@ export function createHistory(options: {
       folders.flatMap((folder) => TIMELINE_FILES.flatMap((file) => [`${hash}^:${folder}/${file}`, `${hash}:${folder}/${file}`])),
     );
     const blobs = new Map((await catFiles(dir, names)).map((text, index) => [names[index]!, text]));
-    const media = readMedia(dir);
+    const media = knownMedia();
     const isImage = (id: string) => mediaType(media.get(id)?.path)?.kind === "image";
     return commits.map(({ hash, folders, entry }) => {
       const side = (rev: string) =>
@@ -429,7 +499,7 @@ export function createHistory(options: {
       return result;
     },
     mediaFile(id) {
-      const file = (snapshotMedia.get(id) ?? readMedia(dir).get(id))?.path;
+      const file = (snapshotMedia.get(id) ?? knownMedia().get(id))?.path;
       const type = mediaType(file);
       return file && type && fs.existsSync(file) ? { path: file, type: type.type } : null;
     },

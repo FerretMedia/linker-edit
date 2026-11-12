@@ -200,10 +200,17 @@ describe.skipIf(!hasPython)("Resolve scripts", () => {
         return connection.runScript<T>(name, { ...(args as object), budget: 0 });
       },
     });
-    expect(pages).toEqual([{ ids: null, budget: 40 }, { ids: ["t2"], budget: 40 }]);
+    expect(pages).toEqual([{ ids: null, current_only: false, budget: 40 }, { ids: ["t2"], budget: 40 }]);
     expect(snapshot).toMatchObject({ project: "Doc", project_id: "doc-id", current_timeline: "Edit" });
     expect(snapshot.timelines.map((timeline) => timeline.name)).toEqual(["Edit", "AI - Cut"]);
     expect(snapshot.timelines[0]!.video[0]!.items[0]).toMatchObject({ id: "i1", media: { id: "m1", path: "D:/Footage/m1.mov" } });
     expect(snapshot.timelines[1]!.markers).toEqual([{ frame: 10, color: "Blue", name: "", note: "", duration: 1 }]);
+  });
+
+  it("reads only the timeline the preview asks for", async () => {
+    const { connection } = resolve();
+    const names = async (only: string | null) => (await readResolveSnapshot(connection, { only })).timelines.map((timeline) => timeline.name);
+    expect(await names(null)).toEqual(["Edit"]);
+    expect(await names("t2")).toEqual(["AI - Cut"]);
   });
 });

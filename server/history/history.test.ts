@@ -169,6 +169,25 @@ describe("edit history", () => {
     expect(execFileSync("git", ["log", "--format=%s"], { cwd: dir, encoding: "utf8" })).toBe("Link to Resolve project Doc\n");
   });
 
+  it("keeps one history when the project is renamed in Resolve", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-history-"));
+    let snapshot: RawSnapshot = {
+      project: "Promo",
+      project_id: "p-1",
+      current_timeline: null,
+      timelines: [rawTimeline("t1", "Cut", [item("a", 86400)])],
+    };
+    const history = createHistory({ dir, readSnapshot: async () => snapshot });
+    await history.record();
+    snapshot = { ...snapshot, project: "Promo v2" };
+    expect(await history.record()).toMatchObject({ changes: ['Resolve project renamed from "Promo" to "Promo v2"'] });
+    expect(fs.readdirSync(path.join(dir, "resolve"))).toEqual(["Promo v2"]);
+    expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir, encoding: "utf8" })).toBe("");
+    // The timeline itself didn't change, so the history of its cuts goes on.
+    expect(execFileSync("git", ["log", "--format=%s", "--follow", "--", "resolve/Promo v2/Cut/cuts.json"], { cwd: dir, encoding: "utf8" }).trim().split("\n")).toHaveLength(2);
+    expect(await history.record()).toBeNull();
+  });
+
   it("saves nothing for a project without timelines", async () => {
     const { history } = setup();
     expect(await history.record()).toBeNull();

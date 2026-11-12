@@ -51,10 +51,10 @@ const VAD_MODEL: Download = {
 };
 
 /** Downloads to a .part file and only keeps it when the hash matches, so a broken download is retried. */
-async function download(item: Download, target: string, onPercent: (percent: number) => void): Promise<void> {
+async function download(item: Download, target: string, onPercent: (percent: number) => void, signal?: AbortSignal): Promise<void> {
   if (fs.existsSync(target)) return;
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const response = await fetch(item.url);
+  const response = await fetch(item.url, { signal });
   if (!response.ok || !response.body) throw new Error(`Download failed (${response.status}): ${item.url}`);
   const part = `${target}.part`;
   const hash = createHash("sha256");
@@ -97,7 +97,7 @@ function findOnPath(name: string): string | null {
   return null;
 }
 
-async function bundledWindowsWhisper(dir: string, onProgress: SetupProgress): Promise<{ cli: string; gpu: boolean }> {
+async function bundledWindowsWhisper(dir: string, onProgress: SetupProgress, signal?: AbortSignal): Promise<{ cli: string; gpu: boolean }> {
   const gpu = await succeeds("nvidia-smi", ["-L"]);
   const kind = gpu ? "cuda" : "cpu";
   const home = path.join(dir, `whisper.cpp-${WHISPER_BUILD}-${kind}`);
@@ -105,7 +105,7 @@ async function bundledWindowsWhisper(dir: string, onProgress: SetupProgress): Pr
   if (fs.existsSync(cli)) return { cli, gpu };
 
   const zip = `${home}.zip`;
-  await download(WINDOWS_BUILDS[kind], zip, (percent) => onProgress("Downloading the speech engine", percent));
+  await download(WINDOWS_BUILDS[kind], zip, (percent) => onProgress("Downloading the speech engine", percent), signal);
   onProgress("Unpacking the speech engine", null);
   const unpacking = `${home}.unpacking`;
   fs.rmSync(unpacking, { recursive: true, force: true });
@@ -131,13 +131,29 @@ export function findFfmpeg(): string {
   return ffmpeg;
 }
 
+/** Is everything prepareTools needs already here, so a first transcription starts without downloading? */
+export function toolsReady(dir: string, override: string | undefined): boolean {
+  try {
+    findFfmpeg();
+  } catch {
+    return false;
+  }
+  const bundled = (["cuda", "cpu"] as const).map((kind) => path.join(dir, `whisper.cpp-${WHISPER_BUILD}-${kind}`, "Release", "whisper-cli.exe"));
+  const whisper = override
+    ? fs.existsSync(override)
+    : process.platform === "win32" && process.arch === "x64"
+      ? bundled.some((file) => fs.existsSync(file))
+      : findOnPath("whisper-cli") !== null;
+  return whisper && [MODEL, VAD_MODEL].every((item) => fs.existsSync(path.join(dir, "models", path.basename(item.url))));
+}
+
 /** Finds or downloads ffmpeg, whisper.cpp and its models. The first run downloads about 1.5 GB on Windows. */
-export async function prepareTools(dir: string, override: string | undefined, onProgress: SetupProgress): Promise<WhisperTools> {
+export async function prepareTools(dir: string, override: string | undefined, onProgress: SetupProgress, signal?: AbortSignal): Promise<WhisperTools> {
   const ffmpeg = findFfmpeg();
   let whisperCli = override ?? null;
   let device = "";
   if (!whisperCli && process.platform === "win32" && process.arch === "x64") {
-    const bundled = await bundledWindowsWhisper(dir, onProgress);
+    const bundled = await bundledWindowsWhisper(dir, onProgress, signal);
     whisperCli = bundled.cli;
     device = bundled.gpu ? " (CUDA)" : " (CPU)";
   }
@@ -146,7 +162,7 @@ export async function prepareTools(dir: string, override: string | undefined, on
 
   const model = path.join(dir, "models", path.basename(MODEL.url));
   const vadModel = path.join(dir, "models", path.basename(VAD_MODEL.url));
-  await download(MODEL, model, (percent) => onProgress("Downloading the speech model", percent));
-  await download(VAD_MODEL, vadModel, (percent) => onProgress("Downloading the voice detector", percent));
+  await download(MODEL, model, (percent) => onProgress("Downloading the speech model", percent), signal);
+  await download(VAD_MODEL, vadModel, (percent) => onProgress("Downloading the voice detector", percent), signal);
   return { ffmpeg, whisperCli, model, vadModel, label: `whisper.cpp ${MODEL_NAME}${device}` };
 }

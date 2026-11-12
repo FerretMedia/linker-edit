@@ -84,7 +84,7 @@ async function handle(message: Message) {
         result: {
           protocolVersion: message.params?.protocolVersion ?? "2025-06-18",
           capabilities: { tools: {} },
-          serverInfo: { name: "linker-edit", version: "0.2.0" },
+          serverInfo: { name: "linker-edit", version: process.env.LINKER_EDIT_VERSION || "0.0.0" },
         },
       });
       break;

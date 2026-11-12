@@ -119,6 +119,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     if (text !== null) upsert({ id: randomUUID(), kind: "user", text });
     if (checked.notice) upsert({ id: randomUUID(), kind: "notice", text: checked.notice, tone: "info" });
     host.changed();
+    // Saved now too, so a crash or a closed app mid-turn doesn't lose the message.
+    save();
     let produced = false;
 
     // Kept outside the chat items, so a turn's Resolve writes are still saved if its thread is deleted.
@@ -274,6 +276,10 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     },
     get busy() {
       return turn !== null;
+    },
+    /** Aborts when the running turn is stopped; null between turns. */
+    get signal(): AbortSignal | null {
+      return turn?.signal ?? null;
     },
     get archived() {
       return archivedAt !== null;

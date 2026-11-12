@@ -61,6 +61,16 @@ describe("Codex session", () => {
     expect(items()).toHaveLength(firstTurn.length * 2);
   });
 
+  it("never reuses an earlier turn's item ids in a session started after a restart", async () => {
+    fake.turns = [recorded(), recorded()];
+    const { sink, items } = collectingSink();
+    await createCodexSession(testConfig).send("one", sink, new AbortController().signal);
+    const before = items().length;
+    await createCodexSession(testConfig, () => "auto", "thread-new").send("two", sink, new AbortController().signal);
+    expect(items()).toHaveLength(before * 2);
+    fake.resumed = [];
+  });
+
   it("continues a thread from before a restart", async () => {
     fake.turns = [[]];
     const codex = createCodexSession(testConfig, () => "auto", "thread-1");
