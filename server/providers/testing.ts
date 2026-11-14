@@ -13,6 +13,7 @@ export const testConfig: AppConfig = {
   transcriptsDir: "C:\\transcripts",
   toolsDir: "C:\\tools",
   tailscalePort: 8443,
+  configFile: "C:\\linker-edit.config.json",
   settingsFile: "C:\\settings.json",
   linker: { authServer: "https://clerk.example", appUrl: "https://app.example", file: "C:\\linker-account.json" },
   apiToken: "test-token",

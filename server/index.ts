@@ -75,6 +75,11 @@ const app = createApp({
   remote,
   linker,
   settings: fileSettings(config.settingsFile),
+  setup: {
+    configFile: config.configFile,
+    folders: { projects: config.projectsDir, previews: config.previewDir, transcripts: config.transcriptsDir, tools: config.toolsDir },
+    resolveMcp: config.resolveMcp.command,
+  },
   appUpdates,
 });
 
@@ -99,6 +104,7 @@ server.listen(config.port, "127.0.0.1", () => {
     if (status.state === "on") console.log(`Remote access: ${status.url} (for ${status.owner})`);
   });
   void app.refreshResolve();
+  app.prepareTranscription();
   void linker.refresh();
   setInterval(() => {
     if (!app.busy()) void app.refreshResolve();

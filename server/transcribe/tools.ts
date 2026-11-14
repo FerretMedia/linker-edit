@@ -37,6 +37,19 @@ const WINDOWS_BUILDS = {
     size: 8_928_640,
   },
 } satisfies Record<string, Download>;
+// CPU builds, which run on any recent glibc. A whisper-cli on PATH, such as a GPU build, comes first.
+const LINUX_BUILDS: Partial<Record<NodeJS.Architecture, Download>> = {
+  x64: {
+    url: `${WHISPER_RELEASE}/whisper-bin-ubuntu-x64.tar.gz`,
+    sha256: "a72becf15d7917f990f6313867a52638b82b7f9ef237fb0c980dac56a135781c",
+    size: 10_364_195,
+  },
+  arm64: {
+    url: `${WHISPER_RELEASE}/whisper-bin-ubuntu-arm64.tar.gz`,
+    sha256: "6b95ebfc60447df48e70ef00a73bdc3f41679ed2d01ef465827206a2ff325149",
+    size: 4_608_377,
+  },
+};
 
 const MODEL_NAME = "large-v3-turbo";
 const MODEL: Download = {
@@ -97,6 +110,16 @@ function findOnPath(name: string): string | null {
   return null;
 }
 
+/** Unpacks into a temporary folder first, so a half-unpacked engine is never taken for a working one. */
+async function unpack(archive: string, home: string, tar: string, args: string[]): Promise<void> {
+  const unpacking = `${home}.unpacking`;
+  fs.rmSync(unpacking, { recursive: true, force: true });
+  fs.mkdirSync(unpacking, { recursive: true });
+  if (!(await succeeds(tar, [...args, archive, "-C", unpacking]))) throw new Error(`Couldn't unpack ${archive}.`);
+  fs.renameSync(unpacking, home);
+  fs.rmSync(archive, { force: true });
+}
+
 async function bundledWindowsWhisper(dir: string, onProgress: SetupProgress, signal?: AbortSignal): Promise<{ cli: string; gpu: boolean }> {
   const gpu = await succeeds("nvidia-smi", ["-L"]);
   const kind = gpu ? "cuda" : "cpu";
@@ -107,15 +130,30 @@ async function bundledWindowsWhisper(dir: string, onProgress: SetupProgress, sig
   const zip = `${home}.zip`;
   await download(WINDOWS_BUILDS[kind], zip, (percent) => onProgress("Downloading the speech engine", percent), signal);
   onProgress("Unpacking the speech engine", null);
-  const unpacking = `${home}.unpacking`;
-  fs.rmSync(unpacking, { recursive: true, force: true });
-  fs.mkdirSync(unpacking, { recursive: true });
   // Windows' own tar reads zip files; a Git Bash tar earlier on PATH does not.
-  const tar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
-  if (!(await succeeds(tar, ["-xf", zip, "-C", unpacking]))) throw new Error(`Couldn't unpack ${zip}.`);
-  fs.renameSync(unpacking, home);
-  fs.rmSync(zip, { force: true });
+  await unpack(zip, home, path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe"), ["-xf"]);
   return { cli, gpu };
+}
+
+/** Where the downloaded Linux engine's whisper-cli is, or null when there's no build for this processor. */
+function linuxWhisperCli(dir: string): string | null {
+  if (process.platform !== "linux" || !LINUX_BUILDS[process.arch]) return null;
+  const home = path.join(dir, `whisper.cpp-${WHISPER_BUILD}-linux-${process.arch}`);
+  return path.join(home, `whisper-bin-ubuntu-${process.arch}`, "whisper-cli");
+}
+
+async function bundledLinuxWhisper(dir: string, onProgress: SetupProgress, signal?: AbortSignal): Promise<string | null> {
+  const cli = linuxWhisperCli(dir);
+  const build = LINUX_BUILDS[process.arch];
+  if (!cli || !build) return null;
+  if (fs.existsSync(cli)) return cli;
+
+  const home = path.dirname(path.dirname(cli));
+  const archive = `${home}.tar.gz`;
+  await download(build, archive, (percent) => onProgress("Downloading the speech engine", percent), signal);
+  onProgress("Unpacking the speech engine", null);
+  await unpack(archive, home, "tar", ["-xzf"]);
+  return cli;
 }
 
 const MISSING_WHISPER =
@@ -139,15 +177,16 @@ export function toolsReady(dir: string, override: string | undefined): boolean {
     return false;
   }
   const bundled = (["cuda", "cpu"] as const).map((kind) => path.join(dir, `whisper.cpp-${WHISPER_BUILD}-${kind}`, "Release", "whisper-cli.exe"));
+  const linux = linuxWhisperCli(dir);
   const whisper = override
     ? fs.existsSync(override)
     : process.platform === "win32" && process.arch === "x64"
       ? bundled.some((file) => fs.existsSync(file))
-      : findOnPath("whisper-cli") !== null;
+      : findOnPath("whisper-cli") !== null || (linux !== null && fs.existsSync(linux));
   return whisper && [MODEL, VAD_MODEL].every((item) => fs.existsSync(path.join(dir, "models", path.basename(item.url))));
 }
 
-/** Finds or downloads ffmpeg, whisper.cpp and its models. The first run downloads about 1.5 GB on Windows. */
+/** Finds or downloads ffmpeg, whisper.cpp and its models. The first run downloads up to 1.6 GB. */
 export async function prepareTools(dir: string, override: string | undefined, onProgress: SetupProgress, signal?: AbortSignal): Promise<WhisperTools> {
   const ffmpeg = findFfmpeg();
   let whisperCli = override ?? null;
@@ -158,6 +197,10 @@ export async function prepareTools(dir: string, override: string | undefined, on
     device = bundled.gpu ? " (CUDA)" : " (CPU)";
   }
   whisperCli ??= findOnPath("whisper-cli");
+  if (!whisperCli) {
+    whisperCli = await bundledLinuxWhisper(dir, onProgress, signal);
+    if (whisperCli) device = " (CPU)";
+  }
   if (!whisperCli || !fs.existsSync(whisperCli)) throw new Error(`whisper.cpp not found. ${MISSING_WHISPER}`);
 
   const model = path.join(dir, "models", path.basename(MODEL.url));
