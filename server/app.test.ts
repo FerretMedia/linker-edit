@@ -7,6 +7,8 @@ import type { SavedProject, SavedThread } from "./projects/store.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
+import type { Settings } from "./settings.ts";
+import { createTranscriber } from "./transcribe/transcriber.ts";
 
 type Script = (sink: TurnSink, signal: AbortSignal) => Promise<void>;
 
@@ -63,7 +65,7 @@ function connected(project: string | null, projectId: string | null = null): Res
   };
 }
 
-type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings">> & {
+type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings" | "transcriber">> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
 };
@@ -108,6 +110,7 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
     backupProject: options.backupProject,
     applyTimeline: options.applyTimeline,
     settings: options.settings,
+    transcriber: options.transcriber,
   });
   const client = testClient();
   const disconnect = app.connect(client);
@@ -333,6 +336,61 @@ describe("app approvals", () => {
     expect(saved).toEqual({ approvalMode: "ask" });
     first.disconnect();
     expect(setupWith({ settings }).client.state.approvalMode).toBe("ask");
+  });
+
+  it("starts new threads with the agent picked last, also after a restart", () => {
+    const saved: Settings = {};
+    const settings = { load: () => ({ ...saved }), save: (changes: Settings) => void Object.assign(saved, changes) };
+    const first = setupWith({ settings });
+    expect(first.client.state.defaultProvider).toBe("claude");
+    first.send({ type: "set_default_provider", provider: "codex" });
+    expect(saved).toEqual({ defaultProvider: "codex" });
+    // The open thread keeps its own agent; only new threads start with Codex.
+    expect(first.client.state.provider).toBe("claude");
+    first.send({ type: "set_default_provider", provider: "nonsense" as "codex" });
+    expect(first.client.state.defaultProvider).toBe("codex");
+    first.disconnect();
+    expect(setupWith({ settings }).client.state.defaultProvider).toBe("codex");
+  });
+
+  it("downloads the speech engine by itself, but not on a computer said to have no Resolve", async () => {
+    const saved: Settings = {};
+    const settings = { load: () => ({ ...saved }), save: (changes: Settings) => void Object.assign(saved, changes) };
+    const prepared: string[] = [];
+    let resolve: ResolveStatus = { state: "setup_needed", hint: "Install Resolve Studio." };
+    const transcriberWith = () =>
+      createTranscriber({
+        dir: "/tmp/transcripts",
+        ready: () => false,
+        prepare: (_onProgress, signal) =>
+          new Promise((_resolve, reject) => {
+            prepared.push("started");
+            signal.addEventListener("abort", () => reject(new Error("aborted")));
+          }),
+      });
+
+    // A computer that drives an edit rig: the user says so, and the download in progress stops.
+    const rig = setupWith({ settings, transcriber: transcriberWith(), checkResolve: async () => resolve });
+    rig.app.prepareTranscription();
+    expect(prepared).toEqual(["started"]);
+    expect(rig.client.state.resolveHere).toBe(true);
+    rig.send({ type: "set_resolve_here", resolveHere: false });
+    expect(saved).toEqual({ resolveHere: false });
+    expect(rig.client.state.resolveHere).toBe(false);
+    await rig.client.until((state) => state.transcription.state === "idle");
+    rig.disconnect();
+
+    // After a restart nothing downloads, until Resolve turns up on this computer after all.
+    const remote = setupWith({ settings, transcriber: transcriberWith(), checkResolve: async () => resolve });
+    remote.app.prepareTranscription();
+    await remote.app.refreshResolve();
+    expect(prepared).toEqual(["started"]);
+    expect(remote.client.state.resolveHere).toBe(false);
+    resolve = { state: "not_running" };
+    await remote.app.refreshResolve();
+    expect(saved).toEqual({ resolveHere: true });
+    expect(remote.client.state.resolveHere).toBe(true);
+    expect(prepared).toEqual(["started", "started"]);
   });
 
   it("backs the project up once per turn, before its first Resolve change, and changes nothing when it can't", async () => {

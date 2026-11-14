@@ -23,7 +23,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
-- **Use it from your other computers.** Over your own Tailscale, the app on a laptop or another PC drives the agents and Resolve on your edit machine.
+- **Use it from your other computers.** Over your own Tailscale, the app on a laptop or another PC drives the agents and Resolve on your edit machine. On a computer that only does that, click **Resolve won't be on this computer** under *Setup needed*, or turn off *Resolve is on this computer* in Settings: the setup and the speech engine are left out there.
 - **Sign in with Linker, if you like.** Your [Linker](https://linker.cool) account in the sidebar; nothing needs it.
 - **Long chats stay affordable.** A context meter, compaction, chats that survive restarts, and switching between Claude and Codex mid-chat.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
@@ -78,7 +78,9 @@ Linker-Edit opens in its own window. Closing the window stops it; `npx linker-ed
 
 ## Configuration
 
-The defaults work for a standard install. To override them, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
+**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files.
+
+The defaults work for a standard install. To change where things go, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
 
 | Key | Default |
 |---|---|
@@ -91,7 +93,7 @@ The defaults work for a standard install. To override them, create `~/LinkerEdit
 | `transcriptsDir` | `~/LinkerEdit/transcripts` |
 | `toolsDir` | `~/LinkerEdit/tools`, the speech engine and its models |
 | `tailscalePort` | `8443`, the HTTPS port remote access uses on your tailnet |
-| `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows and looks on PATH elsewhere |
+| `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows; on Linux it looks on PATH, then downloads it; on macOS it looks on PATH |
 | `linkerAuthServer` | `https://clerk.linker.cool`, Linker's sign-in; another one for testing against staging |
 | `linkerAppUrl` | `https://app.linker.cool`, Linker's dashboard and API |
 | `linkerClientId` | unset: the client Linker publishes for Linker-Edit at `app.linker.cool/oauth/linker-edit.json` |
@@ -203,7 +205,7 @@ Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previo
 
 Ask for anything that depends on what's said, such as "transcribe the interview clips" or "cut the bits where I mention pricing". The agent transcribes the clips it needs with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`large-v3-turbo`) on this machine. Nothing is uploaded, and it costs nothing.
 
-- **First use downloads the speech engine** into `~/LinkerEdit/tools`: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. Until it's downloaded, the sidebar offers **Set up** so it can happen before an agent needs it, and shows the progress with **Cancel**. On macOS and Linux, install whisper.cpp first (`brew install whisper-cpp` on a Mac) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
+- **The speech engine installs itself** into `~/LinkerEdit/tools` when the app starts: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. On Linux it uses a `whisper-cli` on your PATH, such as a GPU build, and otherwise downloads a CPU build. The sidebar shows the progress with **Cancel**, and offers **Set up** to try again if the download failed. On macOS, install whisper.cpp first (`brew install whisper-cpp`) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
 - **It's fast.** On an RTX 2060, a 3-minute clip takes about 9 seconds, model loading included.
 - **Each transcript is kept** in `~/LinkerEdit/transcripts`, as text and as JSON with per-word times, until the clip's file changes. Asking again is instant.
 - **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.

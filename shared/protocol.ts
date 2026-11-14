@@ -346,17 +346,33 @@ export interface AppUpdate extends DesktopUpdateState {
   waiting: boolean;
 }
 
+/** Where this computer's Linker-Edit keeps things, for the settings page. Set in linker-edit.config.json. */
+export interface ComputerSetup {
+  /** The config file the paths come from; it may not exist yet. */
+  configFile: string;
+  folders: { projects: string; previews: string; transcripts: string; tools: string };
+  /** Resolve's own MCP server program, found or configured; null when this computer has none. */
+  resolveMcp: string | null;
+}
+
 export interface AppMeta {
   projects: ProjectSummary[];
   /** The thread this client is looking at; null when there are no projects. */
   threadId: string | null;
   projectId: string | null;
   provider: Provider;
+  /** The agent new threads start with. */
+  defaultProvider: Provider;
   approvalMode: ApprovalMode;
   /** This thread's turn is running. */
   busy: boolean;
   approvals: ApprovalRequest[];
   resolve: ResolveStatus;
+  /**
+   * False when the user said this computer has no Resolve: it only drives an edit rig, so Resolve's setup
+   * and the speech engine aren't offered here. Becomes true again once Resolve is found on it.
+   */
+  resolveHere: boolean;
   version: string;
   /** A newer Linker-Edit on npm, or null. For `npx linker-edit`; the desktop app has appUpdate instead. */
   update: string | null;
@@ -376,6 +392,8 @@ export interface AppMeta {
   remote: RemoteAccess;
   /** The name of the computer this Linker-Edit runs on. */
   computer: string;
+  /** Null in tests and builds that don't say. */
+  setup: ComputerSetup | null;
   linker: LinkerAccount;
 }
 
@@ -390,9 +408,13 @@ export type ClientMessage =
   | { type: "compact" }
   | { type: "stop" }
   | { type: "set_provider"; provider: Provider }
+  /** The agent new threads start with, without changing the open thread's. */
+  | { type: "set_default_provider"; provider: Provider }
   | { type: "set_approval_mode"; mode: ApprovalMode }
   | { type: "approve"; id: string; allow: boolean }
   | { type: "refresh_resolve" }
+  /** Whether this computer has Resolve (or will); see AppMeta.resolveHere. */
+  | { type: "set_resolve_here"; resolveHere: boolean }
   | { type: "load_history" }
   /** Without a timeline id, renders Resolve's current timeline. */
   | { type: "render_preview"; timelineId?: string }

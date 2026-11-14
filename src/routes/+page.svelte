@@ -7,7 +7,7 @@
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
   import PreviewPanel from "#lib/components/PreviewPanel.svelte";
   import ProjectSettingsDialog from "#lib/components/ProjectSettingsDialog.svelte";
-  import RemoteAccessDialog from "#lib/components/RemoteAccessDialog.svelte";
+  import SettingsPage from "#lib/components/SettingsPage.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
@@ -15,6 +15,7 @@
   import { renderMarkdown } from "#lib/markdown.ts";
   import type { PreviewTarget } from "#lib/player.ts";
   import { server } from "#lib/connection.svelte.ts";
+  import { sectionFromHash, settingsHash, type SettingsSection } from "#lib/settings.ts";
 
   const SUGGESTIONS = [
     "Describe the open project and its timelines",
@@ -52,7 +53,34 @@
     if (!(drafts[threadId] ?? "").trim()) setDraft(text, threadId);
   };
 
-  let dialog = $state<{ kind: "add" } | { kind: "settings"; projectId: string } | { kind: "remote" } | null>(null);
+  let dialog = $state<{ kind: "add" } | { kind: "settings"; projectId: string } | null>(null);
+
+  // The settings page replaces the app while open; its address is "#settings/<section>", so Back closes it.
+  let settings = $state<SettingsSection | null>(sectionFromHash(location.hash));
+  const openSettings = (section: SettingsSection = "general") => (location.hash = settingsHash(section));
+  function closeSettings() {
+    if (history.state?.fromApp) history.back();
+    else history.replaceState(null, "", location.pathname + location.search);
+    settings = null;
+  }
+  function showSection(section: SettingsSection) {
+    history.replaceState(history.state, "", settingsHash(section));
+    settings = section;
+  }
+  function onHashChange() {
+    settings = sectionFromHash(location.hash);
+    // Remembers that the app came before, so closing goes back rather than adding another entry.
+    if (settings && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
+  }
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === "," && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      if (settings) closeSettings();
+      else openSettings();
+    } else if (event.key === "Escape" && settings && !document.querySelector("dialog[open]")) {
+      closeSettings();
+    }
+  }
   let composer: ReturnType<typeof Composer> | undefined = $state();
   let scroller: HTMLElement | undefined = $state();
   let stickToBottom = true;
@@ -196,16 +224,25 @@
   });
 </script>
 
-<svelte:window onfocus={onWindowFocus} />
+<svelte:window onfocus={onWindowFocus} onhashchange={onHashChange} onkeydown={onKeydown} />
 
 {#if !app}
   <div class="title-bar grid h-full place-items-center text-sm text-muted-foreground">
     {server.connected ? "Loading…" : "Connecting to the Linker-Edit server…"}
   </div>
+{:else if settings}
+  <SettingsPage
+    {app}
+    section={settings}
+    onSection={showSection}
+    send={(message) => server.send(message)}
+    onClose={closeSettings}
+  />
 {:else}
   <div class="title-bar-row flex h-full">
     <Sidebar
       resolve={app.resolve}
+      resolveHere={app.resolveHere}
       version={app.version}
       update={app.update}
       appUpdate={app.appUpdate}
@@ -228,7 +265,9 @@
       onProjectSettings={(projectId) => (dialog = { kind: "settings", projectId })}
       onOpenInResolve={(projectId) => server.send({ type: "open_in_resolve", projectId })}
       onRefreshResolve={() => server.send({ type: "refresh_resolve" })}
-      onRemoteAccess={() => (dialog = { kind: "remote" })}
+      onResolveHere={(resolveHere) => server.send({ type: "set_resolve_here", resolveHere })}
+      onRemoteAccess={() => openSettings("remote")}
+      onSettings={() => openSettings()}
       onLinkerCancel={() => server.send({ type: "linker_cancel_sign_in" })}
       onLinkerSignOut={() => server.send({ type: "linker_sign_out" })}
       onTranscriptionSetup={() => server.send({ type: "transcription_setup" })}
@@ -420,13 +459,6 @@
       onAdd={(source) => server.send({ type: "add_project", source })}
       onClose={() => (dialog = null)}
     />
-  {:else if dialog?.kind === "remote"}
-    <RemoteAccessDialog
-      remote={app.remote}
-      onRefresh={() => server.send({ type: "refresh_remote_access" })}
-      onSetEnabled={(enabled) => server.send({ type: "set_remote_access", enabled })}
-      onClose={() => (dialog = null)}
-    />
   {:else if settingsProject}
     <ProjectSettingsDialog
       project={settingsProject}
@@ -438,21 +470,21 @@
       onClose={() => (dialog = null)}
     />
   {/if}
+{/if}
 
-  {#if server.toasts.length}
-    <div class="fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2" role="status">
-      {#each server.toasts as toast (toast.id)}
-        <div
-          class="flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-lg shadow-black/10 {toast.tone === 'error'
-            ? 'text-destructive'
-            : ''}"
-        >
-          <span class="min-w-0 flex-1">{toast.text}</span>
-          <button type="button" class="text-muted-foreground hover:text-foreground" aria-label="Dismiss" onclick={() => server.dismiss(toast.id)}>
-            <X class="size-3.5" />
-          </button>
-        </div>
-      {/each}
-    </div>
-  {/if}
+{#if server.toasts.length}
+  <div class="fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2" role="status">
+    {#each server.toasts as toast (toast.id)}
+      <div
+        class="flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-lg shadow-black/10 {toast.tone === 'error'
+          ? 'text-destructive'
+          : ''}"
+      >
+        <span class="min-w-0 flex-1">{toast.text}</span>
+        <button type="button" class="text-muted-foreground hover:text-foreground" aria-label="Dismiss" onclick={() => server.dismiss(toast.id)}>
+          <X class="size-3.5" />
+        </button>
+      </div>
+    {/each}
+  </div>
 {/if}

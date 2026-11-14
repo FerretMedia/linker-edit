@@ -2,18 +2,15 @@
   import { onMount } from "svelte";
   import { Check, Copy } from "@lucide/svelte";
   import type { RemoteAccess } from "#shared/protocol.ts";
-  import Dialog from "./Dialog.svelte";
 
   let {
     remote,
     onRefresh,
     onSetEnabled,
-    onClose,
   }: {
     remote: RemoteAccess;
     onRefresh: () => void;
     onSetEnabled: (enabled: boolean) => void;
-    onClose: () => void;
   } = $props();
 
   // Tailscale may have changed since the app last looked, such as after logging in.
@@ -52,11 +49,7 @@
   {/each}
 {/snippet}
 
-<Dialog title="Remote access" {onClose}>
-  <p class="text-sm text-muted-foreground">
-    Let your other computers use this one over <a class="text-primary underline underline-offset-2" href="https://tailscale.com" target="_blank" rel="noreferrer">Tailscale</a>.
-    Resolve and the agents keep running here; only devices logged in to your Tailscale account get in.
-  </p>
+<div class="flex flex-col gap-4">
 
   {#if remote.state === "checking"}
     <p class="text-sm text-muted-foreground">Checking Tailscale…</p>
@@ -115,4 +108,4 @@
       {/if}
     </div>
   {/if}
-</Dialog>
+</div>

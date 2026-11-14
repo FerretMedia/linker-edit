@@ -12,6 +12,7 @@
     Plus,
     RefreshCw,
     Server,
+    Settings,
     Settings2,
     SquarePen,
     Trash,
@@ -27,6 +28,7 @@
   } from "#shared/protocol.ts";
   import { releaseName } from "#shared/release-name.ts";
   import { ago, LIBRARY_LABEL } from "#lib/labels.ts";
+  import { resolveStatusLine } from "#lib/settings.ts";
   import AppUpdateCard from "./AppUpdateCard.svelte";
   import ComputerPicker from "./ComputerPicker.svelte";
   import LinkerAccountRow from "./LinkerAccount.svelte";
@@ -35,6 +37,7 @@
 
   let {
     resolve,
+    resolveHere,
     version,
     update,
     appUpdate,
@@ -54,7 +57,9 @@
     onProjectSettings,
     onOpenInResolve,
     onRefreshResolve,
+    onResolveHere,
     onRemoteAccess,
+    onSettings,
     onLinkerCancel,
     onLinkerSignOut,
     onTranscriptionSetup,
@@ -64,6 +69,7 @@
     onCancelAppUpdate,
   }: {
     resolve: ResolveStatus;
+    resolveHere: boolean;
     version: string;
     update: string | null;
     appUpdate: AppUpdate | null;
@@ -83,7 +89,9 @@
     onProjectSettings: (projectId: string) => void;
     onOpenInResolve: (projectId: string) => void;
     onRefreshResolve: () => void;
+    onResolveHere: (resolveHere: boolean) => void;
     onRemoteAccess: () => void;
+    onSettings: () => void;
     onLinkerCancel: () => void;
     onLinkerSignOut: () => void;
     onTranscriptionSetup: () => void;
@@ -120,34 +128,16 @@
     return new Date();
   });
 
-  const status = $derived.by(() => {
-    switch (resolve.state) {
-      case "checking":
-        return { tone: "bg-warning", title: "Checking Resolve…", detail: "" };
-      case "connected":
-        return {
-          tone: "bg-success",
-          title: `${resolve.product} ${resolve.version.split(".").slice(0, 3).join(".")}`,
-          detail: resolve.project
-            ? `${resolve.project}${resolve.timeline ? ` · ${resolve.timeline}` : ""}`
-            : "No project open",
-        };
-      case "not_running":
-        return { tone: "bg-muted-foreground", title: "Resolve is not running", detail: "Start Resolve, then refresh." };
-      case "blocked":
-        return { tone: "bg-warning", title: "Resolve needs attention", detail: resolve.hint };
-      case "unreachable":
-        return { tone: "bg-destructive", title: "Resolve not reachable", detail: resolve.hint };
-      case "setup_needed":
-        return { tone: "bg-destructive", title: "Setup needed", detail: resolve.hint };
-    }
-  });
+  const status = $derived(resolveStatusLine(resolve));
 
-  // The project open in Resolve when no Linker-Edit project has it yet.
+  // A computer that only drives an edit rig: nothing to set up here, so nothing to show.
+  const controlOnly = $derived(!resolveHere && resolve.state === "setup_needed");
+
   const transcribing = $derived.by(() => {
     switch (transcription.state) {
       case "idle":
-        // Offered up front, so an agent's first transcription doesn't wait on a long download.
+        if (!resolveHere) return null;
+        // Downloaded by itself when the app starts; this is the way to try again after that failed.
         return transcription.ready === false
           ? { title: "Transcription isn't set up", detail: "A one-time download of up to 1.6 GB", action: "setup" as const }
           : null;
@@ -165,6 +155,7 @@
     }
   });
 
+  // The project open in Resolve when no Linker-Edit project has it yet.
   const unlinkedOpen = $derived(
     resolve.state === "connected" && resolve.project && !projects.some((project) => project.open) ? resolve.project : null,
   );
@@ -273,7 +264,7 @@
     {/if}
   </div>
 
-  <ComputerPicker {computer} {remote} {onRemoteAccess} />
+  <ComputerPicker {computer} {remote} {resolveHere} {onRemoteAccess} {onResolveHere} />
 
   <nav class="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
     <div class="flex h-7 items-center gap-2 pr-1 pl-2.5 text-xs font-medium text-muted-foreground">
@@ -405,23 +396,47 @@
     </div>
   {/if}
 
-  <div class="mt-2">
+  <button
+    type="button"
+    class="mx-2 mt-2 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    title="Settings (Ctrl+,)"
+    onclick={onSettings}
+  >
+    <Settings class="size-3.5 shrink-0" />
+    <span class="text-xs">Settings</span>
+  </button>
+
+  <div>
     <LinkerAccountRow {linker} {computer} onCancel={onLinkerCancel} onSignOut={onLinkerSignOut} />
   </div>
 
-  <button
-    type="button"
-    class="group m-2 mt-0.5 flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent"
-    onclick={onRefreshResolve}
-    title="Refresh Resolve status"
-  >
-    <span class="mt-1.5 size-2 shrink-0 rounded-full {status.tone}"></span>
-    <span class="min-w-0 flex-1">
-      <span class="block truncate text-xs font-medium">{status.title}</span>
-      {#if status.detail}
-        <span class="mt-0.5 block text-2xs text-muted-foreground">{status.detail}</span>
+  {#if !controlOnly}
+    <div class="m-2 mt-0.5">
+      <button
+        type="button"
+        class="group flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent"
+        onclick={onRefreshResolve}
+        title="Refresh Resolve status"
+      >
+        <span class="mt-1.5 size-2 shrink-0 rounded-full {status.tone}"></span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate text-xs font-medium">{status.title}</span>
+          {#if status.detail}
+            <span class="mt-0.5 block text-2xs text-muted-foreground">{status.detail}</span>
+          {/if}
+        </span>
+        <RefreshCw class="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+      </button>
+      {#if resolve.state === "setup_needed"}
+        <button
+          type="button"
+          class="mb-1 ml-7 text-2xs text-primary hover:underline"
+          title="For a computer that only controls your edit computer. Comes back if Resolve is installed here."
+          onclick={() => onResolveHere(false)}
+        >
+          Resolve won't be on this computer
+        </button>
       {/if}
-    </span>
-    <RefreshCw class="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-  </button>
+    </div>
+  {/if}
 </aside>

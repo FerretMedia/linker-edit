@@ -1,11 +1,24 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Check, ChevronsUpDown, Globe, Monitor } from "@lucide/svelte";
+  import { Check, ChevronsUpDown, Globe, Monitor, Wrench } from "@lucide/svelte";
   import type { Computers, RemoteAccess } from "#shared/protocol.ts";
   import { isNewer, releaseName } from "#shared/release-name.ts";
   import { desktop } from "#lib/desktop.ts";
 
-  let { computer, remote, onRemoteAccess }: { computer: string; remote: RemoteAccess; onRemoteAccess: () => void } = $props();
+  let {
+    computer,
+    remote,
+    resolveHere,
+    onRemoteAccess,
+    onResolveHere,
+  }: {
+    computer: string;
+    remote: RemoteAccess;
+    /** False when the user said this computer has no Resolve; here is the way back. */
+    resolveHere: boolean;
+    onRemoteAccess: () => void;
+    onResolveHere: (resolveHere: boolean) => void;
+  } = $props();
 
   // Only the desktop app can switch computers; in a browser this is just the way to the remote access settings.
   let open = $state(false);
@@ -121,6 +134,21 @@
         <Globe class="size-3.5 shrink-0" />
         Remote access{away ? ` on ${computer}` : ""}…
       </button>
+      {#if !resolveHere}
+        <button
+          type="button"
+          role="menuitem"
+          class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent"
+          title="Shows Resolve's setup in the sidebar again, and downloads the speech engine here."
+          onclick={() => {
+            open = false;
+            onResolveHere(true);
+          }}
+        >
+          <Wrench class="size-3.5 shrink-0" />
+          Set up Resolve here
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type {
   AppMeta,
   ApprovalMode,
+  ComputerSetup,
   ChatItem,
   ClientMessage,
   CloudSyncMode,
@@ -66,6 +67,8 @@ export interface AppOptions {
   linker?: LinkerService;
   /** Choices kept across restarts, such as supervised mode. */
   settings?: SettingsStore;
+  /** Where this computer keeps things, shown on the settings page. */
+  setup?: ComputerSetup;
   /** The updates of the desktop app this server runs in; none with `npx linker-edit`. */
   appUpdates?: Pick<AppUpdates, "status" | "onStatus" | "check" | "install" | "cancel">;
 }
@@ -92,6 +95,7 @@ export function createApp(options: AppOptions) {
   // A switch to supervised is kept, so a restart never quietly turns it back into full access.
   let approvalMode: ApprovalMode = options.settings?.load().approvalMode ?? "auto";
   let resolve: ResolveStatus = { state: "checking" };
+  let resolveHere = options.settings?.load().resolveHere ?? true;
   let preview: PreviewState = { state: "idle" };
   // The project the preview is of: other projects' threads see none. Resolve renders one at a time.
   let previewProject: string | null = null;
@@ -106,7 +110,7 @@ export function createApp(options: AppOptions) {
   // down, and Resolve stays taken until it has.
   let toolCalls = 0;
   // New threads start with the agent picked last.
-  let lastProvider: Provider = "claude";
+  let lastProvider: Provider = options.settings?.load().defaultProvider ?? "claude";
   const projects = new Map<string, ProjectState>();
   const threads = new Map<string, { thread: Thread; projectId: string }>();
   const clients = new Map<Client, { threadId: string | null }>();
@@ -289,10 +293,12 @@ export function createApp(options: AppOptions) {
       threadId: entry ? threadId : null,
       projectId: entry?.projectId ?? null,
       provider: entry?.thread.provider ?? lastProvider,
+      defaultProvider: lastProvider,
       approvalMode,
       busy: entry?.thread.busy ?? false,
       approvals: entry?.thread.approvals() ?? [],
       resolve,
+      resolveHere,
       version: options.version,
       update,
       appUpdate: options.appUpdates?.status() ?? null,
@@ -305,6 +311,7 @@ export function createApp(options: AppOptions) {
       transcription: options.transcriber?.status() ?? { state: "idle" },
       remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
       computer: os.hostname(),
+      setup: options.setup ?? null,
       linker: options.linker?.status() ?? { state: "signed_out", problem: null },
     };
   }
@@ -439,12 +446,33 @@ export function createApp(options: AppOptions) {
     });
   }
 
+  /**
+   * Downloads the speech engine in the background, so nobody has to ask for it and an agent's first
+   * transcription doesn't wait on it. Not on a computer without Resolve: agents don't work there.
+   */
+  function prepareTranscription() {
+    const status = options.transcriber?.status();
+    if (!resolveHere || status?.state !== "idle" || status.ready !== false) return;
+    options.transcriber?.setup().catch((error: unknown) => console.error(`Couldn't set up transcription: ${errorText(error)}`));
+  }
+
+  function setResolveHere(value: boolean) {
+    if (value === resolveHere) return;
+    resolveHere = value;
+    options.settings?.save({ resolveHere });
+    if (resolveHere) prepareTranscription();
+    else options.transcriber?.cancelSetup();
+    sendMeta();
+  }
+
   let resolveCheck: Promise<void> | null = null;
   function refreshResolve(): Promise<void> {
     resolveCheck ??= options
       .checkResolve()
       .then((status) => {
         resolve = status;
+        // Resolve turned up on a computer that was said to have none, so it's an edit computer after all.
+        if (!resolveHere && status.state !== "setup_needed") setResolveHere(true);
         // Learns the project's id once it is seen open, and follows renames made in Resolve.
         const open = openProject(status);
         const owner = open ? ownerOf(open) : undefined;
@@ -636,7 +664,14 @@ export function createApp(options: AppOptions) {
       case "set_provider":
         if (!(message.provider in PROVIDER_NAME)) break;
         lastProvider = message.provider;
+        options.settings?.save({ defaultProvider: lastProvider });
         current?.thread.setProvider(message.provider);
+        sendMeta();
+        break;
+      case "set_default_provider":
+        if (!(message.provider in PROVIDER_NAME)) break;
+        lastProvider = message.provider;
+        options.settings?.save({ defaultProvider: lastProvider });
         sendMeta();
         break;
       case "set_approval_mode":
@@ -720,6 +755,9 @@ export function createApp(options: AppOptions) {
       case "linker_sign_out":
         void options.linker?.signOut();
         break;
+      case "set_resolve_here":
+        if (typeof message.resolveHere === "boolean") setResolveHere(message.resolveHere);
+        break;
       case "transcription_setup":
         options.transcriber?.setup().then(
           () => toast(client, "Transcription is set up.", "info"),
@@ -750,6 +788,7 @@ export function createApp(options: AppOptions) {
     },
     handleMessage,
     refreshResolve,
+    prepareTranscription,
     /** A newer release the UI offers, or null. */
     setUpdate(version: string | null) {
       if (version === update) return;

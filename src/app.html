@@ -7,8 +7,19 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script>
       // Before first paint, so the theme never flashes.
+      // The theme picked in Settings (src/lib/theme.ts), or the system's.
       const dark = matchMedia("(prefers-color-scheme: dark)");
-      const apply = () => document.documentElement.classList.toggle("dark", dark.matches);
+      const picked = () => {
+        try {
+          return localStorage.getItem("linker-edit.theme");
+        } catch {
+          return null;
+        }
+      };
+      const apply = () => {
+        const theme = picked();
+        document.documentElement.classList.toggle("dark", theme === "dark" || (theme !== "light" && dark.matches));
+      };
       apply();
       dark.addEventListener("change", apply);
       // In the desktop window the page's top headers are the title bar (desktop/main.ts).
