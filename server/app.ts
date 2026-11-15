@@ -20,6 +20,9 @@ import type {
   SidebarClientMessage,
 } from "../shared/protocol.ts";
 import type { AppUpdates } from "./appUpdate.ts";
+import { createCollections } from "./collections/collections.ts";
+import type { CollectionStore } from "./collections/store.ts";
+import { memoryCollectionStore } from "./collections/testing.ts";
 import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
 import type { LinkerService } from "./linker.ts";
@@ -40,8 +43,17 @@ import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
 export interface AppOptions {
   version: string;
   store: ProjectStore;
-  /** resumeId continues a conversation from before a restart; dir is the project's working folder. */
-  createSession: (provider: Provider, approvalMode: () => ApprovalMode, dir: string, resumeId?: string) => ProviderSession;
+  /**
+   * resumeId continues a conversation from before a restart; dir is the project's working folder. rules gives
+   * the agent's rules for the project as they are when a turn starts.
+   */
+  createSession: (
+    provider: Provider,
+    approvalMode: () => ApprovalMode,
+    dir: string,
+    resumeId: string | undefined,
+    rules: () => string,
+  ) => ProviderSession;
   checkResolve: () => Promise<ResolveStatus>;
   /** Each project's edit history in its folder; saving is off without it. */
   createHistory?: (dir: string, checkProject: ProjectCheck) => History;
@@ -49,8 +61,10 @@ export interface AppOptions {
   preview?: PreviewRenderer;
   /** Lists and opens Resolve projects; without it projects can only follow what Resolve has open. */
   resolveProjects?: ResolveProjects;
-  /** Gets a project folder ready for agents, such as its AGENTS.md. */
-  prepareFolder?: (dir: string) => void;
+  /** Gets a project folder ready for agents, such as its AGENTS.md with the project's rules. */
+  prepareFolder?: (dir: string, rules: string) => void;
+  /** Workspaces and series; kept in memory only without it. */
+  collections?: CollectionStore;
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
   resolveTools?: (
     tool: string,
@@ -117,16 +131,36 @@ export function createApp(options: AppOptions) {
   const projects = new Map<string, ProjectState>();
   const threads = new Map<string, { thread: Thread; projectId: string }>();
   const clients = new Map<Client, { threadId: string | null }>();
+  const collections = createCollections({
+    store: options.collections ?? memoryCollectionStore(),
+    projects: () => [...projects.values()].map((project) => project.saved),
+    setCollection(projectId, collection, commitMessage) {
+      const project = projects.get(projectId);
+      if (!project) return;
+      project.saved = { ...project.saved, collection };
+      store.saveProject(project.saved);
+      project.history?.commitProjectFile(commitMessage).catch((error: unknown) => console.error("Couldn't commit linker-edit.json", error));
+    },
+    changed() {
+      for (const project of projects.values()) prepareFolder(project.saved);
+      sendMeta();
+    },
+  });
 
   const projectName = (saved: SavedProject) => saved.name ?? saved.link?.name ?? path.basename(saved.dir);
   const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || applying !== null || toolCalls > 0;
 
-  function addProject(saved: SavedProject, savedThreads: SavedThread[] = []): ProjectState {
+  /** Writes the project's rules where agents read them; again before each turn, so they are never stale. */
+  function prepareFolder(saved: SavedProject) {
     try {
-      options.prepareFolder?.(saved.dir);
+      options.prepareFolder?.(saved.dir, collections.rulesFor(saved));
     } catch (error) {
       console.error(error);
     }
+  }
+
+  function addProject(saved: SavedProject, savedThreads: SavedThread[] = []): ProjectState {
+    prepareFolder(saved);
     const state: ProjectState = { saved };
     state.history = options.createHistory?.(saved.dir, (open) => {
       const link = state.saved.link;
@@ -144,7 +178,8 @@ export function createApp(options: AppOptions) {
     const project = projects.get(projectId)!;
     const thread = createThread(saved, {
       approvalMode: () => approvalMode,
-      createSession: (provider, resumeId) => options.createSession(provider, () => approvalMode, project.saved.dir, resumeId),
+      createSession: (provider, resumeId) =>
+        options.createSession(provider, () => approvalMode, project.saved.dir, resumeId, () => collections.rulesFor(project.saved)),
       history: () => project.history,
       backup: () => (options.backupProject ? options.backupProject(project.saved.dir) : Promise.resolve(null)),
       claim() {
@@ -155,7 +190,10 @@ export function createApp(options: AppOptions) {
       release() {
         if (turnOwner === saved.id) turnOwner = null;
       },
-      check: () => checkBeforeTurn(project),
+      check: () => {
+        prepareFolder(project.saved);
+        return checkBeforeTurn(project);
+      },
       resolveConnected: () => resolve.state === "connected",
       shared: () => project.saved.link?.kind === "cloud",
       saved: async () => {
@@ -320,6 +358,7 @@ export function createApp(options: AppOptions) {
       computer: os.hostname(),
       setup: options.setup ?? null,
       linker: options.linker?.status() ?? { state: "signed_out", problem: null },
+      collections: collections.summaries(),
     };
   }
 
@@ -655,6 +694,12 @@ export function createApp(options: AppOptions) {
     }
   }
 
+  /** Workspaces and series: create, update, delete, and moving a project into one. */
+  function handleCollectionMessage(client: Client, message: ClientMessage) {
+    const refusal = collections.handle(message);
+    if (refusal) toast(client, refusal);
+  }
+
   function handleMessage(client: Client, message: ClientMessage) {
     const view = clients.get(client);
     const current = view?.threadId ? threads.get(view.threadId) : undefined;
@@ -785,30 +830,35 @@ export function createApp(options: AppOptions) {
         options.appUpdates?.cancel();
         break;
       default:
-        handleSidebarMessage(message);
+        if (!handleSidebarMessage(message)) handleCollectionMessage(client, message);
     }
   }
 
   // --- Sidebar (T3 Code) ---
 
-  function handleSidebarMessage(message: SidebarClientMessage) {
+  const SIDEBAR_MESSAGES = new Set<string>(["pin_thread", "settle_thread", "snooze_thread", "mark_read"] satisfies SidebarClientMessage["type"][]);
+  const isSidebarMessage = (message: ClientMessage): message is SidebarClientMessage => SIDEBAR_MESSAGES.has(message.type);
+
+  /** False when the message isn't the sidebar's. */
+  function handleSidebarMessage(message: ClientMessage): boolean {
+    if (!isSidebarMessage(message)) return false;
     const thread = threads.get(message.threadId)?.thread;
-    if (!thread) return;
     switch (message.type) {
       case "pin_thread":
-        thread.setPinned(message.pinned === true);
+        thread?.setPinned(message.pinned === true);
         break;
       case "settle_thread":
-        thread.setSettled(message.settled === true);
+        thread?.setSettled(message.settled === true);
         break;
       case "snooze_thread":
-        if (message.until === null) thread.snooze(null);
-        else if (typeof message.until === "string" && Date.parse(message.until) > Date.now()) thread.snooze(new Date(message.until).toISOString());
+        if (message.until === null) thread?.snooze(null);
+        else if (typeof message.until === "string" && Date.parse(message.until) > Date.now()) thread?.snooze(new Date(message.until).toISOString());
         break;
       case "mark_read":
-        thread.markRead(message.read !== false);
+        thread?.markRead(message.read !== false);
         break;
     }
+    return true;
   }
 
   function updateProjectSidebar(projectId: string, changes: ProjectSidebarChanges) {

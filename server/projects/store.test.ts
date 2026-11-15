@@ -79,6 +79,30 @@ describe("fileProjectStore", () => {
     expect(() => store.adopt(clone)).toThrow("already a project");
   });
 
+  it("keeps the project's workspace or series in linker-edit.json, and loads older files without one", () => {
+    const { home, open } = setup();
+    const store = open();
+    const old = path.join(home, "old");
+    fs.mkdirSync(old);
+    fs.writeFileSync(path.join(old, "linker-edit.json"), JSON.stringify({ version: 1, name: "Old", resolve: null }));
+    const { project } = store.adopt(old);
+    expect(project).toMatchObject({ name: "Old", link: null });
+    expect(project.collection).toBeUndefined();
+
+    store.saveProject({ ...project, collection: { id: "c1", name: "Podcast" } });
+    expect(JSON.parse(fs.readFileSync(path.join(old, "linker-edit.json"), "utf8"))).toEqual({
+      version: 1,
+      name: "Old",
+      resolve: null,
+      collection: { id: "c1", name: "Podcast" },
+    });
+    expect(open().load().find((entry) => entry.project.dir === old)?.project.collection).toEqual({ id: "c1", name: "Podcast" });
+
+    // Out of it again, the file is as it was.
+    store.saveProject({ ...project, collection: null });
+    expect(JSON.parse(fs.readFileSync(path.join(old, "linker-edit.json"), "utf8"))).toEqual({ version: 1, name: "Old", resolve: null });
+  });
+
   it("rebuilds a damaged project list from the project folders, keeping the damaged file", () => {
     const { home, root, open, errors } = setup();
     const store = open();

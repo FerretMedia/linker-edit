@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Cloud, HardDrive, Server } from "@lucide/svelte";
-  import type { CloudSyncMode, FolderListing, ProjectIcon as Icon, ProjectSummary } from "#shared/protocol.ts";
+  import type { CloudSyncMode, CollectionSummary, FolderListing, ProjectIcon as Icon, ProjectSummary } from "#shared/protocol.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
-  import { LIBRARY_LABEL, SYNC_MODES } from "#lib/labels.ts";
+  import { COLLECTION_LABEL, COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION, SYNC_MODES } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
   import FolderPicker from "./FolderPicker.svelte";
   import IconPicker from "./sidebar/IconPicker.svelte";
@@ -11,18 +11,24 @@
 
   let {
     project,
+    collections,
     relinkTo,
     browseFolders,
     onSave,
+    onMove,
     onRelink,
     onRemove,
     onClose,
   }: {
     project: ProjectSummary;
+    /** Every workspace and series, to put the project in one. */
+    collections: CollectionSummary[];
     /** The project open in Resolve when no Linker-Edit project has it, to link this one to. */
     relinkTo: string | null;
     browseFolders: (path: string) => Promise<FolderListing | { error: string }>;
     onSave: (changes: { name?: string; mediaPath?: string; syncMode?: CloudSyncMode; icon?: Icon | null }) => void;
+    /** Puts the project in a workspace or series, or in none. */
+    onMove: (collectionId: string | null) => void;
     onRelink: () => void;
     onRemove: () => void;
     onClose: () => void;
@@ -38,6 +44,22 @@
   let icon = $state<Icon | null>(initial.icon);
   let picking = $state(false);
   const KIND_ICON = { local: HardDrive, network: Server, cloud: Cloud };
+  const initialCollection = untrack(() => collections.find((collection) => collection.projectIds.includes(initial.id))?.id ?? "");
+  let collectionId = $state(initialCollection);
+
+  // Workspaces, each followed by its series, then series on their own.
+  const collectionOptions = $derived.by(() => {
+    const workspaces = collections.filter((collection) => collection.kind === "workspace");
+    const series = (parentId: string | null) =>
+      collections.filter((collection) => collection.kind === "series" && collection.parentId === parentId);
+    return [
+      ...workspaces.flatMap((workspace) => [
+        { id: workspace.id, label: workspace.name },
+        ...series(workspace.id).map((entry) => ({ id: entry.id, label: `${workspace.name} / ${entry.name}` })),
+      ]),
+      ...series(null).map((entry) => ({ id: entry.id, label: `${entry.name} (${COLLECTION_LABEL.series.lower})` })),
+    ];
+  });
 
   const cloud = $derived(project.link?.kind === "cloud");
 
@@ -47,6 +69,7 @@
       ...(cloud ? { mediaPath: trimSeparators(mediaPath), syncMode } : {}),
       ...(JSON.stringify(icon) === JSON.stringify(initial.icon) ? {} : { icon }),
     });
+    if (collectionId !== initialCollection) onMove(collectionId || null);
     onClose();
   }
 
@@ -84,6 +107,19 @@
       Use the letters of its name
     </button>
   {/if}
+
+  <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+    {COLLECTION_PICKER_LABEL}
+    <select class={field} bind:value={collectionId}>
+      <option value="">{NO_COLLECTION}</option>
+      {#each collectionOptions as option (option.id)}
+        <option value={option.id}>{option.label}</option>
+      {/each}
+    </select>
+    {#if !collections.length}
+      <span>Make {COLLECTION_LABEL.workspace.lowerMany} and {COLLECTION_LABEL.series.lowerMany} in Settings.</span>
+    {/if}
+  </label>
 
   <div class="flex flex-col gap-1 text-xs">
     <span class="text-muted-foreground">Resolve project</span>

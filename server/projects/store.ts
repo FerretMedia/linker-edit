@@ -32,6 +32,8 @@ export interface SavedProject {
   /** This machine's own sidebar choices, in projects.json. */
   pinned: boolean;
   archived: boolean;
+  /** The workspace or series it is in. Missing in files from before workspaces. */
+  collection?: ProjectCollection | null;
 }
 
 /** The sidebar fields of a thread that has none yet. */
@@ -54,6 +56,13 @@ function withSidebarFields(thread: SavedThread): SavedThread {
     loaded[key] = typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
   }
   return loaded;
+}
+
+/** In linker-edit.json, so a teammate who gets the project sees which workspace or series it belongs to. */
+export interface ProjectCollection {
+  id: string;
+  /** As it was when the project was put in it, for computers that don't have it. */
+  name: string;
 }
 
 export interface ProjectStore {
@@ -83,6 +92,7 @@ interface ProjectFile {
   resolve: ResolveLink | null;
   /** Missing in files from before project icons. */
   icon?: ProjectIcon | null;
+  collection?: ProjectCollection;
 }
 
 interface RegistryEntry {
@@ -218,6 +228,8 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
     } catch (error) {
       onError(error);
     }
+    // Files from before workspaces have none.
+    const collection = file?.collection;
     return {
       id,
       dir,
@@ -227,6 +239,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       icon: parseProjectIcon(file?.icon),
       pinned: pinned === true,
       archived: archived === true,
+      ...(collection && typeof collection.id === "string" ? { collection: { id: collection.id, name: String(collection.name ?? "") } } : {}),
     };
   }
 
@@ -282,7 +295,13 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
   function saveProject(project: SavedProject) {
     try {
       prepare(project.dir);
-      const file: ProjectFile = { version: VERSION, name: project.name, resolve: project.link, ...(project.icon ? { icon: project.icon } : {}) };
+      const file: ProjectFile = {
+        version: VERSION,
+        name: project.name,
+        resolve: project.link,
+        ...(project.icon ? { icon: project.icon } : {}),
+        ...(project.collection ? { collection: { id: project.collection.id, name: project.collection.name } } : {}),
+      };
       writeJson(path.join(project.dir, PROJECT_FILE), file);
       writeJson(path.join(stateDir(project.dir), "local.json"), project.local);
       const entry = registry.projects.find((candidate) => candidate.id === project.id);
