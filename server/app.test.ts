@@ -3,7 +3,7 @@ import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
-import type { SavedProject, SavedThread } from "./projects/store.ts";
+import { NEW_THREAD_SIDEBAR, type SavedProject, type SavedThread } from "./projects/store.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession, TurnSink } from "./providers/types.ts";
@@ -143,6 +143,7 @@ function fakeHistory(overrides: Partial<History> = {}): History & { records: (Ag
 
 function savedThread(fields: Partial<SavedThread> = {}): SavedThread {
   return {
+    ...NEW_THREAD_SIDEBAR,
     id: "thread-1",
     title: "cut it",
     provider: "claude",
@@ -821,6 +822,9 @@ describe("app projects", () => {
     name: null,
     link: { kind: "local", name, projectId },
     local: {},
+    icon: null,
+    pinned: false,
+    archived: false,
     ...fields,
   });
 
@@ -1037,5 +1041,71 @@ describe("app projects", () => {
     expect(client.state.projects.map((project) => project.id)).toEqual(["workspace"]);
     expect(client.state.projectId).toBe("workspace");
     expect([...store.projects.keys()]).toEqual(["workspace"]);
+  });
+});
+
+describe("app sidebar (T3 Code)", () => {
+  it("pins, settles, snoozes and reads threads, and keeps it all across a restart", async () => {
+    const store = memoryProjectStore([{ project: workspaceProject }]);
+    const { client, send, turnDone } = setupWith({ store }, async (sink) => sink.upsert({ id: "a", kind: "assistant", text: "Cut." }));
+    send({ type: "send", text: "cut it" });
+    await turnDone();
+    const threadId = client.state.threadId!;
+    const summary = () => client.state.projects[0]!.threads.find((thread) => thread.id === threadId)!;
+    expect(summary()).toMatchObject({ pinnedAt: null, settledAt: null, lastReadAt: null });
+    expect(summary().lastSentAt).toEqual(expect.any(String));
+    expect(summary().turnEndedAt).toEqual(expect.any(String));
+
+    send({ type: "pin_thread", threadId, pinned: true });
+    expect(summary().pinnedAt).toEqual(expect.any(String));
+
+    // Settling unpins and wakes it, as in T3 Code.
+    send({ type: "snooze_thread", threadId, until: new Date(Date.now() + 3_600_000).toISOString() });
+    expect(summary().snoozedUntil).toEqual(expect.any(String));
+    send({ type: "settle_thread", threadId, settled: true });
+    expect(summary()).toMatchObject({ pinnedAt: null, snoozedUntil: null, settledAt: expect.any(String), unsettledAt: null });
+
+    // A snooze time in the past is ignored.
+    send({ type: "snooze_thread", threadId, until: "2020-01-01T00:00:00.000Z" });
+    expect(summary().snoozedUntil).toBeNull();
+
+    send({ type: "mark_read", threadId, read: true });
+    const read = summary().lastReadAt!;
+    expect(Date.parse(read)).toBeGreaterThanOrEqual(Date.parse(summary().turnEndedAt!));
+    send({ type: "mark_read", threadId, read: false });
+    expect(Date.parse(summary().lastReadAt!)).toBeLessThan(Date.parse(summary().turnEndedAt!));
+
+    const saved = [...store.threads.get("workspace")!.values()][0]!;
+    expect(saved).toMatchObject({ settledAt: summary().settledAt, lastReadAt: summary().lastReadAt, pinnedAt: null });
+    const again = setupWith({ store });
+    expect(again.client.state.projects[0]!.threads.find((thread) => thread.id === threadId)).toMatchObject({
+      settledAt: summary().settledAt,
+      lastReadAt: summary().lastReadAt,
+    });
+  });
+
+  it("brings a settled thread back when the user writes in it", async () => {
+    const { client, send, turnDone } = setup(
+      async () => {},
+      async () => {},
+    );
+    send({ type: "send", text: "first" });
+    await turnDone();
+    const threadId = client.state.threadId!;
+    send({ type: "settle_thread", threadId, settled: true });
+    send({ type: "send", text: "one more thing" });
+    await turnDone();
+    expect(client.state.projects[0]!.threads[0]).toMatchObject({ settledAt: null, unsettledAt: expect.any(String) });
+  });
+
+  it("saves a project's icon in its project file, and its pin and archive on this machine", () => {
+    const store = memoryProjectStore([{ project: workspaceProject }]);
+    const { client, send } = setupWith({ store });
+    send({ type: "update_project", projectId: "workspace", icon: { kind: "lucide", name: "rocket", color: "violet" }, pinned: true });
+    expect(client.state.projects[0]).toMatchObject({ icon: { kind: "lucide", name: "rocket", color: "violet" }, pinned: true, archived: false });
+    // A malformed icon falls back to the monogram.
+    send({ type: "update_project", projectId: "workspace", icon: { kind: "lucide", name: "Not An Icon", color: "violet" } as never, archived: true });
+    expect(client.state.projects[0]).toMatchObject({ icon: null, pinned: true, archived: true });
+    expect(store.projects.get("workspace")).toMatchObject({ icon: null, pinned: true, archived: true });
   });
 });
