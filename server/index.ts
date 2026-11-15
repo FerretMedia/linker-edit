@@ -4,6 +4,7 @@ import { releaseName } from "#shared/release-name.ts";
 import type { DesktopToServer } from "#shared/protocol.ts";
 import { createApp } from "./app.ts";
 import { createAppUpdates } from "./appUpdate.ts";
+import { fileCollectionStore } from "./collections/store.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
@@ -49,11 +50,14 @@ if (appUpdates) process.on("message", (message: DesktopToServer) => appUpdates.r
 const app = createApp({
   version: VERSION,
   store: fileProjectStore({ root: config.projectsDir, legacyDir: config.workspaceDir }),
-  createSession: (provider, approvalMode, dir, resumeId) => {
+  // Workspaces and series live next to the config: ~/LinkerEdit/collections.json and collections/.
+  collections: fileCollectionStore({ root: path.dirname(config.configFile) }),
+  // Codex reads the project's rules from AGENTS.md, written before each turn (prepareFolder).
+  createSession: (provider, approvalMode, dir, resumeId, rules) => {
     const projectConfig = { ...config, workspaceDir: dir };
     return provider === "codex"
       ? createCodexSession(projectConfig, approvalMode, resumeId)
-      : createClaudeSession(projectConfig, approvalMode, { runQuery: replay ? replayQuery(replay) : query, resumeId });
+      : createClaudeSession(projectConfig, approvalMode, { runQuery: replay ? replayQuery(replay) : query, resumeId, rules });
   },
   checkResolve: () => checkResolve(resolve),
   // A replayed turn never touched Resolve, so there is nothing to save.

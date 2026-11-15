@@ -8,6 +8,7 @@
     ExternalLink,
     Globe,
     Info,
+    Layers,
     LogIn,
     LogOut,
     RefreshCw,
@@ -19,6 +20,7 @@
   import { PROVIDER_LABEL } from "#lib/labels.ts";
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
+  import CollectionsSettings from "./CollectionsSettings.svelte";
   import RemoteAccessSettings from "./RemoteAccessSettings.svelte";
   import Segmented from "./Segmented.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
@@ -39,7 +41,7 @@
     onClose: () => void;
   } = $props();
 
-  const ICONS = { general: Settings2, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
+  const ICONS = { general: Settings2, workspaces: Layers, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
   const title = $derived(SETTINGS_SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings");
 
   // Linker sends the browser back to 127.0.0.1, so signing in only works on the computer Linker-Edit runs on.
@@ -241,6 +243,8 @@
               />
             </SettingsRow>
           </SettingsGroup>
+        {:else if section === "workspaces"}
+          <CollectionsSettings {app} {send} />
         {:else if section === "resolve"}
           <SettingsGroup title="Status">
             <SettingsRow label={status.title}>

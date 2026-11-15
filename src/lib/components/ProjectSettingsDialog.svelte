@@ -1,25 +1,31 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { CloudSyncMode, FolderListing, ProjectSummary } from "#shared/protocol.ts";
+  import type { CloudSyncMode, CollectionSummary, FolderListing, ProjectSummary } from "#shared/protocol.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
-  import { LIBRARY_LABEL, SYNC_MODES } from "#lib/labels.ts";
+  import { COLLECTION_LABEL, COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION, SYNC_MODES } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
   import FolderPicker from "./FolderPicker.svelte";
 
   let {
     project,
+    collections,
     relinkTo,
     browseFolders,
     onSave,
+    onMove,
     onRelink,
     onRemove,
     onClose,
   }: {
     project: ProjectSummary;
+    /** Every workspace and series, to put the project in one. */
+    collections: CollectionSummary[];
     /** The project open in Resolve when no Linker-Edit project has it, to link this one to. */
     relinkTo: string | null;
     browseFolders: (path: string) => Promise<FolderListing | { error: string }>;
     onSave: (changes: { name?: string; mediaPath?: string; syncMode?: CloudSyncMode }) => void;
+    /** Puts the project in a workspace or series, or in none. */
+    onMove: (collectionId: string | null) => void;
     onRelink: () => void;
     onRemove: () => void;
     onClose: () => void;
@@ -32,11 +38,28 @@
   let name = $state(initialName);
   let mediaPath = $state(initial.local.mediaPath ?? "");
   let syncMode = $state<CloudSyncMode>(initial.local.syncMode ?? "proxy_only");
+  const initialCollection = untrack(() => collections.find((collection) => collection.projectIds.includes(initial.id))?.id ?? "");
+  let collectionId = $state(initialCollection);
+
+  // Workspaces, each followed by its series, then series on their own.
+  const collectionOptions = $derived.by(() => {
+    const workspaces = collections.filter((collection) => collection.kind === "workspace");
+    const series = (parentId: string | null) =>
+      collections.filter((collection) => collection.kind === "series" && collection.parentId === parentId);
+    return [
+      ...workspaces.flatMap((workspace) => [
+        { id: workspace.id, label: workspace.name },
+        ...series(workspace.id).map((entry) => ({ id: entry.id, label: `${workspace.name} / ${entry.name}` })),
+      ]),
+      ...series(null).map((entry) => ({ id: entry.id, label: `${entry.name} (${COLLECTION_LABEL.series.lower})` })),
+    ];
+  });
 
   const cloud = $derived(project.link?.kind === "cloud");
 
   function save() {
     onSave({ ...(name.trim() === initialName ? {} : { name }), ...(cloud ? { mediaPath: trimSeparators(mediaPath), syncMode } : {}) });
+    if (collectionId !== initialCollection) onMove(collectionId || null);
     onClose();
   }
 
@@ -54,6 +77,19 @@
   <label class="flex flex-col gap-1 text-xs text-muted-foreground">
     Name
     <input class={field} placeholder={project.link?.name ?? project.name} bind:value={name} />
+  </label>
+
+  <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+    {COLLECTION_PICKER_LABEL}
+    <select class={field} bind:value={collectionId}>
+      <option value="">{NO_COLLECTION}</option>
+      {#each collectionOptions as option (option.id)}
+        <option value={option.id}>{option.label}</option>
+      {/each}
+    </select>
+    {#if !collections.length}
+      <span>Make {COLLECTION_LABEL.workspace.lowerMany} and {COLLECTION_LABEL.series.lowerMany} in Settings.</span>
+    {/if}
   </label>
 
   <div class="flex flex-col gap-1 text-xs">

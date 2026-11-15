@@ -395,6 +395,8 @@ export interface AppMeta {
   /** Null in tests and builds that don't say. */
   setup: ComputerSetup | null;
   linker: LinkerAccount;
+  /** Every workspace and series, workspaces first, each in the order it was made. */
+  collections: CollectionSummary[];
 }
 
 export interface AppState extends AppMeta {
@@ -450,7 +452,8 @@ export type ClientMessage =
   /** Restarts the desktop app into the downloaded release, once nothing is busy with Resolve. */
   | { type: "install_app_update" }
   /** Doesn't restart after all when Linker-Edit is done. */
-  | { type: "cancel_app_update" };
+  | { type: "cancel_app_update" }
+  | CollectionMessage;
 
 /** Between the desktop app (desktop/main.ts) and the server it starts, over the child process's IPC channel. */
 export type DesktopToServer =
@@ -473,3 +476,41 @@ export type ServerMessage =
   /** The message wasn't sent; it goes back in the composer. */
   | { type: "refused"; threadId: string; text: string }
   | { type: "toast"; text: string; tone: "info" | "error" };
+
+// --- Workspaces & series ---
+
+/** A workspace is a client, brand or channel; a series holds episodes. The UI words are in src/lib/labels.ts. */
+export type CollectionKind = "workspace" | "series";
+
+export type IconColor = "gray" | "red" | "orange" | "amber" | "green" | "teal" | "blue" | "violet" | "pink";
+
+/** Like T3 Code's project icons: a lucide icon, an emoji or a few letters, on a color. */
+export type CollectionIcon =
+  /** name is the icon's name in lucide, such as "mic" or "clapperboard". */
+  | { kind: "lucide"; name: string; color: IconColor }
+  | { kind: "emoji"; emoji: string; color: IconColor }
+  | { kind: "monogram"; text: string; color: IconColor };
+
+export interface CollectionSummary {
+  id: string;
+  kind: CollectionKind;
+  name: string;
+  /** The workspace a series is in; always null for a workspace. One level deep. */
+  parentId: string | null;
+  icon: CollectionIcon;
+  /** The style guide for the agent, in plain words; its RULES.md. */
+  rules: string;
+  /** Where the rules are kept, to edit them in another editor too. */
+  rulesFile: string;
+  /** Projects directly in it, not those in its series. */
+  projectIds: string[];
+}
+
+export type CollectionMessage =
+  /** A series may go in a workspace; a workspace goes in nothing. */
+  | { type: "create_collection"; kind: CollectionKind; name: string; parentId?: string | null; icon?: CollectionIcon }
+  | { type: "update_collection"; id: string; name?: string; icon?: CollectionIcon; rules?: string; parentId?: string | null }
+  /** Refused while projects or series are in it. */
+  | { type: "delete_collection"; id: string }
+  /** Puts a project in a workspace or series, or in none. */
+  | { type: "move_project"; projectId: string; collectionId: string | null };

@@ -462,9 +462,11 @@
   {:else if settingsProject}
     <ProjectSettingsDialog
       project={settingsProject}
+      collections={app.collections}
       relinkTo={app.resolve.state === "connected" && !app.projects.some((candidate) => candidate.open) ? app.resolve.project : null}
       browseFolders={(path) => server.browseFolders(path)}
       onSave={(changes) => server.send({ type: "update_project", projectId: settingsProject.id, ...changes })}
+      onMove={(collectionId) => server.send({ type: "move_project", projectId: settingsProject.id, collectionId })}
       onRelink={() => server.send({ type: "relink_project", projectId: settingsProject.id })}
       onRemove={() => server.send({ type: "remove_project", projectId: settingsProject.id })}
       onClose={() => (dialog = null)}

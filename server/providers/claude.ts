@@ -25,6 +25,8 @@ export interface ClaudeSessionOptions {
   /** A session id from an earlier run, to continue that conversation. */
   resumeId?: string;
   now?: () => number;
+  /** The agent's rules for the project, read when each turn starts; Linker-Edit's editing rules without it. */
+  rules?: () => string;
 }
 
 export const CONTEXT_OVERFLOW_NOTICE =
@@ -59,7 +61,7 @@ export function claudePermissionMode(mode: ApprovalMode): "bypassPermissions" | 
 export function createClaudeSession(
   config: AppConfig,
   approvalMode: () => ApprovalMode,
-  { runQuery = query, resumeId, now = Date.now }: ClaudeSessionOptions = {},
+  { runQuery = query, resumeId, now = Date.now, rules = () => EDITING_RULES }: ClaudeSessionOptions = {},
 ): ProviderSession {
   let sessionId = resumeId;
   let maxTokens: number | null = null;
@@ -155,7 +157,7 @@ export function createClaudeSession(
         cwd: config.workspaceDir,
         resume: sessionId,
         abortController,
-        systemPrompt: { type: "preset", preset: "claude_code", append: EDITING_RULES },
+        systemPrompt: { type: "preset", preset: "claude_code", append: rules() },
         mcpServers: {
           // Resolve's own server, for its scripting docs and, after the user's OK, run_script.
           ...(config.resolveMcp.command ? { [RESOLVE_MCP_NAME]: { type: "stdio" as const, command: config.resolveMcp.command, args: [] } } : {}),

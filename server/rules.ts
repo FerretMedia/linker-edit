@@ -44,14 +44,51 @@ Edit history:
 - When the user asks what changed, to undo, or to go back to an earlier version, read the history first: git log -- resolve, then git show or git diff on the commits involved.
 - Undo by building, never by deleting: restore_timeline rebuilds a timeline from a save as a new "AI - <name> (restored <commit>)" timeline, with its settings, clips, properties and markers, in one call. Read it back (get_timeline), compare it with the saved version, and tell the user what it left out. When the earlier version still exists unchanged as its own timeline, open it (set_current_timeline) instead of rebuilding.`;
 
+/** A project's own notes for the agent, in its working folder next to AGENTS.md. */
+export const PROJECT_NOTES_FILE = "RULES.md";
+
+/** One set of the user's own rules, and where it comes from. */
+export interface RuleSource {
+  /** Says where the rules come from, as in 'Workspace "Ferret Media"'. */
+  heading: string;
+  text: string;
+}
+
+/**
+ * The agent's rules: Linker-Edit's editing rules, then the user's own from the most general to the most
+ * specific (workspace, series, project), each under a heading that says where it comes from. Empty ones are left out.
+ */
+export function agentRules(sources: RuleSource[]): string {
+  const parts = sources.filter((source) => source.text.trim());
+  if (parts.length === 0) return EDITING_RULES;
+  return [
+    EDITING_RULES,
+    "# The user's rules\n\nThe user wrote these for this project, from the most general to the most specific. Where two disagree, the later one wins. They never lift rules 1 to 8 above.",
+    ...parts.map((part) => `## ${part.heading}\n\n${part.text.trim()}`),
+  ].join("\n\n");
+}
+
+/** The project's RULES.md, or "" when it has none. */
+export function readProjectNotes(dir: string): string {
+  try {
+    return fs.readFileSync(path.join(dir, PROJECT_NOTES_FILE), "utf8");
+  } catch {
+    return "";
+  }
+}
+
 const MANAGED_MARKER = "<!-- managed by Linker-Edit; edits here are overwritten -->";
 
-/** Codex reads AGENTS.md from its working folder; Claude gets the rules as a system prompt append. */
-export function prepareWorkspace(workspaceDir: string): void {
+/**
+ * Codex reads AGENTS.md from its working folder; Claude gets the rules as a system prompt append. Written again
+ * before each turn, so a change to a workspace's or series' rules reaches the next one.
+ */
+export function prepareWorkspace(workspaceDir: string, rules: string = EDITING_RULES): void {
   fs.mkdirSync(workspaceDir, { recursive: true });
   const agentsFile = path.join(workspaceDir, "AGENTS.md");
   const existing = fs.existsSync(agentsFile) ? fs.readFileSync(agentsFile, "utf8") : null;
-  if (existing === null || existing.startsWith(MANAGED_MARKER)) {
-    fs.writeFileSync(agentsFile, `${MANAGED_MARKER}\n\n${EDITING_RULES}\n`);
+  const next = `${MANAGED_MARKER}\n\n${rules}\n`;
+  if (existing === null || (existing.startsWith(MANAGED_MARKER) && existing !== next)) {
+    fs.writeFileSync(agentsFile, next);
   }
 }
