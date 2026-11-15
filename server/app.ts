@@ -15,12 +15,14 @@ import type {
   LibraryView,
   LocalLink,
   PreviewState,
+  ProjectSidebarChanges,
   ProjectSource,
   ProjectSummary,
   Provider,
   ResolveLink,
   ResolveStatus,
   ServerMessage,
+  SidebarClientMessage,
 } from "../shared/protocol.ts";
 import type { AppUpdates } from "./appUpdate.ts";
 import { createCollections } from "./collections/collections.ts";
@@ -34,7 +36,8 @@ import { libraryFile } from "./library/serve.ts";
 import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromInput } from "./library/tools.ts";
 import type { LinkerService } from "./linker.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
-import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
+import { NEW_THREAD_SIDEBAR, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
+import { parseProjectIcon } from "../shared/project-icon.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
@@ -244,6 +247,7 @@ export function createApp(options: AppOptions) {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      ...NEW_THREAD_SIDEBAR,
     });
   }
 
@@ -312,6 +316,9 @@ export function createApp(options: AppOptions) {
       link: saved.link,
       local: saved.local,
       open: !!(open && saved.link && isLinkedProject(saved.link, saved.local, open)),
+      icon: saved.icon,
+      pinned: saved.pinned,
+      archived: saved.archived,
       threads: projectThreads(saved.id).map((thread) => thread.summary()),
     }));
   }
@@ -991,6 +998,7 @@ export function createApp(options: AppOptions) {
         break;
       case "update_project":
         updateProject(message.projectId, message);
+        updateProjectSidebar(message.projectId, message);
         break;
       case "relink_project":
         relink(client, message.projectId);
@@ -1041,8 +1049,53 @@ export function createApp(options: AppOptions) {
         options.appUpdates?.cancel();
         break;
       default:
-        handleCollectionMessage(client, message);
+        if (!handleSidebarMessage(message)) handleCollectionMessage(client, message);
     }
+  }
+
+  // --- Sidebar (T3 Code) ---
+
+  const SIDEBAR_MESSAGES = new Set<string>(["pin_thread", "settle_thread", "snooze_thread", "mark_read"] satisfies SidebarClientMessage["type"][]);
+  const isSidebarMessage = (message: ClientMessage): message is SidebarClientMessage => SIDEBAR_MESSAGES.has(message.type);
+
+  /** False when the message isn't the sidebar's. */
+  function handleSidebarMessage(message: ClientMessage): boolean {
+    if (!isSidebarMessage(message)) return false;
+    const thread = threads.get(message.threadId)?.thread;
+    switch (message.type) {
+      case "pin_thread":
+        thread?.setPinned(message.pinned === true);
+        break;
+      case "settle_thread":
+        thread?.setSettled(message.settled === true);
+        break;
+      case "snooze_thread":
+        if (message.until === null) thread?.snooze(null);
+        else if (typeof message.until === "string" && Date.parse(message.until) > Date.now()) thread?.snooze(new Date(message.until).toISOString());
+        break;
+      case "mark_read":
+        thread?.markRead(message.read !== false);
+        break;
+    }
+    return true;
+  }
+
+  function updateProjectSidebar(projectId: string, changes: ProjectSidebarChanges) {
+    const project = projects.get(projectId);
+    if (!project || (changes.icon === undefined && changes.pinned === undefined && changes.archived === undefined)) return;
+    const { saved } = project;
+    const icon = changes.icon === undefined ? saved.icon : parseProjectIcon(changes.icon);
+    project.saved = {
+      ...saved,
+      icon,
+      pinned: typeof changes.pinned === "boolean" ? changes.pinned : saved.pinned,
+      archived: typeof changes.archived === "boolean" ? changes.archived : saved.archived,
+    };
+    store.saveProject(project.saved);
+    if (JSON.stringify(icon) !== JSON.stringify(saved.icon)) {
+      project.history?.commitProjectFile("Change project icon").catch((error: unknown) => console.error(error));
+    }
+    sendMeta();
   }
 
   return {

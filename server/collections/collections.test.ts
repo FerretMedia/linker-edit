@@ -30,7 +30,7 @@ function setup(projects: SavedProject[] = []) {
   return { collections, store, saved, commits, send, byName, changes: () => changes };
 }
 
-const project = (id: string, dir = `/projects/${id}`): SavedProject => ({ id, dir, name: id, link: null, local: {} });
+const project = (id: string, dir = `/projects/${id}`): SavedProject => ({ id, dir, name: id, link: null, local: {}, icon: null, pinned: false, archived: false });
 
 describe("workspaces and series", () => {
   it("nests one level deep: a series in a workspace, nothing in a series, a workspace in nothing", () => {

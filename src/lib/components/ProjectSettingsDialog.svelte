@@ -1,10 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { CloudSyncMode, CollectionSummary, FolderListing, ProjectSummary } from "#shared/protocol.ts";
+  import { Cloud, HardDrive, Server } from "@lucide/svelte";
+  import type { CloudSyncMode, CollectionSummary, FolderListing, ProjectIcon as Icon, ProjectSummary } from "#shared/protocol.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
   import { COLLECTION_LABEL, COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION, SYNC_MODES } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
   import FolderPicker from "./FolderPicker.svelte";
+  import IconPicker from "./sidebar/IconPicker.svelte";
+  import ProjectIcon from "./sidebar/ProjectIcon.svelte";
 
   let {
     project,
@@ -23,7 +26,7 @@
     /** The project open in Resolve when no Linker-Edit project has it, to link this one to. */
     relinkTo: string | null;
     browseFolders: (path: string) => Promise<FolderListing | { error: string }>;
-    onSave: (changes: { name?: string; mediaPath?: string; syncMode?: CloudSyncMode }) => void;
+    onSave: (changes: { name?: string; mediaPath?: string; syncMode?: CloudSyncMode; icon?: Icon | null }) => void;
     /** Puts the project in a workspace or series, or in none. */
     onMove: (collectionId: string | null) => void;
     onRelink: () => void;
@@ -38,6 +41,9 @@
   let name = $state(initialName);
   let mediaPath = $state(initial.local.mediaPath ?? "");
   let syncMode = $state<CloudSyncMode>(initial.local.syncMode ?? "proxy_only");
+  let icon = $state<Icon | null>(initial.icon);
+  let picking = $state(false);
+  const KIND_ICON = { local: HardDrive, network: Server, cloud: Cloud };
   const initialCollection = untrack(() => collections.find((collection) => collection.projectIds.includes(initial.id))?.id ?? "");
   let collectionId = $state(initialCollection);
 
@@ -58,7 +64,11 @@
   const cloud = $derived(project.link?.kind === "cloud");
 
   function save() {
-    onSave({ ...(name.trim() === initialName ? {} : { name }), ...(cloud ? { mediaPath: trimSeparators(mediaPath), syncMode } : {}) });
+    onSave({
+      ...(name.trim() === initialName ? {} : { name }),
+      ...(cloud ? { mediaPath: trimSeparators(mediaPath), syncMode } : {}),
+      ...(JSON.stringify(icon) === JSON.stringify(initial.icon) ? {} : { icon }),
+    });
     if (collectionId !== initialCollection) onMove(collectionId || null);
     onClose();
   }
@@ -74,10 +84,29 @@
 </script>
 
 <Dialog title="Project settings" {onClose}>
-  <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-    Name
-    <input class={field} placeholder={project.link?.name ?? project.name} bind:value={name} />
-  </label>
+  <div class="flex items-end gap-3">
+    <div class="flex flex-col gap-1 text-xs text-muted-foreground">
+      Icon
+      <button
+        type="button"
+        class="flex size-8 items-center justify-center rounded-md border transition-colors hover:bg-accent"
+        aria-label="Choose project icon"
+        title="Choose project icon"
+        onclick={() => (picking = true)}
+      >
+        <ProjectIcon {icon} name={name.trim() || project.name} class="size-5" />
+      </button>
+    </div>
+    <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+      Name
+      <input class={field} placeholder={project.link?.name ?? project.name} bind:value={name} />
+    </label>
+  </div>
+  {#if icon}
+    <button type="button" class="-mt-2 self-start text-2xs text-muted-foreground hover:text-foreground hover:underline" onclick={() => (icon = null)}>
+      Use the letters of its name
+    </button>
+  {/if}
 
   <label class="flex flex-col gap-1 text-xs text-muted-foreground">
     {COLLECTION_PICKER_LABEL}
@@ -95,7 +124,9 @@
   <div class="flex flex-col gap-1 text-xs">
     <span class="text-muted-foreground">Resolve project</span>
     {#if project.link}
-      <p class="text-sm">
+      {@const KindIcon = KIND_ICON[project.link.kind]}
+      <p class="flex items-center gap-1.5 text-sm">
+        <KindIcon class="size-3.5 shrink-0 text-muted-foreground" />
         {project.link.name}
         <span class="text-muted-foreground">· {LIBRARY_LABEL[project.link.kind]}{project.local.database ? ` "${project.local.database.name}"` : ""}</span>
       </p>
@@ -149,3 +180,7 @@
     </button>
   </div>
 </Dialog>
+
+{#if picking}
+  <IconPicker current={icon} projectName={name.trim() || project.name} onSelect={(next) => (icon = next)} onClose={() => (picking = false)} />
+{/if}

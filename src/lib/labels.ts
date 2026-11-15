@@ -79,17 +79,6 @@ export const SYNC_MODES: { value: CloudSyncMode; label: string }[] = [
   { value: "none", label: "No media" },
 ];
 
-/** "5m", "3h", "2d" ago, for thread rows; recomputed when the list changes, not on a timer. */
-export function ago(date: Date, now: Date): string {
-  const minutes = Math.round((now.getTime() - date.getTime()) / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.round(hours / 24);
-  return days < 7 ? `${days}d` : `${Math.round(days / 7)}w`;
-}
-
 /**
  * What workspaces and series are called, in the app and in the agent's rules. Renaming them is a change here.
  * In code they are collections.

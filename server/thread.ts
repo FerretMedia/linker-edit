@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ApprovalMode, ApprovalRequest, ChatItem, ContextUsage, Provider, ThreadSummary } from "../shared/protocol.ts";
+import type { ApprovalMode, ApprovalRequest, ChatItem, ContextUsage, Provider, ThreadSidebarState, ThreadSummary } from "../shared/protocol.ts";
 import { handoffSummary, withHandoff } from "./handoff.ts";
 import { resolveWriteAction, withHistoryContext, type AgentTurn, type History } from "./history/history.ts";
 import { threadTitle, type SavedThread } from "./projects/store.ts";
@@ -38,6 +38,15 @@ export const DEFAULT_TITLE = "New thread";
 
 export type Thread = ReturnType<typeof createThread>;
 
+/** Out of Settled and Snoozed. */
+function unparked(sidebar: Omit<ThreadSidebarState, "createdAt">, now: string): Partial<ThreadSidebarState> {
+  return {
+    snoozedUntil: null,
+    snoozedAt: null,
+    ...(sidebar.settledAt ? { settledAt: null, unsettledAt: now } : {}),
+  };
+}
+
 /** One conversation with an agent: its chat, its provider session and its turn. */
 export function createThread(saved: SavedThread, host: ThreadHost) {
   const id = saved.id;
@@ -48,6 +57,17 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
   const createdAt = saved.createdAt;
   let updatedAt = saved.updatedAt;
   let archivedAt = saved.archivedAt;
+  // Where the sidebar shows it: pinned, settled, snoozed, unread. See ThreadSidebarState.
+  let sidebar: Omit<ThreadSidebarState, "createdAt"> = {
+    pinnedAt: saved.pinnedAt ?? null,
+    settledAt: saved.settledAt ?? null,
+    unsettledAt: saved.unsettledAt ?? null,
+    snoozedUntil: saved.snoozedUntil ?? null,
+    snoozedAt: saved.snoozedAt ?? null,
+    lastReadAt: saved.lastReadAt ?? null,
+    lastSentAt: saved.lastSentAt ?? null,
+    turnEndedAt: saved.turnEndedAt ?? null,
+  };
   let turn: AbortController | null = null;
   // The running turn's sink, for approvals asked outside the provider session, as by the Resolve guard.
   let activeSink: TurnSink | null = null;
@@ -59,7 +79,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
   let resumed = saved.resumeId != null;
 
   function record(): SavedThread {
-    return { id, title, provider, resumeId: session.resumeId(), items, context, createdAt, updatedAt, archivedAt };
+    return { id, title, provider, resumeId: session.resumeId(), items, context, createdAt, updatedAt, archivedAt, ...sidebar };
   }
 
   // An empty thread is kept in memory only, so unused new threads don't pile up across restarts.
@@ -116,6 +136,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     const live = () => !disposed;
     const earlier = [...items];
     updatedAt = new Date().toISOString();
+    // Writing in a settled or snoozed thread brings it back, as in T3 Code.
+    if (text !== null) sidebar = { ...sidebar, ...unparked(sidebar, updatedAt), lastSentAt: updatedAt };
     if (text !== null) upsert({ id: randomUUID(), kind: "user", text });
     if (checked.notice) upsert({ id: randomUUID(), kind: "notice", text: checked.notice, tone: "info" });
     host.changed();
@@ -231,6 +253,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       }
       turn = null;
       updatedAt = new Date().toISOString();
+      sidebar = { ...sidebar, turnEndedAt: updatedAt };
       host.release();
       host.changed();
       save();
@@ -298,6 +321,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       id,
       title,
       updatedAt,
+      createdAt,
+      ...sidebar,
       archived: archivedAt !== null,
       busy: turn !== null,
       waiting: approvals.size > 0,
@@ -332,6 +357,47 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     setArchived(archived: boolean) {
       if (archived) stop();
       archivedAt = archived ? new Date().toISOString() : null;
+      host.changed();
+      save();
+    },
+    /** Pinned threads sit above the projects. */
+    setPinned(pinned: boolean) {
+      const now = new Date().toISOString();
+      sidebar = pinned
+        ? { ...sidebar, ...unparked(sidebar, now), pinnedAt: sidebar.pinnedAt ?? now }
+        : { ...sidebar, pinnedAt: null };
+      host.changed();
+      save();
+    },
+    /** Settling unpins and wakes it too; unsettling puts it back in its project. */
+    setSettled(settled: boolean) {
+      const now = new Date().toISOString();
+      sidebar = settled
+        ? { ...sidebar, pinnedAt: null, snoozedUntil: null, snoozedAt: null, settledAt: sidebar.settledAt ?? now, unsettledAt: null }
+        : { ...sidebar, ...unparked(sidebar, now) };
+      host.changed();
+      save();
+    },
+    /** Hides it until then; null wakes it now. A snoozed thread isn't settled. */
+    snooze(until: string | null) {
+      const now = new Date().toISOString();
+      sidebar =
+        until === null
+          ? { ...sidebar, snoozedUntil: null, snoozedAt: null }
+          : { ...sidebar, ...unparked(sidebar, now), snoozedUntil: until, snoozedAt: now };
+      host.changed();
+      save();
+    },
+    /** Read: seen now. Unread: its last turn shows as new again. */
+    markRead(read: boolean) {
+      const ended = sidebar.turnEndedAt ? Date.parse(sidebar.turnEndedAt) : NaN;
+      const lastReadAt = read
+        ? new Date().toISOString()
+        : Number.isNaN(ended)
+          ? sidebar.lastReadAt
+          : new Date(ended - 1).toISOString();
+      if (lastReadAt === sidebar.lastReadAt) return;
+      sidebar = { ...sidebar, lastReadAt };
       host.changed();
       save();
     },

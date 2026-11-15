@@ -32,8 +32,7 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
 
   await page.getByRole("button", { name: "Back" }).click();
   const sidebar = page.getByRole("navigation");
-  await sidebar.getByRole("button", { name: "workspace", exact: true }).hover();
-  await sidebar.getByRole("button", { name: "Project actions" }).first().click();
+  await sidebar.getByRole("button", { name: "workspace", exact: true }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Project settings" }).click();
   await page.getByRole("combobox", { name: "Workspace / series" }).selectOption({ label: "Ferret Media / Podcast" });
   await page.getByRole("button", { name: "Save" }).click();

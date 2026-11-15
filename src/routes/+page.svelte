@@ -275,6 +275,7 @@
       linker={app.linker}
       projects={app.projects}
       threadId={app.threadId}
+      send={(message) => server.send(message)}
       onSelect={selectThread}
       onNewThread={(projectId) => {
         server.send({ type: "new_thread", projectId });

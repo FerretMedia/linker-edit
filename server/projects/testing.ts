@@ -17,7 +17,7 @@ export function memoryProjectStore(initial: { project: SavedProject; threads?: S
       })),
     create(fields) {
       next += 1;
-      const project: SavedProject = { ...structuredClone(fields), id: `project-${next}`, dir: `/projects/${next}` };
+      const project: SavedProject = { icon: null, pinned: false, archived: false, ...structuredClone(fields), id: `project-${next}`, dir: `/projects/${next}` };
       projects.set(project.id, structuredClone(project));
       threads.set(project.id, new Map());
       return project;
@@ -41,4 +41,13 @@ export function memoryProjectStore(initial: { project: SavedProject; threads?: S
   return store;
 }
 
-export const workspaceProject: SavedProject = { id: "workspace", dir: "/work", name: null, link: null, local: {} };
+export const workspaceProject: SavedProject = {
+  id: "workspace",
+  dir: "/work",
+  name: null,
+  link: null,
+  local: {},
+  icon: null,
+  pinned: false,
+  archived: false,
+};

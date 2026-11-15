@@ -17,7 +17,7 @@
 </script>
 
 {#if linker.state === "signed_in"}
-  <div class="group mx-2 flex items-center gap-2.5 rounded-lg py-1.5 pr-1 pl-2.5 hover:bg-accent">
+  <div class="group mx-2 flex items-center gap-2.5 rounded-md py-1.5 pr-1 pl-2.5 hover:bg-sidebar-row-hover">
     {#if linker.picture}
       <img src={linker.picture} alt="" referrerpolicy="no-referrer" class="size-5 shrink-0 rounded-full object-cover" />
     {:else}
@@ -52,7 +52,7 @@
 {:else}
   {#if onThisComputer}
     <a
-      class="mx-2 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      class="mx-2 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
       href={SIGN_IN}
       target="_blank"
       rel="noreferrer"

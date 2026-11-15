@@ -74,7 +74,7 @@ export interface LocalLink {
   syncMode?: CloudSyncMode;
 }
 
-export interface ThreadSummary {
+export interface ThreadSummary extends ThreadSidebarState {
   id: string;
   title: string;
   /** ISO 8601. */
@@ -85,7 +85,7 @@ export interface ThreadSummary {
   waiting: boolean;
 }
 
-export interface ProjectSummary {
+export interface ProjectSummary extends ProjectSidebarState {
   id: string;
   name: string;
   /** The project's working folder: its edit history, notes and exports. */
@@ -430,7 +430,7 @@ export type ClientMessage =
   | { type: "archive_thread"; threadId: string; archived: boolean }
   | { type: "delete_thread"; threadId: string }
   | { type: "add_project"; source: ProjectSource }
-  | { type: "update_project"; projectId: string; name?: string; mediaPath?: string; syncMode?: CloudSyncMode }
+  | ({ type: "update_project"; projectId: string; name?: string; mediaPath?: string; syncMode?: CloudSyncMode } & ProjectSidebarChanges)
   /** Links the project to the one open in Resolve now. */
   | { type: "relink_project"; projectId: string }
   /** Takes the project out of Linker-Edit. Its folder and its Resolve project stay. */
@@ -454,7 +454,8 @@ export type ClientMessage =
   | { type: "install_app_update" }
   /** Doesn't restart after all when Linker-Edit is done. */
   | { type: "cancel_app_update" }
-  | CollectionMessage;
+  | CollectionMessage
+  | SidebarClientMessage;
 
 /** Between the desktop app (desktop/main.ts) and the server it starts, over the child process's IPC channel. */
 export type DesktopToServer =
@@ -614,3 +615,79 @@ export type CollectionMessage =
   | { type: "delete_collection"; id: string }
   /** Puts a project in a workspace or series, or in none. */
   | { type: "move_project"; projectId: string; collectionId: string | null };
+
+// --- Sidebar (T3 Code) ---
+// Pinning, settling, snoozing and unread threads, and project icons, as T3 Code's sidebar has them (MIT, see NOTICE).
+
+/** T3 Code's project icon colors. */
+export const PROJECT_ICON_COLORS = [
+  "gray",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "lime",
+  "green",
+  "emerald",
+  "teal",
+  "cyan",
+  "sky",
+  "blue",
+  "indigo",
+  "violet",
+  "purple",
+  "fuchsia",
+  "pink",
+  "rose",
+] as const;
+
+export type ProjectIconColor = (typeof PROJECT_ICON_COLORS)[number];
+
+/** A project's icon in the sidebar: a Lucide icon, an emoji, or one or two letters, as in T3 Code. */
+export type ProjectIcon =
+  | { kind: "lucide"; name: string; color: ProjectIconColor }
+  | { kind: "emoji"; emoji: string }
+  | { kind: "monogram"; text: string; color: ProjectIconColor };
+
+/** Where a thread sits in the sidebar. All ISO 8601, null when it never happened; missing from older files. */
+export interface ThreadSidebarState {
+  createdAt: string;
+  pinnedAt: string | null;
+  /** Settled threads leave the project's list for the Settled shelf, and stay searchable. */
+  settledAt: string | null;
+  /** When it was last taken out of Settled. */
+  unsettledAt: string | null;
+  /** Hidden in the Snoozed shelf until then. */
+  snoozedUntil: string | null;
+  snoozedAt: string | null;
+  /** When someone last looked at it; a turn that ended after that is unread. */
+  lastReadAt: string | null;
+  /** When the user last sent a message in it: threads sort by this. */
+  lastSentAt: string | null;
+  /** When its last turn ended. */
+  turnEndedAt: string | null;
+}
+
+export interface ProjectSidebarState {
+  /** Null shows a monogram made from the name. */
+  icon: ProjectIcon | null;
+  /** Pinned projects come first and stay listed with no active threads. */
+  pinned: boolean;
+  /** Archived projects go to the end, and only while they have active threads. */
+  archived: boolean;
+}
+
+export interface ProjectSidebarChanges {
+  icon?: ProjectIcon | null;
+  pinned?: boolean;
+  archived?: boolean;
+}
+
+export type SidebarClientMessage =
+  | { type: "pin_thread"; threadId: string; pinned: boolean }
+  /** Settling also unpins and wakes it, like T3 Code. */
+  | { type: "settle_thread"; threadId: string; settled: boolean }
+  /** A null until wakes it now. */
+  | { type: "snooze_thread"; threadId: string; until: string | null }
+  /** read: false marks the last turn unread again. */
+  | { type: "mark_read"; threadId: string; read: boolean };

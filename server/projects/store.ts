@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ChatItem, ContextUsage, LocalLink, Provider, ResolveLink } from "../../shared/protocol.ts";
+import { parseProjectIcon } from "../../shared/project-icon.ts";
+import type { ChatItem, ContextUsage, LocalLink, ProjectIcon, Provider, ResolveLink, ThreadSidebarState } from "../../shared/protocol.ts";
 
-/** A thread as kept on disk, so a restart continues it. */
-export interface SavedThread {
+/** A thread as kept on disk, so a restart continues it. The sidebar fields are null in files from before them. */
+export interface SavedThread extends Omit<ThreadSidebarState, "createdAt"> {
   id: string;
   title: string;
   provider: Provider;
@@ -26,8 +27,35 @@ export interface SavedProject {
   name: string | null;
   link: ResolveLink | null;
   local: LocalLink;
+  /** In linker-edit.json, so a teammate sees the same icon. */
+  icon: ProjectIcon | null;
+  /** This machine's own sidebar choices, in projects.json. */
+  pinned: boolean;
+  archived: boolean;
   /** The workspace or series it is in. Missing in files from before workspaces. */
   collection?: ProjectCollection | null;
+}
+
+/** The sidebar fields of a thread that has none yet. */
+export const NEW_THREAD_SIDEBAR: Omit<ThreadSidebarState, "createdAt"> = {
+  pinnedAt: null,
+  settledAt: null,
+  unsettledAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
+  lastReadAt: null,
+  lastSentAt: null,
+  turnEndedAt: null,
+};
+
+/** A saved thread with every sidebar field set, whatever version of Linker-Edit wrote it. */
+function withSidebarFields(thread: SavedThread): SavedThread {
+  const loaded = { ...thread };
+  for (const key of Object.keys(NEW_THREAD_SIDEBAR) as (keyof typeof NEW_THREAD_SIDEBAR)[]) {
+    const value = loaded[key];
+    loaded[key] = typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
+  }
+  return loaded;
 }
 
 /** In linker-edit.json, so a teammate who gets the project sees which workspace or series it belongs to. */
@@ -41,7 +69,7 @@ export interface ProjectStore {
   /** Every project with its threads, in the order they were added. */
   load(): { project: SavedProject; threads: SavedThread[] }[];
   /** A new folder under the store's root for a new project. */
-  create(project: Omit<SavedProject, "id" | "dir">): SavedProject;
+  create(project: Omit<SavedProject, "id" | "dir" | "icon" | "pinned" | "archived">): SavedProject;
   /** Registers a folder that already has a linker-edit.json, with the threads it has. */
   adopt(dir: string): { project: SavedProject; threads: SavedThread[] };
   saveProject(project: SavedProject): void;
@@ -62,12 +90,22 @@ interface ProjectFile {
   version: number;
   name: string | null;
   resolve: ResolveLink | null;
+  /** Missing in files from before project icons. */
+  icon?: ProjectIcon | null;
   collection?: ProjectCollection;
+}
+
+interface RegistryEntry {
+  id: string;
+  dir: string;
+  /** Missing in files from before the T3 Code sidebar. */
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 interface Registry {
   version: number;
-  projects: { id: string; dir: string }[];
+  projects: RegistryEntry[];
 }
 
 /** The one chat Linker-Edit kept before it had threads, in <workspace>/.linker-edit/chat.json. */
@@ -180,7 +218,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
     fs.writeFileSync(path.join(stateDir(dir), ".gitignore"), "*\n");
   }
 
-  function readProject(id: string, dir: string): SavedProject {
+  function readProject({ id, dir, pinned, archived }: RegistryEntry): SavedProject {
     let file: ProjectFile | null = null;
     let local: LocalLink = {};
     try {
@@ -198,6 +236,9 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       name: file?.name ?? null,
       link: file?.resolve ?? null,
       local,
+      icon: parseProjectIcon(file?.icon),
+      pinned: pinned === true,
+      archived: archived === true,
       ...(collection && typeof collection.id === "string" ? { collection: { id: collection.id, name: String(collection.name ?? "") } } : {}),
     };
   }
@@ -213,6 +254,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       }
       const now = new Date().toISOString();
       const thread: SavedThread = {
+        ...NEW_THREAD_SIDEBAR,
         ...saved.chat,
         id: randomUUID(),
         title: threadTitle(saved.chat.items),
@@ -241,7 +283,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
     for (const name of names) {
       try {
         const saved = readJson<{ version?: unknown; thread?: SavedThread }>(path.join(threadsDir(dir), name));
-        if (saved?.version === VERSION && saved.thread) threads.push(saved.thread);
+        if (saved?.version === VERSION && saved.thread) threads.push(withSidebarFields(saved.thread));
       } catch (error) {
         onError(error);
       }
@@ -257,10 +299,15 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
         version: VERSION,
         name: project.name,
         resolve: project.link,
+        ...(project.icon ? { icon: project.icon } : {}),
         ...(project.collection ? { collection: { id: project.collection.id, name: project.collection.name } } : {}),
       };
       writeJson(path.join(project.dir, PROJECT_FILE), file);
       writeJson(path.join(stateDir(project.dir), "local.json"), project.local);
+      const entry = registry.projects.find((candidate) => candidate.id === project.id);
+      if (entry && (entry.pinned === true) !== project.pinned) entry.pinned = project.pinned;
+      if (entry && (entry.archived === true) !== project.archived) entry.archived = project.archived;
+      saveRegistry();
     } catch (error) {
       onError(error);
     }
@@ -276,20 +323,19 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
 
   return {
     load() {
-      return registry.projects.map(({ id, dir }) => {
+      return registry.projects.map((entry) => {
         try {
-          prepare(dir);
+          prepare(entry.dir);
         } catch (error) {
           onError(error);
         }
-        return { project: readProject(id, dir), threads: readThreads(dir) };
+        return { project: readProject(entry), threads: readThreads(entry.dir) };
       });
     },
     create(fields) {
-      const project: SavedProject = { ...fields, id: randomUUID(), dir: uniqueDir(fields.name ?? fields.link?.name ?? "Project") };
-      saveProject(project);
+      const project: SavedProject = { icon: null, pinned: false, archived: false, ...fields, id: randomUUID(), dir: uniqueDir(fields.name ?? fields.link?.name ?? "Project") };
       registry = { ...registry, projects: [...registry.projects, { id: project.id, dir: project.dir }] };
-      saveRegistry();
+      saveProject(project);
       return project;
     },
     adopt(dir) {
@@ -304,7 +350,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       prepare(resolved);
       registry = { ...registry, projects: [...registry.projects, { id, dir: resolved }] };
       saveRegistry();
-      return { project: readProject(id, resolved), threads: readThreads(resolved) };
+      return { project: readProject({ id, dir: resolved }), threads: readThreads(resolved) };
     },
     saveProject,
     removeProject(id) {

@@ -3,7 +3,15 @@ Copyright (c) 2026 Linker-Edit contributors
 
 The interface is modelled on T3 Code (https://github.com/pingdotgg/t3code). Its theme
 tokens, provider icons and the folder picker's path handling (src/lib/browsePath.ts) are
-adapted from T3 Code under the MIT License:
+adapted from T3 Code under the MIT License. The sidebar (src/lib/components/Sidebar.svelte,
+src/lib/components/sidebar/, src/lib/sidebar.ts, src/lib/projectIconColors.ts and
+shared/project-icon.ts) is ported from T3 Code's apps/web/src/components/Sidebar.tsx,
+Sidebar.logic.ts, sidebar/SidebarThreadRow.tsx, sidebar/SidebarThreadHeader.tsx,
+sidebar/SidebarProjectFolderHeader.tsx, sidebar/SidebarListMarkers.tsx,
+ui/collapsible-section-header.tsx, ProjectFavicon.tsx, ProjectMonogram.tsx,
+settings/ProjectIconPickerDialog.tsx, projectIconColors.ts, projectIdentity.ts and
+projectIconOptions.ts, and packages/client-runtime/src/state/threadSort.ts,
+threadSettled.ts and threadInbox.ts:
 
   MIT License
 
