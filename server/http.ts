@@ -126,6 +126,11 @@ async function resolveTool(app: App, { tool, input }: Record<string, unknown>) {
   return app.resolveTool(tool, input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {});
 }
 
+async function libraryTool(app: App, { tool, input }: Record<string, unknown>) {
+  if (typeof tool !== "string") throw new Error("tool must be a tool name.");
+  return app.libraryTool(tool, input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {});
+}
+
 export interface RemoteRoutes {
   /** Lets the user's own devices in through Tailscale Serve while remote access is on. */
   gate: () => RemoteGate | null;
@@ -221,6 +226,25 @@ export function createServer(
     }
     if (urlPath === "/api/resolve-tool") {
       handleAgentCall(apiToken, req, res, (body) => resolveTool(app, body));
+      return;
+    }
+    if (urlPath === "/api/library-tool") {
+      handleAgentCall(apiToken, req, res, (body) => libraryTool(app, body));
+      return;
+    }
+    // Plays library files on the library page. Every request already passed the gate above: this computer, or
+    // the owner's own devices over Tailscale. Only files inside library folders go out; see library/serve.ts.
+    if (urlPath.startsWith("/library/")) {
+      const [folderId = "", ...rest] = urlPath.slice("/library/".length).split("/");
+      const file = req.method === "GET" || req.method === "HEAD" ? app.libraryFile(folderId, rest.join("/")) : null;
+      if (!file) {
+        res.writeHead(404, { "cache-control": "no-store" }).end();
+        return;
+      }
+      // A file is only ever shown as media, never run as a page.
+      res.setHeader("x-content-type-options", "nosniff");
+      res.setHeader("content-security-policy", "default-src 'none'; sandbox");
+      sendFile(req, res, file.path, file.type);
       return;
     }
     if (urlPath === "/api/timeline") {

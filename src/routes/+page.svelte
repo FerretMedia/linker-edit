@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { CircleAlert, FolderPlus, History, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
+  import { CircleAlert, FolderPlus, History, Library, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
   import type { ChatItem, HistoryEntry, Provider } from "#shared/protocol.ts";
   import AddProjectDialog from "#lib/components/AddProjectDialog.svelte";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
   import Composer from "#lib/components/Composer.svelte";
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
+  import LibraryPage from "#lib/components/LibraryPage.svelte";
   import PreviewPanel from "#lib/components/PreviewPanel.svelte";
   import ProjectSettingsDialog from "#lib/components/ProjectSettingsDialog.svelte";
   import SettingsPage from "#lib/components/SettingsPage.svelte";
@@ -15,6 +16,7 @@
   import { renderMarkdown } from "#lib/markdown.ts";
   import type { PreviewTarget } from "#lib/player.ts";
   import { server } from "#lib/connection.svelte.ts";
+  import { libraryHash, libraryTabFromHash, type LibraryTab } from "#lib/library.ts";
   import { sectionFromHash, settingsHash, type SettingsSection } from "#lib/settings.ts";
 
   const SUGGESTIONS = [
@@ -57,27 +59,36 @@
 
   // The settings page replaces the app while open; its address is "#settings/<section>", so Back closes it.
   let settings = $state<SettingsSection | null>(sectionFromHash(location.hash));
+  // The library page works the same way, at "#library" or "#library/project".
+  let library = $state<LibraryTab | null>(libraryTabFromHash(location.hash));
   const openSettings = (section: SettingsSection = "general") => (location.hash = settingsHash(section));
+  const openLibrary = (tab: LibraryTab = "universal") => (location.hash = libraryHash(tab));
   function closeSettings() {
     if (history.state?.fromApp) history.back();
     else history.replaceState(null, "", location.pathname + location.search);
     settings = null;
+    library = null;
   }
   function showSection(section: SettingsSection) {
     history.replaceState(history.state, "", settingsHash(section));
     settings = section;
   }
+  function showLibraryTab(tab: LibraryTab) {
+    history.replaceState(history.state, "", libraryHash(tab));
+    library = tab;
+  }
   function onHashChange() {
     settings = sectionFromHash(location.hash);
+    library = libraryTabFromHash(location.hash);
     // Remembers that the app came before, so closing goes back rather than adding another entry.
-    if (settings && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
+    if ((settings || library) && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
   }
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "," && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       if (settings) closeSettings();
       else openSettings();
-    } else if (event.key === "Escape" && settings && !document.querySelector("dialog[open]")) {
+    } else if (event.key === "Escape" && (settings || library) && !document.querySelector("dialog[open]")) {
       closeSettings();
     }
   }
@@ -235,7 +246,19 @@
     {app}
     section={settings}
     onSection={showSection}
+    onLibrary={() => openLibrary()}
     send={(message) => server.send(message)}
+    onClose={closeSettings}
+  />
+{:else if library}
+  <LibraryPage
+    {app}
+    tab={library}
+    view={server.libraryView}
+    connected={server.connected}
+    onTab={showLibraryTab}
+    send={(message) => server.send(message)}
+    browseFolders={(path) => server.browseFolders(path)}
     onClose={closeSettings}
   />
 {:else}
@@ -286,6 +309,15 @@
           </span>
         {/if}
         <div class="ml-auto flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            class="flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="Music, sound effects and graphics you reuse"
+            onclick={() => openLibrary(project ? "project" : "universal")}
+          >
+            <Library class="size-3.5" />
+            Library
+          </button>
           {#each [{ name: "preview", label: "Preview", Icon: MonitorPlay }, { name: "history", label: "History", Icon: History }] as const as toggle (toggle.name)}
             <button
               type="button"

@@ -9,6 +9,7 @@
     Globe,
     Info,
     Layers,
+    Library,
     LogIn,
     LogOut,
     RefreshCw,
@@ -31,12 +32,15 @@
     app,
     section,
     onSection,
+    onLibrary,
     send,
     onClose,
   }: {
     app: AppMeta;
     section: SettingsSection;
     onSection: (section: SettingsSection) => void;
+    /** Opens the library page, which has its own address. */
+    onLibrary?: () => void;
     send: (message: ClientMessage) => void;
     onClose: () => void;
   } = $props();
@@ -185,6 +189,18 @@
           </button>
         </li>
       {/each}
+      {#if onLibrary}
+        <li class="shrink-0 md:mt-2 md:border-t md:pt-2">
+          <button
+            type="button"
+            class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            onclick={onLibrary}
+          >
+            <Library class="size-4 shrink-0" />
+            Library
+          </button>
+        </li>
+      {/if}
     </ul>
     <p class="mt-auto hidden px-4 py-3 text-2xs text-muted-foreground md:block">
       Settings of Linker-Edit on <span class="text-foreground">{app.computer}</span>

@@ -1,9 +1,10 @@
-// The "linker" MCP server agents get: Linker-Edit's own Resolve tools and transcription. It runs as the
+// The "linker" MCP server agents get: Linker-Edit's own Resolve tools, transcription and the library. It runs as the
 // agent's child process and hands each call to the Linker-Edit server, which owns the one connection to
 // Resolve, asks the user before changes, and owns the GPU queue and the transcript cache.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
+import { isLibraryTool, LIBRARY_TOOLS } from "../library/tools.ts";
 import { CORE_TOOLS, RESOLVE_TOOLS } from "../resolve/tools.ts";
 import { postApi } from "./api.ts";
 
@@ -35,6 +36,7 @@ const TOOLS = [
     ...(CORE_TOOLS.has(name) ? {} : { _meta: { "anthropic/alwaysLoad": false } }),
   })),
   TRANSCRIBE,
+  ...LIBRARY_TOOLS,
 ];
 
 const MIME: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
@@ -72,6 +74,7 @@ async function callTool(name: unknown, args: Record<string, unknown>): Promise<R
     return post("/api/transcribe", { files, language: typeof args.language === "string" ? args.language : undefined });
   }
   if (RESOLVE_TOOLS.some((tool) => tool.name === name)) return post("/api/resolve-tool", { tool: name, input: args });
+  if (typeof name === "string" && isLibraryTool(name)) return post("/api/library-tool", { tool: name, input: args });
   return { text: `Unknown tool ${String(name)}.`, isError: true };
 }
 

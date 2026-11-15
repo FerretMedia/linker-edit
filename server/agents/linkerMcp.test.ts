@@ -48,11 +48,13 @@ async function linker(reply: (route: string, body: { tool?: string; input?: unkn
 }
 
 describe("linker MCP server", () => {
-  it("lists every Resolve tool with its read-only hint, and transcribe", async () => {
+  it("lists every Resolve tool with its read-only hint, transcribe and the library's tools", async () => {
     const { request, close } = await linker(() => ({}));
     try {
       const { tools } = (await request("tools/list")) as { tools: { name: string; annotations: { readOnlyHint: boolean }; _meta?: Record<string, unknown> }[] };
-      expect(tools.map((tool) => tool.name)).toEqual([...RESOLVE_TOOLS.map((tool) => tool.name), "transcribe"]);
+      expect(tools.map((tool) => tool.name)).toEqual([...RESOLVE_TOOLS.map((tool) => tool.name), "transcribe", "library_search", "library_import"]);
+      expect(tools.find((tool) => tool.name === "library_search")!.annotations.readOnlyHint).toBe(true);
+      expect(tools.find((tool) => tool.name === "library_import")!.annotations.readOnlyHint).toBe(false);
       expect(tools.find((tool) => tool.name === "view_frames")!.annotations.readOnlyHint).toBe(true);
       expect(tools.find((tool) => tool.name === "render_timeline")!.annotations.readOnlyHint).toBe(false);
       // Rarely used tools wait behind Claude's tool search.
@@ -80,9 +82,11 @@ describe("linker MCP server", () => {
         isError: false,
       });
       expect(await request("tools/call", { name: "create_timeline", arguments: { name: "Cut" } })).toEqual({ content: [{ type: "text", text: "No." }], isError: true });
+      await request("tools/call", { name: "library_search", arguments: { kind: "music", query: "upbeat" } });
       expect(seen).toEqual([
         { route: "/api/resolve-tool", auth: "Bearer t0ken", body: { tool: "view_frames", input: { frames: [1] } } },
         { route: "/api/resolve-tool", auth: "Bearer t0ken", body: { tool: "create_timeline", input: { name: "Cut" } } },
+        { route: "/api/library-tool", auth: "Bearer t0ken", body: { tool: "library_search", input: { kind: "music", query: "upbeat" } } },
       ]);
     } finally {
       close();

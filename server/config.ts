@@ -58,6 +58,10 @@ export interface AppConfig {
   configFile: string;
   /** The user's choices kept across restarts, such as supervised mode. */
   settingsFile: string;
+  /** The universal library's folders, and the tags, stars and notes on library files. */
+  libraryFile: string;
+  /** What's in each library folder, so a rescan only measures changed files. */
+  libraryCacheDir: string;
   /** Signing in with a Linker account; file is where the sign-in is kept. */
   linker: { authServer: string; appUrl: string; clientId?: string; file: string };
   /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
@@ -104,6 +108,8 @@ export function loadConfig(
     tailscalePort,
     configFile: file,
     settingsFile: path.join(path.dirname(file), "settings.json"),
+    libraryFile: path.join(path.dirname(file), "library.json"),
+    libraryCacheDir: path.join(path.dirname(file), "cache", "library"),
     linker: {
       authServer: user.linkerAuthServer ?? "https://clerk.linker.cool",
       appUrl: user.linkerAppUrl ?? "https://app.linker.cool",

@@ -404,6 +404,7 @@ export interface AppState extends AppMeta {
 }
 
 export type ClientMessage =
+  | LibraryClientMessage
   /** compactFirst summarizes the chat before sending: for coming back after the prompt cache expired. */
   | { type: "send"; text: string; compactFirst?: boolean }
   /** Summarizes the chat so far to free context. Claude only. */
@@ -467,6 +468,7 @@ export type ServerToDesktop =
   | { type: "install_update" };
 
 export type ServerMessage =
+  | LibraryServerMessage
   | { type: "snapshot"; state: AppState }
   | { type: "meta"; meta: AppMeta }
   | { type: "item"; threadId: string; item: ChatItem }
@@ -476,6 +478,104 @@ export type ServerMessage =
   /** The message wasn't sent; it goes back in the composer. */
   | { type: "refused"; threadId: string; text: string }
   | { type: "toast"; text: string; tone: "info" | "error" };
+
+// --- Library ---
+// Folders of files the user uses again and again (music, sound effects, logos, LUTs…). Linker-Edit only points
+// at them: it never copies, moves or deletes a file in them.
+
+export const LIBRARY_KINDS = ["music", "sfx", "graphics", "luts", "footage", "other"] as const;
+export type LibraryKind = (typeof LIBRARY_KINDS)[number];
+
+export interface LibraryFolder {
+  id: string;
+  kind: LibraryKind;
+  /** "Epidemic downloads", "Brand logos". */
+  label: string;
+  /** This machine's path to it; kept in this machine's files, never committed. */
+  path: string;
+  /** "licensed for YouTube only", "use for intros". Agents read it. */
+  note: string;
+}
+
+/** Which library. Most specific last in a chain: universal, then (later) workspace and series, then the project. */
+export type LibraryScope = { kind: "universal" } | { kind: "project"; projectId: string };
+
+/** A project and timeline a library file was brought into by an agent. */
+export interface LibraryUse {
+  projectId: string;
+  project: string;
+  timeline: string | null;
+  /** ISO 8601. */
+  at: string;
+}
+
+export interface LibraryFile {
+  folderId: string;
+  scope: LibraryScope["kind"];
+  kind: LibraryKind;
+  /** The path inside its folder, with / between folders. Plays from /library/<folderId>/<rel>. */
+  rel: string;
+  name: string;
+  /** Absolute, on the computer Linker-Edit runs on. */
+  path: string;
+  size: number;
+  /** ISO 8601. */
+  modified: string;
+  /** Seconds; null for stills and files ffmpeg can't read. */
+  duration: number | null;
+  channels: number | null;
+  /** Integrated loudness in LUFS; null when not measured (stills, footage, no audio). */
+  loudness: number | null;
+  tags: string[];
+  star: boolean;
+  note: string;
+  usedIn: LibraryUse[];
+}
+
+export interface LibraryFolderStatus extends LibraryFolder {
+  /** Files found by the last scan. */
+  files: number;
+  /** While a scan runs. */
+  scanning: { done: number; total: number } | null;
+  /** ISO 8601; null before the first scan. */
+  scannedAt: string | null;
+  /** Why the last scan failed, such as a folder that's gone. */
+  problem: string | null;
+}
+
+export interface LibraryQuery {
+  kind?: LibraryKind;
+  /** Words to find in the file's name, tags and note. */
+  query?: string;
+  tags?: string[];
+  minSeconds?: number;
+  maxSeconds?: number;
+  starred?: boolean;
+}
+
+/** One library as the library page shows it. */
+export interface LibraryView {
+  scope: LibraryScope;
+  /** The libraries this page can switch between, least specific first. */
+  scopes: { scope: LibraryScope; label: string }[];
+  folders: LibraryFolderStatus[];
+  /** The first matches; total says how many there are. */
+  files: LibraryFile[];
+  total: number;
+}
+
+export type LibraryClientMessage =
+  /** Shows a library, and keeps sending it while it changes, until library_close. */
+  | { type: "library_open"; scope: LibraryScope; query: LibraryQuery }
+  | { type: "library_close" }
+  | { type: "library_add_folder"; scope: LibraryScope; folder: Omit<LibraryFolder, "id"> }
+  | { type: "library_update_folder"; scope: LibraryScope; folderId: string; changes: Partial<Omit<LibraryFolder, "id">> }
+  /** Forgets the folder. The folder and its files stay where they are. */
+  | { type: "library_remove_folder"; scope: LibraryScope; folderId: string }
+  | { type: "library_rescan"; folderId: string }
+  | { type: "library_update_file"; folderId: string; rel: string; star?: boolean; tags?: string[]; note?: string };
+
+export type LibraryServerMessage = { type: "library_view"; view: LibraryView };
 
 // --- Workspaces & series ---
 

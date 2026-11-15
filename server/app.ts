@@ -8,6 +8,11 @@ import type {
   ChatItem,
   ClientMessage,
   CloudSyncMode,
+  LibraryClientMessage,
+  LibraryFolder,
+  LibraryQuery,
+  LibraryScope,
+  LibraryView,
   LocalLink,
   PreviewState,
   ProjectSource,
@@ -23,6 +28,10 @@ import type { CollectionStore } from "./collections/store.ts";
 import { memoryCollectionStore } from "./collections/testing.ts";
 import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
+import { checkFolder, cleanFolder, cleanTags, keepLibrary, newFolder, projectFolders, withProjectFolders } from "./library/folders.ts";
+import type { LibraryLink, LibraryService } from "./library/library.ts";
+import { libraryFile } from "./library/serve.ts";
+import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromInput } from "./library/tools.ts";
 import type { LinkerService } from "./linker.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import type { ProjectStore, SavedProject, SavedThread } from "./projects/store.ts";
@@ -85,6 +94,8 @@ export interface AppOptions {
   setup?: ComputerSetup;
   /** The updates of the desktop app this server runs in; none with `npx linker-edit`. */
   appUpdates?: Pick<AppUpdates, "status" | "onStatus" | "check" | "install" | "cancel">;
+  /** Folders of files the user reuses, for the library page and the agents' library tools. */
+  library?: LibraryService;
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
@@ -101,6 +112,10 @@ interface ProjectState {
 }
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** How many matching files the library page gets at once. */
+const LIBRARY_PAGE = 300;
+const isLibraryMessage = (message: ClientMessage): message is LibraryClientMessage => message.type.startsWith("library_");
 
 /** All app state lives here; clients get a snapshot of the thread they look at, and patches after. */
 export function createApp(options: AppOptions) {
@@ -280,7 +295,7 @@ export function createApp(options: AppOptions) {
 
   function setLink(project: ProjectState, next: { link: ResolveLink | null; local: LocalLink }, commitMessage: string | null) {
     const linkChanged = JSON.stringify(next.link) !== JSON.stringify(project.saved.link);
-    project.saved = { ...project.saved, link: next.link, local: next.local };
+    project.saved = { ...project.saved, link: next.link, local: keepLibrary(project.saved.local, next.local) };
     store.saveProject(project.saved);
     if (linkChanged && commitMessage) {
       project.history?.commitProjectFile(commitMessage).catch((error: unknown) => console.error("Couldn't commit linker-edit.json", error));
@@ -687,6 +702,209 @@ export function createApp(options: AppOptions) {
     }
   }
 
+  /** The thread whose turn may use Resolve now, or why none may. */
+  function runningTurn(): { thread: Thread; projectId: string; dir: string; signal: AbortSignal | undefined } | { refusal: string } {
+    const entry = turnOwner ? threads.get(turnOwner) : undefined;
+    const dir = entry ? projects.get(entry.projectId)?.saved.dir : undefined;
+    if (!entry?.thread.busy || !dir) return { refusal: "No Linker-Edit turn is running, so Resolve calls are refused." };
+    const signal = entry.thread.signal ?? undefined;
+    if (signal?.aborted) return { refusal: "The user stopped this turn." };
+    return { thread: entry.thread, projectId: entry.projectId, dir, signal };
+  }
+
+  /**
+   * Before an agent changes Resolve: in "ask" mode the change waits for the user, for every agent alike, and the
+   * project is backed up first. A refusal's text, or null when it may go on.
+   */
+  async function allowChange(thread: Thread, tool: string, input: Record<string, unknown>): Promise<string | null> {
+    if (approvalMode === "ask" && !(await thread.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, input))) {
+      return "The user declined this action.";
+    }
+    try {
+      await thread.backup();
+      return null;
+    } catch (error) {
+      return errorText(error);
+    }
+  }
+
+  /** Keeps Resolve taken while an agent's call runs: a stopped turn ends before its last call has wound down. */
+  async function holdingResolve<T>(run: () => Promise<T>): Promise<T> {
+    toolCalls += 1;
+    try {
+      return await run();
+    } finally {
+      toolCalls -= 1;
+      if (toolCalls === 0) sendMeta();
+    }
+  }
+
+  // --- Library ---
+
+  // What each client's library page shows, so it's sent again whenever the library changes.
+  const libraryViews = new Map<Client, { scope: LibraryScope; query: LibraryQuery }>();
+  options.library?.onChange(sendLibraryViews);
+
+  /** The libraries a project gets, least specific first. Workspaces and series will add theirs in between. */
+  function libraryChain(projectId: string | null): LibraryLink[] {
+    const chain: LibraryLink[] = [{ scope: { kind: "universal" }, label: "Universal", folders: options.library?.folders() ?? [] }];
+    const project = projectId ? projects.get(projectId) : undefined;
+    if (project) {
+      chain.push({ scope: { kind: "project", projectId: project.saved.id }, label: projectName(project.saved), folders: projectFolders(project.saved.local) });
+    }
+    return chain;
+  }
+
+  function allLibraryFolders(): LibraryFolder[] {
+    return [...(options.library?.folders() ?? []), ...[...projects.values()].flatMap((project) => projectFolders(project.saved.local))];
+  }
+
+  function libraryLink(scope: LibraryScope | undefined): LibraryLink | null {
+    if (scope?.kind === "universal") return libraryChain(null)[0]!;
+    if (scope?.kind === "project" && projects.has(scope.projectId)) return libraryChain(scope.projectId).at(-1)!;
+    return null;
+  }
+
+  function saveLibraryFolders(scope: LibraryScope, folders: LibraryFolder[]) {
+    if (scope.kind === "universal") {
+      options.library?.saveFolders(folders);
+      return;
+    }
+    const project = projects.get(scope.projectId);
+    if (!project) return;
+    project.saved = { ...project.saved, local: withProjectFolders(project.saved.local, folders) };
+    store.saveProject(project.saved);
+  }
+
+  function libraryView(client: Client, wanted: { scope: LibraryScope; query: LibraryQuery }): LibraryView {
+    const current = clients.get(client)?.threadId;
+    const projectId = current ? (threads.get(current)?.projectId ?? null) : null;
+    const link = libraryLink(wanted.scope) ?? libraryChain(null)[0]!;
+    const scopes = libraryChain(projectId).map(({ scope, label }) => ({ scope, label }));
+    if (link.scope.kind === "project" && !scopes.some((entry) => JSON.stringify(entry.scope) === JSON.stringify(link.scope))) {
+      scopes.push({ scope: link.scope, label: link.label });
+    }
+    const files = options.library?.search([link], wanted.query) ?? [];
+    return {
+      scope: link.scope,
+      scopes,
+      folders: link.folders.map((folder) => options.library!.status(folder)),
+      files: files.slice(0, LIBRARY_PAGE),
+      total: files.length,
+    };
+  }
+
+  function sendLibraryViews() {
+    for (const [client, wanted] of libraryViews) send(client, { type: "library_view", view: libraryView(client, wanted) });
+  }
+
+  /** The library page's messages: what it shows, and changes to folders and files. Files on disk are never touched. */
+  function libraryMessage(client: Client, message: LibraryClientMessage) {
+    const library = options.library;
+    if (!library) return;
+    try {
+      switch (message.type) {
+        case "library_open":
+          libraryViews.set(client, { scope: message.scope, query: message.query && typeof message.query === "object" ? message.query : {} });
+          break;
+        case "library_close":
+          libraryViews.delete(client);
+          return;
+        case "library_add_folder": {
+          const link = libraryLink(message.scope);
+          if (!link) return;
+          const folder = newFolder({ ...message.folder, path: expandHome(String(message.folder?.path ?? "")) }, link.folders);
+          saveLibraryFolders(link.scope, [...link.folders, folder]);
+          void library.scan(folder);
+          break;
+        }
+        case "library_update_folder": {
+          const link = libraryLink(message.scope);
+          const old = link?.folders.find((folder) => folder.id === message.folderId);
+          if (!link || !old) return;
+          const changes = message.changes ?? {};
+          const next = cleanFolder({ ...old, ...changes, id: old.id, path: changes.path === undefined ? old.path : expandHome(String(changes.path)) });
+          if (!next) throw new Error("Pick a kind and a folder.");
+          if (next.path !== old.path) checkFolder(next, link.folders);
+          saveLibraryFolders(link.scope, link.folders.map((folder) => (folder.id === old.id ? next : folder)));
+          if (next.path !== old.path || next.kind !== old.kind) {
+            library.forget(old);
+            void library.scan(next);
+          }
+          break;
+        }
+        case "library_remove_folder": {
+          const link = libraryLink(message.scope);
+          const old = link?.folders.find((folder) => folder.id === message.folderId);
+          if (!link || !old) return;
+          saveLibraryFolders(link.scope, link.folders.filter((folder) => folder.id !== old.id));
+          library.forget(old);
+          break;
+        }
+        case "library_rescan": {
+          const folder = allLibraryFolders().find((candidate) => candidate.id === message.folderId);
+          if (folder) void library.scan(folder);
+          return;
+        }
+        case "library_update_file": {
+          const folder = allLibraryFolders().find((candidate) => candidate.id === message.folderId);
+          const parts = typeof message.rel === "string" ? message.rel.split("/") : [];
+          if (!folder || !parts.length || parts.some((part) => !part || part === "." || part === "..")) return;
+          library.updateFile(path.join(folder.path, ...parts), {
+            ...(typeof message.star === "boolean" ? { star: message.star } : {}),
+            ...(message.tags === undefined ? {} : { tags: cleanTags(message.tags) }),
+            ...(typeof message.note === "string" ? { note: message.note.trim().slice(0, 2000) } : {}),
+          });
+          return;
+        }
+      }
+    } catch (error) {
+      toast(client, errorText(error));
+    }
+    sendLibraryViews();
+  }
+
+  async function libraryTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+    const library = options.library;
+    if (!library) return { text: "The library is off in this Linker-Edit.", isError: true };
+    const turn = runningTurn();
+    // A search only reads, so it works between turns too, in the universal library.
+    const chain = libraryChain("refusal" in turn ? null : turn.projectId);
+    if (tool === LIBRARY_SEARCH) {
+      const limit = typeof input.limit === "number" && input.limit > 0 ? Math.min(Math.floor(input.limit), 100) : 30;
+      const found = library.search(chain, queryFromInput(input));
+      const folders = new Map(chain.flatMap((link) => link.folders).map((folder) => [folder.id, folder]));
+      const scanning = [...folders.values()].filter((folder) => library.status(folder).scanning).map((folder) => `"${folder.label}"`);
+      const notes = [
+        ...(folders.size === 0 ? ["The library has no folders yet. The user adds them on Linker-Edit's library page."] : []),
+        ...(scanning.length ? [`Still reading ${scanning.join(", ")}: more files may show up in a minute.`] : []),
+        ...(found.length > limit ? [`${found.length - limit} more match. Narrow it down, or raise limit.`] : []),
+      ];
+      const results = found.slice(0, limit).map((file) => describeFile(file, folders.get(file.folderId)!));
+      return { text: JSON.stringify({ results, total: found.length, ...(notes.length ? { note: notes.join(" ") } : {}) }), isError: false };
+    }
+    if (tool !== LIBRARY_IMPORT) return { text: `There is no library tool called ${tool}.`, isError: true };
+    const run = options.resolveTools;
+    if ("refusal" in turn) return { text: turn.refusal, isError: true };
+    if (!run) return { text: "Linker-Edit can't reach Resolve's tools here.", isError: true };
+    const project = projects.get(turn.projectId)!;
+    try {
+      const result = await holdingResolve(() =>
+        libraryImport(input, {
+          find: (file) => library.find(chain, file),
+          resolve: async (name, args) => (await run(name, args, turn.dir, turn.signal)).text,
+          allowChange: (args) => allowChange(turn.thread, LIBRARY_IMPORT, args),
+          recordUse: (file, use) => library.recordUse(file, { ...use, at: new Date().toISOString() }),
+          project: { id: project.saved.id, name: projectName(project.saved) },
+          currentTimeline: resolve.state === "connected" ? resolve.timeline : null,
+        }),
+      );
+      return { text: JSON.stringify(result), isError: false };
+    } catch (error) {
+      return { text: errorText(error), isError: true };
+    }
+  }
+
   /** Workspaces and series: create, update, delete, and moving a project into one. */
   function handleCollectionMessage(client: Client, message: ClientMessage) {
     const refusal = collections.handle(message);
@@ -694,6 +912,7 @@ export function createApp(options: AppOptions) {
   }
 
   function handleMessage(client: Client, message: ClientMessage) {
+    if (isLibraryMessage(message)) return libraryMessage(client, message);
     const view = clients.get(client);
     const current = view?.threadId ? threads.get(view.threadId) : undefined;
     switch (message.type) {
@@ -831,7 +1050,10 @@ export function createApp(options: AppOptions) {
     connect(client: Client): () => void {
       clients.set(client, { threadId: defaultThread() });
       sendSnapshot(client);
-      return () => clients.delete(client);
+      return () => {
+        clients.delete(client);
+        libraryViews.delete(client);
+      };
     },
     handleMessage,
     refreshResolve,
@@ -868,33 +1090,26 @@ export function createApp(options: AppOptions) {
      */
     async resolveTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean; images?: string[] }> {
       const definition = findResolveTool(tool);
-      if (!definition || !options.resolveTools) return { text: `There is no Resolve tool called ${tool}.`, isError: true };
-      const entry = turnOwner ? threads.get(turnOwner) : undefined;
-      const owner = entry?.thread;
-      const dir = entry ? projects.get(entry.projectId)?.saved.dir : undefined;
-      if (!owner?.busy || !dir) return { text: "No Linker-Edit turn is running, so Resolve calls are refused.", isError: true };
-      const signal = owner.signal ?? undefined;
-      if (signal?.aborted) return { text: "The user stopped this turn.", isError: true };
-      if (definition.kind === "write" && approvalMode === "ask" && !(await owner.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, input))) {
-        return { text: "The user declined this action.", isError: true };
-      }
+      const run = options.resolveTools;
+      if (!definition || !run) return { text: `There is no Resolve tool called ${tool}.`, isError: true };
+      const turn = runningTurn();
+      if ("refusal" in turn) return { text: turn.refusal, isError: true };
       if (definition.kind === "write") {
-        try {
-          await owner.backup();
-        } catch (error) {
-          return { text: errorText(error), isError: true };
-        }
+        const refusal = await allowChange(turn.thread, tool, input);
+        if (refusal) return { text: refusal, isError: true };
       }
-      toolCalls += 1;
       try {
-        return { ...(await options.resolveTools(tool, input, dir, signal)), isError: false };
+        return { ...(await holdingResolve(() => run(tool, input, turn.dir, turn.signal))), isError: false };
       } catch (error) {
         return { text: errorText(error), isError: true };
-      } finally {
-        toolCalls -= 1;
-        if (toolCalls === 0) sendMeta();
       }
     },
+    /** One of the library's tools, called by an agent's "linker" MCP server. */
+    libraryTool,
+    /** A library file for the library page to play, or null when it isn't one; see library/serve.ts. */
+    libraryFile: (folderId: string, rel: string) => libraryFile(allLibraryFolders(), folderId, rel),
+    /** Rescans every library folder, so files added or changed while the app was closed show up. */
+    scanLibrary: () => options.library?.scanAll(allLibraryFolders()) ?? Promise.resolve(),
     /** For the agents' MCP server: the transcripts as text, or what went wrong per file. */
     transcribe: async (files: string[], language?: string) => {
       if (!options.transcriber) throw new Error("Transcription is off.");
