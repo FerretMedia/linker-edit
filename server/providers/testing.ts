@@ -15,6 +15,8 @@ export const testConfig: AppConfig = {
   tailscalePort: 8443,
   configFile: "C:\\linker-edit.config.json",
   settingsFile: "C:\\settings.json",
+  libraryFile: "C:\\library.json",
+  libraryCacheDir: "C:\\cache\\library",
   linker: { authServer: "https://clerk.example", appUrl: "https://app.example", file: "C:\\linker-account.json" },
   apiToken: "test-token",
   resolveMcp: { command: "C:\\Program Files\\Blackmagic Design\\DaVinci Resolve\\ResolveMCP.exe" },

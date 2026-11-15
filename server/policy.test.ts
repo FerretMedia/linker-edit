@@ -48,6 +48,8 @@ describe("isResolveWrite", () => {
     expect(writes).toContain("create_timeline");
     expect(writes).not.toContain("set_current_timeline");
     expect(isResolveWrite("mcp__linker__transcribe")).toBe(false);
+    expect(isResolveWrite("mcp__linker__library_search")).toBe(false);
+    expect(isResolveWrite("mcp__linker__library_import")).toBe(true);
     expect(isResolveWrite("mcp__resolve__run_script")).toBe(true);
     expect(isResolveWrite("mcp__resolve__get_scripting_api")).toBe(false);
   });

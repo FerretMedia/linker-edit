@@ -17,6 +17,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **You decide what becomes the real edit.** When you're happy with an AI version of a timeline, click **Use as main timeline** in the preview. It takes your timeline's name, and your old one stays next to it as `<name> (before AI …)`.
 - **Transcripts.** The agent hears what's said in your footage, in most languages, on your own GPU, with a time for every word.
 - **The agent sees.** It looks at frames of your footage, and at its own timelines exactly as Resolve renders them, titles and grade included, to pick shots and check its work.
+- **Your library.** Point Linker-Edit at the folders where you keep music, sound effects, logos and LUTs. The agent looks there first and brings files into the project, and you play, star and tag them on the library page.
 - **Silence cutting.** It finds pauses straight from the audio, quickly and precisely, and builds a tightened timeline from what's left.
 - **Delivery and exchange.** It renders timelines to files with any Resolve preset, format or size, and exports or imports OTIO, EDL, FCPXML and AAF.
 - **Titles, color and selects.** It adds Text+ titles, applies LUTs and CDLs or copies a grade between shots, detects scene cuts, and files selects into bins with colors, flags and notes.
@@ -122,11 +123,12 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - looking at the project: `resolve_context`, `list_timelines`, `get_timeline`, `list_media`, `get_clip_properties`, `get_transcription`, `render_options`;
   - looking at footage: `view_frames`, which moves Resolve's playhead and puts it back, and `find_silences`;
   - `export_timeline`, which only writes a file into the project folder;
-  - `set_current_timeline`, which only changes which timeline Resolve shows.
+  - `set_current_timeline`, which only changes which timeline Resolve shows;
+  - `library_search`, which only looks in your library.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
   - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
   - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
-  - The media pool: `import_media`, `organize_media`, `transcribe_in_resolve`.
+  - The media pool: `import_media`, `library_import`, `organize_media`, `transcribe_in_resolve`.
   - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
 - **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits and commands ask only in Supervised mode; Codex's shell commands and file edits run without a sandbox with full access, and sandboxed to the project's folder in Supervised mode.
 
@@ -200,6 +202,16 @@ Codex has no context meter or compaction here: its SDK doesn't report how full t
 - **Full render** has Resolve render the exact picture as a small MP4, and the player switches to it at the same spot. While it renders, Resolve switches to that timeline and the Deliver page, then puts your timeline, page and render settings back. The agent waits until the render is done, and you can stop it. Only the timeline as it is in Resolve now can be rendered.
 
 Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previous or next cut, F full screen, M mute.
+
+## Library
+
+**Library** in the top right (or in Settings) opens the folders you reuse: music, sound effects, graphics, LUTs, footage, anything else. Linker-Edit only points at them. It never copies, moves or deletes a file in them.
+
+- **Universal or this project.** Folders in the universal library are for every project, and are kept in `~/LinkerEdit/library.json`. A project's own folders come first for that project, and are kept in its `.linker-edit/local.json`, on this computer only.
+- **Read once.** Adding a folder reads each file's length, channels and loudness (LUFS) with the ffmpeg Linker-Edit comes with. That's kept in `~/LinkerEdit/cache/library`, and **Rescan**, or starting the app, only reads files that are new or changed.
+- **Notes for you and the agent.** A folder's note ("licensed for YouTube only") goes to the agent with every file from it. Star files, and give them tags and notes, to find them again.
+- **The agent looks here first** for music, sound effects and graphics (`library_search`), and brings what it picks into a `Library/<Kind>` bin (`library_import`). A file already in the media pool is used again, not imported twice, and the library notes which project and timeline used it.
+- **Plays in place.** The page plays files from the folder itself. Only files inside library folders are served, to this computer and your own devices over remote access.
 
 ## Transcripts
 

@@ -7,6 +7,8 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createApp } from "./app.ts";
+import { memoryLibraryStore } from "./library/folders.ts";
+import { createLibrary } from "./library/library.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import { byteRange, createServer, isAllowedOrigin, staticFile } from "./http.ts";
 import type { RemoteGate } from "./remote.ts";
@@ -205,5 +207,110 @@ describe("server", () => {
     const [data] = (await once(socket, "message")) as [Buffer];
     expect(JSON.parse(String(data))).toMatchObject({ type: "snapshot", state: { busy: false, items: [] } });
     socket.close();
+  });
+});
+
+describe("library files", () => {
+  const library = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-http-library-"));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-http-outside-"));
+  fs.writeFileSync(path.join(library, "Song.mp3"), "0123456789");
+  fs.writeFileSync(path.join(library, "page.html"), "<script>alert(1)</script>");
+  fs.writeFileSync(path.join(outside, "Secret.mp3"), "secret");
+  fs.symlinkSync(outside, path.join(library, "Out"), "junction");
+  let server: http.Server;
+  let port: number;
+  let gate: RemoteGate | null = null;
+
+  beforeAll(async () => {
+    const store = memoryLibraryStore([{ id: "lib", kind: "music", label: "Music", path: library, note: "" }]);
+    const app = createApp({
+      version: "0.0.0",
+      store: memoryProjectStore([{ project: workspaceProject }]),
+      createSession: () => ({ send: async () => {}, resumeId: () => null }),
+      checkResolve: async () => ({ state: "not_running" }),
+      library: createLibrary({ store, cacheDir: path.join(library, ".cache"), probe: async () => ({ duration: null, channels: null, loudness: null }) }),
+    });
+    server = createServer(app, dist, "secret", { gate: () => gate, computers: async () => [] });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    port = (server.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+
+  function get(urlPath: string, headers: http.OutgoingHttpHeaders = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+    return new Promise((resolve, reject) => {
+      // A raw path, so ".." reaches the server as it was typed.
+      http
+        .get({ host: "127.0.0.1", port, path: urlPath, headers }, (res) => {
+          let body = "";
+          res.on("data", (chunk) => (body += chunk));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body, headers: res.headers }));
+        })
+        .on("error", reject);
+    });
+  }
+
+  it("plays a file inside a library folder, in parts when asked, never as a page", async () => {
+    const whole = await get("/library/lib/Song.mp3");
+    expect(whole).toMatchObject({ status: 200, body: "0123456789" });
+    expect(whole.headers["content-type"]).toBe("audio/mpeg");
+    expect(whole.headers["x-content-type-options"]).toBe("nosniff");
+    expect(whole.headers["content-security-policy"]).toContain("sandbox");
+    expect(await get("/library/lib/Song.mp3", { range: "bytes=2-4" })).toMatchObject({ status: 206, body: "234" });
+  });
+
+  it.each([
+    `/library/lib/../${path.basename(outside)}/Secret.mp3`,
+    `/library/lib/%2e%2e/${path.basename(outside)}/Secret.mp3`,
+    `/library/lib/..%2F${path.basename(outside)}%2FSecret.mp3`,
+    `/library/lib/..%5C${path.basename(outside)}%5CSecret.mp3`,
+    "/library/lib/Out/Secret.mp3",
+    `/library/lib/${encodeURIComponent(path.join(outside, "Secret.mp3"))}`,
+    "/library/lib/C:/Windows/Media/tada.wav",
+    "/library/lib/C%3A%5CWindows%5CMedia%5Ctada.wav",
+    "/library/lib/%5C%5Cserver%5Cshare%5CSong.mp3",
+    "/library/lib/page.html",
+    "/library/other/Song.mp3",
+    "/library/lib/",
+  ])("refuses %s", async (urlPath) => {
+    const response = await get(urlPath);
+    expect(response.status).toBe(404);
+    expect(response.body).toBe("");
+  });
+
+  it("plays only to this computer and the owner's own devices", async () => {
+    const owner = { host: "studio.tail1234.ts.net:8443", "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
+    expect((await get("/library/lib/Song.mp3", owner)).status).toBe(403);
+    expect((await get("/library/lib/Song.mp3", { host: "evil.example" })).status).toBe(403);
+    gate = { host: "studio.tail1234.ts.net:8443", owner: "jane@example.com" };
+    try {
+      expect(await get("/library/lib/Song.mp3", owner)).toMatchObject({ status: 200, body: "0123456789" });
+      expect((await get("/library/lib/Song.mp3", { ...owner, "tailscale-user-login": "bob@example.com" })).status).toBe(403);
+    } finally {
+      gate = null;
+    }
+  });
+
+  it("takes the agents' library calls only with their token", async () => {
+    const call = (token?: string) =>
+      new Promise<number>((resolve, reject) => {
+        http
+          .request(
+            { host: "127.0.0.1", port, path: "/api/library-tool", method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {} },
+            (res) => {
+              res.resume();
+              resolve(res.statusCode ?? 0);
+            },
+          )
+          .on("error", reject)
+          .end(JSON.stringify({ tool: "library_search", input: {} }));
+      });
+    expect(await call()).toBe(403);
+    expect(await call("guess")).toBe(403);
+    expect(await call("secret")).toBe(200);
   });
 });

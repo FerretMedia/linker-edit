@@ -16,6 +16,28 @@ if (!process.env.TEST_WORKER_INDEX) {
   // A teammate's project folder to add through the folder picker.
   fs.mkdirSync(path.join(dir, "team", "Promo"), { recursive: true });
   fs.writeFileSync(path.join(dir, "team", "Promo", "linker-edit.json"), JSON.stringify({ version: 1, name: "Promo", resolve: null }));
+  // A music folder for the library, with one second of a quiet tone.
+  fs.mkdirSync(path.join(dir, "music"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "music", "Tone.wav"), toneWav());
+}
+
+function toneWav(rate = 8000): Buffer {
+  const data = Buffer.alloc(rate * 2);
+  for (let i = 0; i < rate; i += 1) data.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / rate) * 8000), i * 2);
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVEfmt ", 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
 }
 
 export default defineConfig({

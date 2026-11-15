@@ -1,4 +1,5 @@
 import type { ApprovalMode } from "../shared/protocol.ts";
+import { LIBRARY_IMPORT } from "./library/tools.ts";
 import { findResolveTool } from "./resolve/tools.ts";
 import { LINKER_MCP_NAME, RESOLVE_MCP_NAME } from "./rules.ts";
 
@@ -74,7 +75,10 @@ function isGitRead(command: string): boolean {
  * run_script, which can do anything. These are the calls the edit history lists after a turn.
  */
 export function isResolveWrite(toolName: string): boolean {
-  if (toolName.startsWith(LINKER_PREFIX)) return findResolveTool(toolName.slice(LINKER_PREFIX.length))?.kind === "write";
+  if (toolName.startsWith(LINKER_PREFIX)) {
+    const tool = toolName.slice(LINKER_PREFIX.length);
+    return tool === LIBRARY_IMPORT || findResolveTool(tool)?.kind === "write";
+  }
   return toolName === RESOLVE_RUN_SCRIPT;
 }
 

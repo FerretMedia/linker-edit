@@ -1,4 +1,4 @@
-import type { AppState, ClientMessage, FolderListing, HistoryEntry, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
+import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
 
 export interface Toast {
@@ -17,6 +17,8 @@ class ServerConnection {
   history = $state<{ projectId: string; entries: HistoryEntry[] } | null>(null);
   /** Null until the add-project dialog asks for it. */
   library = $state<ResolveLibrary | { error: string } | null>(null);
+  /** The library page's library, while the page is open. */
+  libraryView = $state<LibraryView | null>(null);
   toasts = $state<Toast[]>([]);
   /** A message the server didn't send to the agent, to put back in the composer. */
   onRefused: ((threadId: string, text: string) => void) | null = null;
@@ -42,6 +44,7 @@ class ServerConnection {
       const message = JSON.parse(event.data as string) as ServerMessage;
       if (message.type === "history") this.history = { projectId: message.projectId, entries: message.entries };
       else if (message.type === "library") this.library = message.library;
+      else if (message.type === "library_view") this.libraryView = message.view;
       else if (message.type === "folders") {
         this.#folderReplies.get(message.requestId)?.(message.listing);
         this.#folderReplies.delete(message.requestId);

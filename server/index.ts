@@ -7,6 +7,9 @@ import { createAppUpdates } from "./appUpdate.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
+import { fileLibraryStore } from "./library/folders.ts";
+import { createLibrary } from "./library/library.ts";
+import { ffmpegProbe } from "./library/scan.ts";
 import { createLinker } from "./linker.ts";
 import { createPreviewRenderer } from "./preview/preview.ts";
 import { fileProjectStore } from "./projects/store.ts";
@@ -21,7 +24,7 @@ import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
 import { fileSettings } from "./settings.ts";
-import { prepareTools, toolsReady } from "./transcribe/tools.ts";
+import { findFfmpeg, prepareTools, toolsReady } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
 
@@ -81,6 +84,7 @@ const app = createApp({
     resolveMcp: config.resolveMcp.command,
   },
   appUpdates,
+  library: createLibrary({ store: fileLibraryStore(config.libraryFile), cacheDir: config.libraryCacheDir, probe: ffmpegProbe(findFfmpeg) }),
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
@@ -105,6 +109,8 @@ server.listen(config.port, "127.0.0.1", () => {
   });
   void app.refreshResolve();
   app.prepareTranscription();
+  // Picks up files added to library folders while Linker-Edit was closed; unchanged files aren't measured again.
+  void app.scanLibrary();
   void linker.refresh();
   setInterval(() => {
     if (!app.busy()) void app.refreshResolve();
