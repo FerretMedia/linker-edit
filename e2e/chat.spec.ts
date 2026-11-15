@@ -26,7 +26,7 @@ test("a turn streams in, waits for each change to be approved, and finishes", as
 
   // A new thread starts empty; the first one is still there to go back to.
   const sidebar = page.getByRole("navigation");
-  await sidebar.getByRole("button", { name: "New thread", exact: true }).click();
+  await page.getByRole("button", { name: "New thread", exact: true }).click();
   await expect(page.getByText("What are we editing?")).toBeVisible();
   await sidebar.getByRole("button", { name: /Check whether Resolve is reachable/ }).click();
   await expect(page.getByText("DaVinci Resolve is reachable.")).toBeVisible();
