@@ -26,6 +26,15 @@ export interface SavedProject {
   name: string | null;
   link: ResolveLink | null;
   local: LocalLink;
+  /** The workspace or series it is in. Missing in files from before workspaces. */
+  collection?: ProjectCollection | null;
+}
+
+/** In linker-edit.json, so a teammate who gets the project sees which workspace or series it belongs to. */
+export interface ProjectCollection {
+  id: string;
+  /** As it was when the project was put in it, for computers that don't have it. */
+  name: string;
 }
 
 export interface ProjectStore {
@@ -53,6 +62,7 @@ interface ProjectFile {
   version: number;
   name: string | null;
   resolve: ResolveLink | null;
+  collection?: ProjectCollection;
 }
 
 interface Registry {
@@ -180,7 +190,16 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
     } catch (error) {
       onError(error);
     }
-    return { id, dir, name: file?.name ?? null, link: file?.resolve ?? null, local };
+    // Files from before workspaces have none.
+    const collection = file?.collection;
+    return {
+      id,
+      dir,
+      name: file?.name ?? null,
+      link: file?.resolve ?? null,
+      local,
+      ...(collection && typeof collection.id === "string" ? { collection: { id: collection.id, name: String(collection.name ?? "") } } : {}),
+    };
   }
 
   function migrateLegacyChat(dir: string): SavedThread | null {
@@ -234,7 +253,12 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
   function saveProject(project: SavedProject) {
     try {
       prepare(project.dir);
-      const file: ProjectFile = { version: VERSION, name: project.name, resolve: project.link };
+      const file: ProjectFile = {
+        version: VERSION,
+        name: project.name,
+        resolve: project.link,
+        ...(project.collection ? { collection: { id: project.collection.id, name: project.collection.name } } : {}),
+      };
       writeJson(path.join(project.dir, PROJECT_FILE), file);
       writeJson(path.join(stateDir(project.dir), "local.json"), project.local);
     } catch (error) {
