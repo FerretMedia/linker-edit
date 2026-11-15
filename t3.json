@@ -1,0 +1,30 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "iconPath": "desktop/resources/icon.svg",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {
+      "name": "Setup worktree",
+      "command": "npm ci",
+      "icon": "configure",
+      "runOnWorktreeCreate": true,
+      "async": false
+    },
+    {
+      "name": "Dev",
+      "command": "npm run dev",
+      "icon": "play",
+      "previewUrl": "http://localhost:5317"
+    },
+    {
+      "name": "Check",
+      "command": "npm run typecheck",
+      "icon": "lint"
+    },
+    {
+      "name": "Test",
+      "command": "npm test",
+      "icon": "test"
+    }
+  ]
+}
