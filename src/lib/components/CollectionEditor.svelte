@@ -144,7 +144,9 @@
 
   <SettingsRow
     label="Delete {label.lower}"
-    description={empty ? "Its rules are deleted too. Projects are never deleted." : "Move its projects and series out first."}
+    description={empty
+      ? "Its rules are deleted too. Projects are never deleted."
+      : `Move its projects${collection.kind === "workspace" ? ` and ${COLLECTION_LABEL.series.lowerMany}` : ""} out first.`}
   >
     <button type="button" class="{button} flex items-center gap-1.5 text-destructive" disabled={!empty} onclick={remove}>
       <Trash2 class="size-3.5" />
