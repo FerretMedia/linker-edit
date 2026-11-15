@@ -1,4 +1,4 @@
-import type { ClipChange, CloudSyncMode, Provider, ResolveLink } from "#shared/protocol.ts";
+import type { ClipChange, CloudSyncMode, CollectionKind, Provider, ResolveLink } from "#shared/protocol.ts";
 
 // Resolve's own MCP server, and Linker-Edit's, whose tools other than transcribe all work in Resolve.
 const RESOLVE_PREFIX = "mcp__resolve__";
@@ -89,3 +89,17 @@ export function ago(date: Date, now: Date): string {
   const days = Math.round(hours / 24);
   return days < 7 ? `${days}d` : `${Math.round(days / 7)}w`;
 }
+
+/**
+ * What workspaces and series are called, in the app and in the agent's rules. Renaming them is a change here.
+ * In code they are collections.
+ */
+export const COLLECTION_LABEL: Record<CollectionKind, { one: string; many: string; lower: string; lowerMany: string }> = {
+  workspace: { one: "Workspace", many: "Workspaces", lower: "workspace", lowerMany: "workspaces" },
+  series: { one: "Series", many: "Series", lower: "series", lowerMany: "series" },
+};
+
+/** The settings section and the project settings field for them. */
+export const COLLECTIONS_TITLE = `${COLLECTION_LABEL.workspace.many} & ${COLLECTION_LABEL.series.lowerMany}`;
+export const COLLECTION_PICKER_LABEL = `${COLLECTION_LABEL.workspace.one} / ${COLLECTION_LABEL.series.lower}`;
+export const NO_COLLECTION = `No ${COLLECTION_LABEL.workspace.lower}`;

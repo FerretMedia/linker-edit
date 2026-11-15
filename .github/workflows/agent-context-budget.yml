@@ -1,0 +1,56 @@
+name: Agent context budget
+
+# Every agent reads the AGENTS.md and CLAUDE.md files and the skill and review
+# agent descriptions on every task, so growing them costs every task from then
+# on. This fails a pull request that grows them (measured by
+# .github/scripts/agent-context-size.sh) compared with its base. Cut the added
+# text first; the agent-context-increase label accepts growth on purpose. Not
+# part of ci.yml, so it never holds up a release, and it runs only for pull
+# requests that touch what it measures.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".claude/agents/**"
+      - ".github/scripts/agent-context-size.sh"
+      - ".github/workflows/agent-context-budget.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-context-budget-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  budget:
+    name: Agent context budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compare with the base
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          ALLOW_INCREASE: ${{ contains(github.event.pull_request.labels.*.name, 'agent-context-increase') }}
+        run: |
+          if ! git cat-file -e "$BASE:.github/scripts/agent-context-size.sh" 2>/dev/null; then
+            echo "The base doesn't measure agent context yet."
+            exit 0
+          fi
+          before=$(.github/scripts/agent-context-size.sh "$BASE")
+          after=$(.github/scripts/agent-context-size.sh HEAD)
+          echo "Agent context: $before -> $after bytes."
+          if [ "$after" -le "$before" ]; then exit 0; fi
+          if [ "$ALLOW_INCREASE" = "true" ]; then
+            echo "Grew by $((after - before)) bytes, accepted by the agent-context-increase label."
+            exit 0
+          fi
+          echo "::error::Agent context grew by $((after - before)) bytes. Cut the added text, or add the agent-context-increase label to accept it."
+          exit 1
