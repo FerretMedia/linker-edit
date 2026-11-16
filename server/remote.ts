@@ -57,18 +57,32 @@ function hostOf(value: string | undefined): string | null {
 }
 
 /**
- * Where a request comes from: this computer, the owner's devices through Tailscale Serve, or neither.
+ * Where a request comes from: this computer, the owner's devices through Tailscale Serve, the Linker Connect
+ * tunnel (which still needs a session, see server/http.ts), or neither.
  * Tailscale Serve proxies from 127.0.0.1, keeps the tailnet Host, adds X-Forwarded-For and sets the
  * Tailscale-User-Login of the device's account after dropping any the client sent.
  */
-export function requestSource(headers: IncomingHttpHeaders, gate: RemoteGate | null): "local" | "remote" | null {
+export function requestSource(
+  headers: IncomingHttpHeaders,
+  gate: RemoteGate | null,
+  connectHost: string | null = null,
+): "local" | "remote" | "connect" | null {
   const host = hostOf(headers.host);
   const hostname = host ? new URL(`https://${host}`).hostname : null;
-  const proxied = headers["x-forwarded-for"] !== undefined || headers["tailscale-user-login"] !== undefined;
+  // Tailscale Serve and Cloudflare's tunnel (cloudflared) both say who they forward for.
+  const proxied =
+    headers["x-forwarded-for"] !== undefined ||
+    headers["tailscale-user-login"] !== undefined ||
+    headers["cf-connecting-ip"] !== undefined ||
+    headers["cf-ray"] !== undefined;
   if (hostname && LOOPBACK_HOSTS.has(hostname) && !proxied) return "local";
-  if (!gate || !proxied) return null;
-  // Should Serve ever stop keeping the Host, the forwarded one still names the tailnet address.
+  if (!proxied) return null;
+  // Should a proxy ever stop keeping the Host, the forwarded one still names the public address.
   const publicHost = hostname && LOOPBACK_HOSTS.has(hostname) ? hostOf(String(headers["x-forwarded-host"] ?? "")) : host;
+  // Linker Connect: through the tunnel, to this computer's address at Linker. A session is checked after this.
+  // Cloudflare sets CF-Connecting-IP itself. Whatever else such a request claims, it never counts as Tailscale.
+  if (headers["cf-connecting-ip"] !== undefined) return connectHost && publicHost === connectHost.toLowerCase() ? "connect" : null;
+  if (!gate) return null;
   const login = headers["tailscale-user-login"];
   const owner = typeof login === "string" && login.toLowerCase() === gate.owner.toLowerCase();
   return publicHost === hostOf(gate.host) && owner ? "remote" : null;
@@ -105,7 +119,7 @@ export function ownPeers(statusJson: string): { name: string; host: string }[] {
 /** Linker-Edit's answer at a remote address, or null when nothing (or something else) answers. */
 export type Probe = (url: string) => Promise<{ name: string; version: string } | null>;
 
-const probeLinkerEdit: Probe = async (url) => {
+export const probeLinkerEdit: Probe = async (url) => {
   try {
     const response = await fetch(`${url}/api/hello`, { signal: AbortSignal.timeout(5000) });
     const hello = (await response.json()) as { app?: string; name?: string; version?: string };

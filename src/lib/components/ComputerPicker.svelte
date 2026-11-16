@@ -30,7 +30,10 @@
   const away = $derived(list !== null && new URL(list.home).origin !== here);
   const entries = $derived(
     list
-      ? [{ name: list.name, url: list.home, version: list.version ?? "", home: true }, ...list.others.map((other) => ({ ...other, home: false }))]
+      ? [
+          { name: list.name, url: list.home, version: list.version ?? "", home: true, via: undefined, online: true },
+          ...list.others.map((other) => ({ ...other, home: false })),
+        ]
       : [],
   );
   // A computer behind the others updates when its own app does: open it to restart it into the new release.
@@ -86,10 +89,13 @@
         <p class="px-2 pt-1 pb-1.5 text-2xs text-muted-foreground">Your computers</p>
         {#each entries as entry (entry.url)}
           {@const current = new URL(entry.url).origin === here}
+          {@const offline = entry.online === false}
           <button
             type="button"
             role="menuitem"
-            class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent"
+            class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent"
+            disabled={offline}
+            title={entry.via === "linker" ? `Through Linker Connect${offline ? ": offline, or Linker-Edit isn't running there" : ""}` : undefined}
             onclick={() => {
               open = false;
               if (!current) void desktop?.open(entry.url);
@@ -97,7 +103,9 @@
           >
             <Monitor class="size-3.5 shrink-0 text-muted-foreground" />
             <span class="min-w-0 flex-1 truncate">{entry.name}</span>
-            {#if entry.version && isNewer(newest, entry.version)}
+            {#if offline}
+              <span class="shrink-0 text-2xs text-muted-foreground">offline</span>
+            {:else if entry.version && isNewer(newest, entry.version)}
               <span
                 class="shrink-0 rounded border border-warning/40 px-1 text-2xs text-warning"
                 title="{entry.name} runs {releaseName(entry.version)}, older than {releaseName(newest)}. Open it to update it."
@@ -117,7 +125,8 @@
           <p class="px-2 py-1.5 text-xs text-muted-foreground">Looking for your computers…</p>
         {:else if list.others.length === 0}
           <p class="px-2 py-1.5 text-xs text-muted-foreground">
-            No other computers found. On the computer with Resolve, turn on remote access, and log in to the same Tailscale account on both.
+            No other computers found. On the computer with Resolve, turn on Linker Connect in its settings, and sign in to the same Linker account
+            on both. Or use Tailscale.
           </p>
         {/if}
         <div class="my-1 border-t"></div>

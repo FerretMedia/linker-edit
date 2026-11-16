@@ -13,6 +13,7 @@ import type {
   LibraryQuery,
   LibraryScope,
   LibraryView,
+  LinkerConnect,
   LocalLink,
   PreviewState,
   ProjectSidebarChanges,
@@ -35,6 +36,7 @@ import type { LibraryLink, LibraryService } from "./library/library.ts";
 import { libraryFile } from "./library/serve.ts";
 import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromInput } from "./library/tools.ts";
 import type { LinkerService } from "./linker.ts";
+import type { ConnectService } from "./connect/connect.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import { NEW_THREAD_SIDEBAR, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
 import { parseProjectIcon } from "../shared/project-icon.ts";
@@ -91,6 +93,8 @@ export interface AppOptions {
   remote?: RemoteAccessService;
   /** The optional Linker account. */
   linker?: LinkerService;
+  /** Linker Connect: this computer at its own address at Linker, for your other computers. */
+  connect?: ConnectService;
   /** Choices kept across restarts, such as supervised mode. */
   settings?: SettingsStore;
   /** Where this computer keeps things, shown on the settings page. */
@@ -118,6 +122,20 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 
 /** How many matching files the library page gets at once. */
 const LIBRARY_PAGE = 300;
+
+/** Linker Connect in builds and tests without it. */
+const NO_CONNECT: LinkerConnect = {
+  state: "signed_out",
+  url: null,
+  connected: false,
+  step: null,
+  problem: null,
+  computerId: "",
+  computers: null,
+  limit: 3,
+  atLimit: false,
+  devices: [],
+};
 const isLibraryMessage = (message: ClientMessage): message is LibraryClientMessage => message.type.startsWith("library_");
 
 /** All app state lives here; clients get a snapshot of the thread they look at, and patches after. */
@@ -370,6 +388,7 @@ export function createApp(options: AppOptions) {
       applying,
       transcription: options.transcriber?.status() ?? { state: "idle" },
       remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
+      connect: options.connect?.status() ?? NO_CONNECT,
       computer: os.hostname(),
       setup: options.setup ?? null,
       linker: options.linker?.status() ?? { state: "signed_out", problem: null },
@@ -387,6 +406,7 @@ export function createApp(options: AppOptions) {
   options.transcriber?.onStatus(sendMeta);
   options.remote?.onStatus(sendMeta);
   options.linker?.onStatus(sendMeta);
+  options.connect?.onStatus(sendMeta);
   options.appUpdates?.onStatus(sendMeta);
 
   function sendSnapshot(client: Client) {
@@ -1020,6 +1040,18 @@ export function createApp(options: AppOptions) {
         break;
       case "set_remote_access":
         void options.remote?.setEnabled(message.enabled);
+        break;
+      case "refresh_connect":
+        void options.connect?.refresh();
+        break;
+      case "set_connect":
+        if (typeof message.enabled === "boolean") void options.connect?.setEnabled(message.enabled);
+        break;
+      case "connect_unlink":
+        if (typeof message.computerId === "string" && message.computerId) void options.connect?.unlink(message.computerId);
+        break;
+      case "connect_sign_out_device":
+        if (typeof message.deviceId === "string") options.connect?.signOutDevice(message.deviceId);
         break;
       case "linker_cancel_sign_in":
         options.linker?.cancel();

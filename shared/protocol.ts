@@ -293,6 +293,60 @@ export interface Computer {
   name: string;
   url: string;
   version: string;
+  /** How it's reached: Tailscale (the default for older servers) or Linker Connect. */
+  via?: "tailscale" | "linker";
+  /** False for a Linker Connect computer that isn't reachable now. */
+  online?: boolean;
+}
+
+/** One of the edit computers linked to your Linker account (at most LinkerConnect.limit). */
+export interface LinkedComputer {
+  id: string;
+  name: string;
+  /** https://edit-….linker.cool */
+  url: string;
+  /** Whether its tunnel is connected now; null when Linker couldn't tell. */
+  online: boolean | null;
+  linkedAt: string;
+  lastSeenAt: string | null;
+}
+
+/** A device that opened this computer through Linker Connect, and can be signed out. */
+export interface ConnectDevice {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+/**
+ * Linker Connect, like T3 Connect: this computer gets its own address at Linker, through a Cloudflare Tunnel,
+ * and your other computers signed in to the same Linker account open it from anywhere.
+ */
+export interface LinkerConnect {
+  /**
+   * signed_out: sign in with Linker first. off. starting: linking, downloading cloudflared or connecting.
+   * on: linked, with the tunnel running.
+   */
+  state: "signed_out" | "off" | "starting" | "on";
+  /** This computer's address once linked. */
+  url: string | null;
+  /** While on: whether the tunnel is connected to Cloudflare right now. */
+  connected: boolean;
+  /** What starting is doing, such as "Downloading cloudflared · 40%". */
+  step: string | null;
+  /** Why it isn't on, or what went wrong last, worded for the user. */
+  problem: string | null;
+  /** This computer's id at Linker, to find it among computers. */
+  computerId: string;
+  /** Your linked computers, this one included when linked; null until looked up. */
+  computers: LinkedComputer[] | null;
+  /** How many computers one Linker account can link. */
+  limit: number;
+  /** Linking stopped because the limit is reached: remove one of computers first. */
+  atLimit: boolean;
+  /** Devices signed in to this computer through Linker Connect. */
+  devices: ConnectDevice[];
 }
 
 /** GET /api/computers: this computer's name, and the user's other computers found over Tailscale. */
@@ -390,6 +444,7 @@ export interface AppMeta {
   applying: string | null;
   transcription: TranscriptionStatus;
   remote: RemoteAccess;
+  connect: LinkerConnect;
   /** The name of the computer this Linker-Edit runs on. */
   computer: string;
   /** Null in tests and builds that don't say. */
@@ -442,6 +497,13 @@ export type ClientMessage =
   | { type: "browse_folders"; requestId: number; path: string }
   | { type: "refresh_remote_access" }
   | { type: "set_remote_access"; enabled: boolean }
+  /** Looks up the computers linked to your Linker account again. */
+  | { type: "refresh_connect" }
+  | { type: "set_connect"; enabled: boolean }
+  /** Unlinks one of your computers from Linker Connect, this one or another, which frees its place. */
+  | { type: "connect_unlink"; computerId: string }
+  /** Signs a device out of this computer. */
+  | { type: "connect_sign_out_device"; deviceId: string }
   /** Stops waiting for a Linker sign-in started in the browser (GET /api/linker/sign-in starts one). */
   | { type: "linker_cancel_sign_in" }
   | { type: "linker_sign_out" }

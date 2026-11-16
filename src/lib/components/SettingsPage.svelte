@@ -22,6 +22,7 @@
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
   import CollectionsSettings from "./CollectionsSettings.svelte";
+  import LinkerConnectSettings from "./LinkerConnectSettings.svelte";
   import RemoteAccessSettings from "./RemoteAccessSettings.svelte";
   import Segmented from "./Segmented.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
@@ -342,9 +343,19 @@
             </SettingsGroup>
           {/if}
         {:else if section === "remote"}
+          <LinkerConnectSettings
+            connect={app.connect}
+            computer={app.computer}
+            onRefresh={() => send({ type: "refresh_connect" })}
+            onSetEnabled={(enabled) => send({ type: "set_connect", enabled })}
+            onUnlink={(computerId) => send({ type: "connect_unlink", computerId })}
+            onSignOutDevice={(deviceId) => send({ type: "connect_sign_out_device", deviceId })}
+            onSignIn={() => onSection("account")}
+          />
           <section class="flex flex-col gap-2">
+            <h2 class="px-1 text-sm font-medium">Tailscale</h2>
             <p class="px-1 text-xs text-muted-foreground">
-              Let your other computers use this one over
+              Or let your other computers use this one over
               <a class="text-primary underline underline-offset-2" href="https://tailscale.com" target="_blank" rel="noreferrer">Tailscale</a>.
               Resolve and the agents keep running here; only devices logged in to your Tailscale account get in.
             </p>

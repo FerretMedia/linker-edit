@@ -1,4 +1,5 @@
-// The desktop window. It shows this computer's Linker-Edit, or the one on another of the user's computers over Tailscale.
+// The desktop window. It shows this computer's Linker-Edit, or the one on another of the user's computers, over
+// Tailscale or Linker Connect.
 // `linker-edit` starts the server and then this, with the server's address in LINKER_EDIT_URL. The installed app
 // has no LINKER_EDIT_URL: it starts the server it ships with, and keeps itself up to date from GitHub releases
 // (desktop/updater.ts).
@@ -28,6 +29,8 @@ const given = process.env.LINKER_EDIT_URL ?? (app.isPackaged ? null : "http://lo
 let home = given ?? "";
 // Only these origins may load in the window: this computer, and the computers it last listed.
 const allowed = new Set<string>();
+// Those of them reached through Linker Connect, which this computer's server signs in to first.
+const viaLinker = new Set<string>();
 let server: ChildProcess | null = null;
 // The server is being stopped on purpose, to install an update.
 let stoppingServer = false;
@@ -46,8 +49,30 @@ async function listComputers(): Promise<Computers & { home: string }> {
   const response = await fetch(`${home}/api/computers`, { signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`Linker-Edit answered ${response.status}.`);
   const computers = (await response.json()) as Computers;
-  for (const computer of computers.others) allowed.add(new URL(computer.url).origin);
+  for (const computer of computers.others) {
+    const origin = new URL(computer.url).origin;
+    allowed.add(origin);
+    if (computer.via === "linker") viaLinker.add(origin);
+  }
   return { ...computers, home };
+}
+
+/**
+ * Where to load to open a Linker Connect computer: this computer's server asks it for a one-time code with
+ * your Linker sign-in, and the address swaps that code for a session cookie on it.
+ */
+async function signInTo(url: string): Promise<string> {
+  const response = await fetch(`${home}/api/connect/open`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = (await response.json().catch(() => ({}))) as { url?: unknown; error?: unknown };
+  if (!response.ok || typeof body.url !== "string") {
+    throw new Error(typeof body.error === "string" ? body.error : `Linker-Edit answered ${response.status}.`);
+  }
+  return body.url;
 }
 
 const STARTING = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
@@ -107,7 +132,9 @@ function createWindow(): BrowserWindow {
     if (home && originOf(url) !== homeOrigin() && status >= 400) {
       backHome(
         "That computer didn't let you in.",
-        "Remote access only lets in devices logged in to the same Tailscale account as that computer.",
+        viaLinker.has(originOf(url) ?? "")
+          ? "Linker Connect only lets in computers signed in to the same Linker account. Pick it again in the computer menu."
+          : "Remote access only lets in devices logged in to the same Tailscale account as that computer.",
       );
     }
   });
@@ -115,7 +142,7 @@ function createWindow(): BrowserWindow {
     if (!mainFrame || !home) return;
     // The server may still be starting, as with `npm run dev:desktop`.
     if (originOf(url) === homeOrigin()) setTimeout(() => void window.loadURL(home), 1000);
-    else backHome("Couldn't reach that computer.", `Is it on, with Linker-Edit running and remote access on? (${description})`);
+    else backHome("Couldn't reach that computer.", `Is it on, with Linker-Edit running and remote access or Linker Connect on? (${description})`);
   });
 
   const recolor = () => {
@@ -316,8 +343,22 @@ void app.whenReady().then(async () => {
   if (home) allowed.add(new URL(home).origin);
   const window = createWindow();
   ipcMain.handle("computers", () => listComputers());
-  ipcMain.handle("open", (_event, url: unknown) => {
-    if (typeof url === "string" && allowed.has(originOf(url) ?? "")) void window.loadURL(url);
+  ipcMain.handle("open", async (_event, url: unknown) => {
+    const origin = typeof url === "string" ? originOf(url) : null;
+    if (!origin || !allowed.has(origin)) return;
+    if (!viaLinker.has(origin)) {
+      void window.loadURL(url as string);
+      return;
+    }
+    try {
+      void window.loadURL(await signInTo(origin));
+    } catch (error) {
+      void dialog.showMessageBox(window, {
+        type: "warning",
+        message: "Couldn't open that computer.",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
   // What pages of older Linker-Edits ask; newer ones get the update from the server.
   ipcMain.handle("update", () => (updates ? legacyUpdate(updates.state()) : null));

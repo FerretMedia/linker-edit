@@ -37,6 +37,8 @@ interface UserConfig {
   linkerAppUrl?: string;
   /** An OAuth client id for signing in with Linker, instead of the one Linker publishes for Linker-Edit. */
   linkerClientId?: string;
+  /** Your own cloudflared for Linker Connect, instead of one on PATH or the one Linker-Edit downloads. */
+  cloudflared?: string;
 }
 
 export interface ResolveMcpConfig {
@@ -64,6 +66,8 @@ export interface AppConfig {
   libraryCacheDir: string;
   /** Signing in with a Linker account; file is where the sign-in is kept. */
   linker: { authServer: string; appUrl: string; clientId?: string; file: string };
+  /** Linker Connect: this computer's link and tunnel token, the devices signed in through it, and cloudflared. */
+  connect: { file: string; sessionsFile: string; cloudflared?: string };
   /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
   apiToken: string;
   resolveMcp: ResolveMcpConfig;
@@ -115,6 +119,11 @@ export function loadConfig(
       appUrl: user.linkerAppUrl ?? "https://app.linker.cool",
       ...(user.linkerClientId ? { clientId: user.linkerClientId } : {}),
       file: path.join(path.dirname(file), "linker-account.json"),
+    },
+    connect: {
+      file: path.join(path.dirname(file), "connect.json"),
+      sessionsFile: path.join(path.dirname(file), "connect-sessions.json"),
+      ...(user.cloudflared ? { cloudflared: user.cloudflared } : {}),
     },
     apiToken: randomBytes(24).toString("hex"),
     resolveMcp: { command: user.resolveMcp ?? findMcp() },
