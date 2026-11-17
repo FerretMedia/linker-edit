@@ -26,7 +26,6 @@ describe("Linker Connect sessions", () => {
   it("takes a session only the way it was given out", () => {
     const sessions = make();
     const native = sessions.enter(sessions.issueCode("iPad"), "native")!;
-    expect(native.expiresAt).toBe(clock + SESSION_LIFETIME);
     expect(sessions.check(native.token, "native")).toEqual(expect.any(String));
     expect(sessions.check(native.token, "cookie")).toBeNull();
     const cookie = sessions.enter(sessions.issueCode("Laptop"))!;

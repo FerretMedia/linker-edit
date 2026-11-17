@@ -395,19 +395,15 @@ describe("Linker Connect", () => {
     expect((await request("GET", "/", { authorization: "Bearer guess" })).status).toBe(200);
     // And the native route is only for the tunnel.
     expect((await request("POST", "/api/connect/native", { host: TUNNEL, "x-forwarded-for": "203.0.113.9" }, { code: "x" })).status).toBe(403);
-    on = false;
-    try {
-      expect((await request("GET", "/", { ...viaTunnel, ...bearer })).status).toBe(403);
-    } finally {
-      on = true;
-    }
   });
 
   it("turns the tunnel away while Linker Connect is off", async () => {
     const cookie = await signIn();
+    const authorization = `Bearer ${await signInNative()}`;
     on = false;
     try {
       expect((await request("GET", "/", { ...viaTunnel, cookie })).status).toBe(403);
+      expect((await request("GET", "/", { ...viaTunnel, authorization })).status).toBe(403);
     } finally {
       on = true;
     }
