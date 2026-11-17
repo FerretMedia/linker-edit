@@ -21,9 +21,10 @@ and fight scope creep: do what was asked, minimally and properly.
 ## Layout
 
 An npm workspaces monorepo; run `npm` from the root, which forwards to the app.
-`apps/` holds the apps, `packages/` shared libraries (each a workspace with a
-`package.json`), `docs/` plans. The app, published to npm as `linker-edit`, is
-`apps/desktop`; paths here are in it:
+`apps/` holds the apps, `packages/` shared libraries (each a workspace), `docs/`
+plans. The SwiftUI iPad app (`apps/ipad`) is verified only by the `ipad.yml` CI
+on a pushed branch: no Swift here. The app, published to npm as `linker-edit`,
+is `apps/desktop`; paths here are in it:
 
 - `server/`: all state (projects, threads, turns, approvals); `/ws` and `/api`
 - `server/providers`: Claude and Codex sessions, and replaying a recorded turn

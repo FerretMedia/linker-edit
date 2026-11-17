@@ -114,7 +114,7 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app.
 
 - `apps/desktop`: the app, published to npm as `linker-edit`: the Node server (`server/`), the UI (`src/`), the Electron window (`desktop/`), their tests and build scripts. Its commands run in this folder, so a relative path you give them, like `LINKER_EDIT_REPLAY` below, is from here.
-- `apps/`: the other apps, such as the iPad app.
+- `apps/ipad`: the native iPad app (SwiftUI), a remote for the desktop app on your edit computer. It isn't released yet; see [its README](apps/ipad/README.md). It builds only on macOS, so pull requests that change it are built and tested on GitHub's Mac runners.
 - `packages/`: libraries the apps share, each a workspace with its own `package.json`.
 - `docs/`: plans.
 
@@ -276,6 +276,7 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
 - `node apps/desktop/scripts/update-smoke.ts`, after `npm run build && node apps/desktop/scripts/build-desktop.ts --dir`: starts the unpacked desktop app against an update feed on your computer and checks that it downloads the update, stops its server and quits to install it, and says so when the install didn't take. On Linux, run it under `xvfb-run`.
+- `RECORD_IPAD_FIXTURES=1 npm test -- scripts/ipad-fixtures.test.ts`: records what the server sends over `/ws` into the iPad app's test fixtures. Run it after changing `shared/protocol.ts`; the iPad CI then checks the Swift models still read every message.
 - `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing
