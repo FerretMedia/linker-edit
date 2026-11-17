@@ -11,3 +11,6 @@ release/
 apps/desktop/README.md
 apps/desktop/LICENSE
 apps/desktop/NOTICE
+
+# Rust
+/target/

@@ -1,0 +1,16 @@
+[package]
+name = "linker-edit"
+description = "Open-source AI for video editing: Claude and Codex edit your DaVinci Resolve project directly"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "linker-edit"
+path = "src/main.rs"
+
+[dependencies]
+linker-edit-protocol.workspace = true
+linker-edit-server.workspace = true
+anyhow.workspace = true
+tokio.workspace = true

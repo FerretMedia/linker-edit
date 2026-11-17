@@ -1,0 +1,35 @@
+# The Rust side of the monorepo: the server, the GPUI window and the .drp library.
+# npm workspaces (package.json) still hold the browser UI in apps/desktop.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/FerretMedia/linker-edit"
+
+[workspace.dependencies]
+linker-edit-protocol = { path = "crates/protocol" }
+linker-edit-server = { path = "crates/server" }
+linker-edit-drp = { path = "crates/drp" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+axum = { version = "0.8", features = ["ws"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
+rmcp = "3"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.11"
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true
