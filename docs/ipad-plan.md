@@ -20,8 +20,8 @@ bridges:
 | Bridge | What it does | Status |
 |---|---|---|
 | **A. Remote brain** | The iPad is a client of the desktop Linker-Edit host. The agent edits in *desktop* Resolve (full scripting), the iPad shows chat, tool cards and previews. | Works today over Tailscale in Safari; UI isn't touch/responsive yet |
-| **B. Cloud handoff** | Desktop puts the project in a **Blackmagic Cloud project library** (`ExportProject` → `ImportCloudProject`), proxies sync, the iPad opens the same project. Later edits go to the cloud project. | Documented scripting APIs; needs live test |
-| **C. File handoff** | Our own **.drp/.drt reader/patcher** (reverse engineered) + proxy bundle, handed to the iPad via Files/share sheet. Works offline, no cloud. | Reader works on samples; iPad import untested |
+| **B. Cloud, by hand** | *You* move the project into a Blackmagic Cloud library in Resolve's Project Manager and open it on the iPad. Linker-Edit never automates any of it (see "Blackmagic Cloud rules"); it only shows the steps and recognises the project once you've opened it. | Manual only |
+| **C. File handoff** (primary) | Our own **.drp/.drt reader/patcher** (from the files Resolve exports) + proxy bundle, handed to the iPad via Files/share sheet. Works offline, no cloud. | Reader works on samples; iPad import untested |
 | **D. Hardware remote** (optional) | An ESP32 paired to the iPad as a Bluetooth keyboard, typing Resolve shortcuts on command from our app. | Prototype idea only |
 
 ## What the research found
@@ -55,12 +55,12 @@ bridges:
   (`CLOUD_SYNC_NONE / PROXY_ONLY / PROXY_AND_ORIG`), `_IS_CAMERA_ACCESS`.
 - Per-clip status via `GetClipProperty("Cloud Sync")`.
 - **No key to choose the library**; libraries are created only on the Cloud website.
-- No public Blackmagic Cloud REST API. Its terms forbid reverse engineering (17.3) and using
-  the service "with the assistance of any automated scripting tool" without permission (31.5).
-  → We **never** touch Cloud endpoints directly; only Resolve's own scripting API, run by the
-  user's action. See Decision 3.
-- Already in the app: `open_project.py` loads cloud projects; `server/projects/link.ts` treats
-  non-Disk/PostgreSQL DBs as cloud (a guess). Nothing calls Create/ImportCloudProject yet.
+- No public Blackmagic Cloud REST API. Its [terms](https://static.cloud.blackmagicdesign.com/html/terms)
+  forbid reverse engineering it (17.3), using it "with the assistance of any automated scripting
+  tool or software, other than as provided or expressly permitted by us" (31.5), and getting
+  around its limits (31.12). So none of the calls above are used. See "Blackmagic Cloud rules".
+- `open_project.py` on main called `LoadCloudProject`; the fix/cloud-terms PR removes it, so a
+  cloud project is only recognised once you've opened it in Resolve yourself.
 
 **iPad client** (repo read on origin/main b43861a):
 - One WebSocket `/ws` + same-origin HTTP (`/preview`, `/media`, `/library`, `/api/timeline`),
@@ -85,9 +85,10 @@ reader removes that limit for *reading*:
    the host exports it as `.drt` from X's backup (or patches a `.drt` from the .drp), then
    `ImportTimelineFromFile` into the open project Y. Media pool items come along.
 3. **Open on iPad** (one button per project, desktop and iPad UI):
-   - Project already **cloud**-linked → show "Open *<name>* in Resolve → Blackmagic Cloud → <library>".
-   - **Local/network** project → "Send to iPad": choose **Cloud** (bridge B) or **File**
-     (bridge C), progress shown until proxies are synced / bundle is ready.
+   - **Local/network** project → "Send to iPad" builds the file bundle (bridge C): a .drp
+     (or .drt/FCPXML) plus proxies, progress shown until it's ready to save to Files.
+   - Project already **cloud**-linked → only text: "On the iPad, open Resolve → Project
+     Manager → Blackmagic Cloud → *<name>*". Nothing is automated.
 
 ## Phase 0 — live checks (do these first, ~1 hour, needs you + the iPad)
 
@@ -99,9 +100,9 @@ The two biggest unknowns decide which bridge is primary. Nothing gets built on a
       .drp, .drt and .fcpxml?
 - [ ] Patch one clip's `Start` in that .drp by hand (I'll prepare the file), import on iPad.
       Proves a hand-edited .drp is accepted.
-- [ ] Create a Blackmagic Cloud project library on the website; sign in on desktop + iPad.
-      Run `ImportCloudProject` on a scratch .drp with `PROXY_ONLY` (I'll script it). Check:
-      which library it lands in, whether proxies sync and relink on the iPad by themselves.
+- [ ] Optional, all by hand in Resolve (no scripts): move a scratch project into a Blackmagic
+      Cloud library with proxy-only sync and open it on the iPad. Tells us whether to describe
+      this route in the "Send to iPad" dialog.
 - [ ] Open Linker-Edit in iPad Safari over Tailscale (`https://<host>:8443`) and note what's
       broken.
 - [ ] Optional: pair any Bluetooth keyboard to the iPad and check which Resolve shortcuts work
@@ -116,32 +117,39 @@ Each thread is a T3 worktree thread from `origin/main`, one PR each, like the li
 | 1 | `feat/ipad-web` | A | — | Responsive + touch UI: sidebar drawer ≤1024px, preview as sheet/overlay, long-press menus, always-visible row actions, 44px targets, safe areas, `manifest.webmanifest` + icons, iPad Safari e2e viewport in Playwright. |
 | 2 | `feat/drp-format` | C | — | `server/drp/`: zero-dep reader (from `docs/ipad/drp-dump.mjs`), typed model (project, media pool, timelines, clips), patcher for cut-level edits that keeps blobs untouched, version-gate check. Fixtures from desktop exports. Vendoring the MIT drp-format library is allowed where it saves work. |
 | 3 | `feat/project-browser` | — | 2 | "Browse any project without opening it" + "pull timeline from project X into Y" (.drt export/import, enable `.drt` in `import_timeline`'s `IMPORTABLE`). UI in sidebar/library. |
-| 4 | `feat/cloud-handoff` | B | Phase 0 cloud check | "Send to iPad → Cloud": save → `ExportProject` → `ImportCloudProject(PROXY_ONLY)` → `LoadCloudProject` → generate proxies → watch `Cloud Sync` status; relink the Linker-Edit project as `cloud`; fix `linkKind` from a real cloud `GetCurrentDatabase()`. **User-only action**: `server/policy.ts` keeps agents away from cloud calls. |
-| 5 | `feat/ipad-bundle` | C | 2, Phase 0 file check | "Send to iPad → File": render proxies (`server/resolve/render.ts`), patched .drp (or .drt/FCPXML, whichever the iPad accepts best) pointing at proxy names, zipped bundle, `navigator.share({files})` / download from the iPad UI. |
+| 4 | — | B | — | **Dropped.** Automating Blackmagic Cloud would break its terms (31.5). Done instead: the `fix/cloud-terms` PR, which removes our only cloud call and adds a guard test. |
+| 5 | `feat/ipad-bundle` | C | 2, Phase 0 file check | "Send to iPad": render proxies (`server/resolve/render.ts`), patched .drp (or .drt/FCPXML, whichever the iPad accepts best) pointing at proxy names, zipped bundle, `navigator.share({files})` / download from the iPad UI. |
 | 6 | `feat/connect-browser` (+ Linker PR) | A | — | Hosted Linker sign-in page that mints the Connect session code, so the iPad works without Tailscale. One hub origin listing your host computers. |
 | 7 | `feat/ipad-app` | A | 1, 6 | Capacitor wrapper of the SvelteKit build: configurable host URL, bearer-token auth on `/ws` + HTTP (Origin check / SameSite cookies block `capacitor://`), Clerk PKCE sign-in, APNs push for approvals/finished turns, native share sheet + Files. CI: GitHub Actions macOS + fastlane `match`/`pilot` → TestFlight. |
 | 8 | `hw/ble-remote` (separate repo) | D | Phase 0 keyboard check | Optional: ESP32-S3 BLE HID keyboard firmware + a GATT command channel; app sends "blade at playhead", "next clip", etc. Keystrokes only, no feedback from Resolve. |
 
 **Wave 1 (now, in parallel):** 1, 2, 6.
-**Wave 2 (after Phase 0):** 3, 4, 5.
+**Wave 2 (after Phase 0):** 3, 5.
 **Wave 3:** 7, then optionally 8.
 
 Native SwiftUI is deliberately skipped: it duplicates every UI change. Revisit only if the
 web UI is the limit on iPad.
 
+## Blackmagic Cloud rules (decided 2026-11-17)
+
+You chose not to risk the [Blackmagic Cloud terms](https://static.cloud.blackmagicdesign.com/html/terms).
+These are hard rules for every thread (also in `AGENTS.md`):
+
+- No `CreateCloudProject`, `LoadCloudProject`, `ImportCloudProject`, `RestoreCloudProject` or
+  `CLOUD_*` settings, from our scripts or the agent's (`server/policy.ts` refuses them; a test
+  fails if a script names them).
+- No requests to Blackmagic Cloud servers, no probing their endpoints, no automating their
+  website, no reverse engineering the service.
+- Cloud projects are moved, opened and synced by you, in Resolve. Linker-Edit only recognises
+  one once it's open, and may show written steps.
+- Reverse engineering applies to **files only**: .drp/.drt exports on your own disk.
+
 ## Decisions for you
 
-1. **Primary handoff: Cloud (B) or File (C)?** Recommendation: build both, but make Cloud the
-   default if Phase 0 shows proxies relink by themselves — it also covers "keep editing on
-   desktop, see it on iPad". File is the offline/no-subscription fallback.
+1. **File handoff (C) is the primary path.** Cloud stays manual.
 2. **Apple Developer account** ($99/yr) for thread 7. Until then, the PWA from thread 1 is
    the iPad app (Add to Home Screen).
-3. **Blackmagic Cloud terms, clause 31.5.** It's ambiguous whether Resolve's *own* scripting
-   API touching a cloud project counts as an "automated scripting tool". Our position: only
-   documented Resolve APIs, only on your explicit "Send to iPad" click, never agent-driven,
-   never direct Cloud endpoints. If you'd rather be strict, thread 4 drops and File (C) +
-   manual cloud upload is the route.
-4. **Speed Editor emulation: not planned.** Its Bluetooth link uses a challenge/response
+3. **Speed Editor emulation: not planned.** Its Bluetooth link uses a challenge/response
    authentication (documented by [smunaut/blackmagic-misc](https://github.com/smunaut/blackmagic-misc));
    faking a genuine device means getting around that check. A plain Bluetooth keyboard (8)
    gets most of the value without it.
