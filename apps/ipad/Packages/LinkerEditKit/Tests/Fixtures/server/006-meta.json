@@ -1,0 +1,137 @@
+{
+  "type": "meta",
+  "meta": {
+    "projects": [
+      {
+        "id": "project-1",
+        "name": "Interview",
+        "dir": "/work",
+        "link": {
+          "kind": "local",
+          "name": "Interview",
+          "projectId": "resolve-interview"
+        },
+        "local": {
+          "database": {
+            "type": "Disk",
+            "name": "Local Database"
+          }
+        },
+        "open": true,
+        "icon": null,
+        "pinned": false,
+        "archived": false,
+        "threads": [
+          {
+            "id": "thread-1",
+            "title": "Silences",
+            "updatedAt": "2026-11-17T09:00:00.000Z",
+            "createdAt": "2026-11-17T09:00:00.000Z",
+            "pinnedAt": null,
+            "settledAt": null,
+            "unsettledAt": null,
+            "snoozedUntil": null,
+            "snoozedAt": null,
+            "lastReadAt": null,
+            "lastSentAt": null,
+            "turnEndedAt": null,
+            "archived": false,
+            "busy": false,
+            "waiting": false
+          }
+        ]
+      },
+      {
+        "id": "project-2",
+        "name": "Promo",
+        "dir": "/promo",
+        "link": {
+          "kind": "local",
+          "name": "Promo",
+          "projectId": "resolve-promo"
+        },
+        "local": {},
+        "open": false,
+        "icon": null,
+        "pinned": false,
+        "archived": false,
+        "threads": [
+          {
+            "id": "thread-2",
+            "title": "Titles",
+            "updatedAt": "2026-11-17T09:00:00.000Z",
+            "createdAt": "2026-11-17T09:00:00.000Z",
+            "pinnedAt": null,
+            "settledAt": null,
+            "unsettledAt": null,
+            "snoozedUntil": null,
+            "snoozedAt": null,
+            "lastReadAt": null,
+            "lastSentAt": null,
+            "turnEndedAt": null,
+            "archived": false,
+            "busy": false,
+            "waiting": false
+          }
+        ]
+      }
+    ],
+    "threadId": "thread-1",
+    "projectId": "project-1",
+    "provider": "claude",
+    "defaultProvider": "claude",
+    "approvalMode": "ask",
+    "busy": false,
+    "approvals": [],
+    "resolve": {
+      "state": "connected",
+      "product": "DaVinci Resolve Studio",
+      "version": "21.1.2",
+      "project": "Interview",
+      "projectId": "resolve-interview",
+      "database": {
+        "type": "Disk",
+        "name": "Local Database"
+      },
+      "timeline": "Cut"
+    },
+    "resolveHere": true,
+    "version": "0.0.0",
+    "update": null,
+    "appUpdate": null,
+    "workspaceDir": "/work",
+    "preview": {
+      "state": "idle"
+    },
+    "context": null,
+    "blocked": null,
+    "opening": null,
+    "applying": null,
+    "transcription": {
+      "state": "idle"
+    },
+    "remote": {
+      "state": "unavailable",
+      "hint": "Remote access isn't available in this build."
+    },
+    "connect": {
+      "state": "signed_out",
+      "url": null,
+      "connected": false,
+      "step": null,
+      "problem": null,
+      "computerId": "",
+      "computers": null,
+      "limit": 3,
+      "atLimit": false,
+      "devices": []
+    },
+    "computer": "edit-pc",
+    "setup": null,
+    "linker": {
+      "state": "signed_out",
+      "problem": null
+    },
+    "collections": []
+  }
+}
