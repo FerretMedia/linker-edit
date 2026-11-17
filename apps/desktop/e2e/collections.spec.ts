@@ -73,10 +73,3 @@ test("a workspace is set up with AI in a thread of its own, and can be set to wo
   await alone.click();
   await expect(alone).toBeChecked();
 });
-  await page.getByRole("menuitem", { name: "Project settings" }).click();
-  await page.getByRole("combobox", { name: "Workspace / series" }).selectOption({ label: "Studio North" });
-  await page.getByRole("button", { name: "Save" }).click();
-  await sidebar.getByRole("button", { name: "New thread in workspace" }).click();
-  await expect(page.getByRole("heading", { name: "New video" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Make the first cut" })).toBeDisabled();
-});
