@@ -21,6 +21,20 @@ describe("requestSource", () => {
   ])("%s", (_name, headers, current, expected) => {
     expect(requestSource(headers, current)).toBe(expected);
   });
+
+  const tunnel = "edit-0123456789abcdef.linker.cool";
+  const viaCloudflare = { "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "203.0.113.9", "cf-ray": "8f00-AMS" };
+  it.each([
+    ["the Linker Connect tunnel", { host: tunnel, ...viaCloudflare }, tunnel, "connect"],
+    ["the tunnel while Linker Connect is off", { host: tunnel, ...viaCloudflare }, null, null],
+    ["another address at Cloudflare", { host: "edit-ffffffffffffffff.linker.cool", ...viaCloudflare }, tunnel, null],
+    ["the tunnel faking Tailscale's owner", { host: gate.host, ...viaCloudflare, "tailscale-user-login": "jane@example.com" }, tunnel, null],
+    ["the tunnel claiming to be local", { host: "127.0.0.1:4317", ...viaCloudflare }, tunnel, null],
+    ["Tailscale's owner while Linker Connect is on", { host: gate.host, ...viaServe }, tunnel, "remote"],
+    ["this computer while Linker Connect is on", { host: "127.0.0.1:4317" }, tunnel, "local"],
+  ])("%s", (_name, headers, connectHost, expected) => {
+    expect(requestSource(headers, gate, connectHost)).toBe(expected);
+  });
 });
 
 const ok = (stdout: string): TailscaleResult => ({ code: 0, stdout, stderr: "", timedOut: false });

@@ -55,7 +55,12 @@ function fakeLinker(fake: FakeOptions = {}) {
       if (fake.refresh === "invalid_grant") return json({ error: "invalid_grant" }, 400);
       return json({ access_token: `access-${++issued}`, refresh_token: "refresh-2", expires_in: 3600 });
     }
-    if (url === `${AUTH}/oauth/userinfo`) return json({ name: "Jane Doe", email: "jane@example.com", picture: "https://img.example/jane.png" });
+    if (url === `${AUTH}/oauth/userinfo`) {
+      const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
+      if (auth === "Bearer stolen") return json({ error: "invalid_token" }, 401);
+      if (auth === "Bearer bob") return json({ sub: "user_bob", name: "Bob" });
+      return json({ sub: "user_jane", name: "Jane Doe", email: "jane@example.com", picture: "https://img.example/jane.png" });
+    }
     if (url === `${APP}/api/connector`) return json({ plan: "Max", paid: true }, fake.plan ?? 200);
     if (url === `${AUTH}/oauth/token/revoke`) return new Response(null, { status: 200 });
     return new Response("Not found", { status: 404 });
@@ -102,6 +107,26 @@ describe("pkce", () => {
     const { verifier, challenge } = pkce();
     expect(verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(challenge).toBe(createHash("sha256").update(verifier).digest("base64url"));
+  });
+});
+
+describe("who a Linker token belongs to", () => {
+  it("keeps the account's id, and checks other tokens with Linker", async () => {
+    const fake = fakeLinker();
+    const linker = linkerWith(fake);
+    expect(linker.userId()).toBeNull();
+    await signIn(linker, fake);
+    expect(linker.userId()).toBe("user_jane");
+    expect(await linker.whoIs("bob")).toBe("user_bob");
+    expect(await linker.whoIs("stolen")).toBeNull();
+    // A sign-in kept by an older Linker-Edit gets its id when it refreshes at start.
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, "linker-account.json"), "utf8")) as { session: Record<string, unknown> };
+    delete saved.session.userId;
+    fs.writeFileSync(path.join(dir, "linker-account.json"), JSON.stringify(saved));
+    const restarted = linkerWith(fake);
+    expect(restarted.userId()).toBeNull();
+    await restarted.refresh();
+    expect(restarted.userId()).toBe("user_jane");
   });
 });
 

@@ -98,6 +98,7 @@ The defaults work for a standard install. To change where things go, create `~/L
 | `linkerAuthServer` | `https://clerk.linker.cool`, Linker's sign-in; another one for testing against staging |
 | `linkerAppUrl` | `https://app.linker.cool`, Linker's dashboard and API |
 | `linkerClientId` | unset: the client Linker publishes for Linker-Edit at `app.linker.cool/oauth/linker-edit.json` |
+| `cloudflared` | unset: Linker Connect uses a `cloudflared` on PATH, or downloads its pinned release into `toolsDir` |
 
 ## Development
 
@@ -223,12 +224,26 @@ Ask for anything that depends on what's said, such as "transcribe the interview 
 - **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.
 - **Transcripts in Resolve itself:** ask for it, and the agent uses Resolve's own transcription instead. It stores the transcript on the clip, where you can edit by text. It never adds subtitles to a timeline unless you ask.
 
-## Remote access
+## Linker Connect
+
+Open your edit machine from your other computers, from anywhere, with your [Linker](https://linker.cool) account and nothing else to set up. It works like T3 Code's T3 Connect: Resolve, your footage and the agents stay on the edit machine, and your other computers show it live.
+
+1. On the edit machine, sign in with Linker, then turn on **Linker Connect** in Settings → Remote access. It gets its own address, like `https://edit-0123456789abcdef.linker.cool`.
+2. On the other computer, run Linker-Edit, sign in with the **same** Linker account, open the computer menu at the top of the sidebar and pick the edit machine.
+
+- **Up to 3 edit computers per Linker account.** The computers you only work from don't count. Unlink one in the same settings to make room.
+- **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
+- **Linker makes the tunnel, not the traffic.** Linker only gives the edit machine a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/); chats, previews and media go through the tunnel straight to your edit machine. Linker-Edit runs `cloudflared` for it: one on PATH, or a pinned release it downloads once (20 to 55 MB) and checks by hash.
+- **It stays on** across restarts, and is reachable while Linker-Edit runs on the edit machine.
+
+See [docs/sync-plan.md](docs/sync-plan.md) for how it's built.
+
+## Remote access over Tailscale
 
 Chat from another computer, such as a laptop on the couch or a PC at the office, while Resolve, your footage and the agents stay on your edit machine. It goes over your own [Tailscale](https://tailscale.com) network, so nothing is opened to the internet.
 
 1. Install Tailscale on both computers and log in to the same account.
-2. On the edit machine, open the computer menu at the top of the sidebar, choose **Remote access…**, then **Turn on**.
+2. On the edit machine, open the computer menu at the top of the sidebar, choose **Remote access…**, then **Turn on** under Tailscale.
 3. On the other computer, run Linker-Edit too, open the same computer menu and pick the edit machine. Everything you send now goes to the edit machine; pick **this computer** to go back.
 
 Only your own computers show up in that menu, and only once remote access is on and Linker-Edit is running on them. The menu shows each computer's version, and marks one that's behind; open it, and its sidebar offers to restart Linker-Edit there into the new version. The address in the dialog, like `https://studio.tail1234.ts.net:8443`, also works in a browser on your devices, such as a tablet.

@@ -7,7 +7,9 @@ import type { ClientMessage } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
 import type { LinkerService } from "./linker.ts";
 import type { Computer } from "../shared/protocol.ts";
-import { requestSource, type RemoteGate } from "./remote.ts";
+import type { ConnectService } from "./connect/connect.ts";
+import type { Sessions } from "./connect/sessions.ts";
+import { probeLinkerEdit, requestSource, type Probe, type RemoteGate } from "./remote.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -142,6 +144,48 @@ const noRemote: RemoteRoutes = { gate: () => null, computers: async () => [] };
 /** Signing in with Linker in the browser; see server/linker.ts. */
 export type LinkerRoutes = Pick<LinkerService, "start" | "finish">;
 
+/** Linker Connect (server/connect/connect.ts): this computer's tunnel, and opening your other computers. */
+export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "open" | "others"> & {
+  sessions: Pick<Sessions, "enter" | "check" | "onRevoke">;
+  /** Asks another computer's Linker-Edit its name and version; tests replace it. */
+  probe?: Probe;
+};
+
+const SESSION_COOKIE = "linker_edit_session";
+
+/** One cookie's value from a Cookie header. */
+export function cookieValue(header: string | undefined, name: string): string | null {
+  for (const part of (header ?? "").split(";")) {
+    const index = part.indexOf("=");
+    if (index > 0 && part.slice(0, index).trim() === name) return part.slice(index + 1).trim() || null;
+  }
+  return null;
+}
+
+/** A small JSON body; anything larger than limit characters is refused. */
+function readSmallJson(req: http.IncomingMessage, limit = 4096): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk: string) => {
+      body += chunk;
+      if (body.length > limit) {
+        reject(new Error("Too large."));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      try {
+        const value = JSON.parse(body || "{}") as unknown;
+        resolve(value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 
@@ -161,11 +205,16 @@ export function createServer(
   apiToken: string,
   remote: RemoteRoutes = noRemote,
   linker?: LinkerRoutes,
+  connect?: ConnectRoutes,
 ): http.Server {
   const gate = remote.gate;
+  const connectHost = () => connect?.host() ?? null;
+  const sourceOf = (req: http.IncomingMessage) => requestSource(req.headers, gate(), connectHost());
+  const sessionOf = (req: http.IncomingMessage) => connect?.sessions.check(cookieValue(req.headers.cookie, SESSION_COOKIE)) ?? null;
   const server = http.createServer((req, res) => {
     // Also turns away pages on other sites whose name was pointed at 127.0.0.1 (DNS rebinding).
-    if (!requestSource(req.headers, gate())) {
+    const source = sourceOf(req);
+    if (!source) {
       res.writeHead(403).end("Not allowed. Remote access is only for devices logged in to this computer's Tailscale account.");
       return;
     }
@@ -181,29 +230,88 @@ export function createServer(
     }
     const json = (status: number, body: unknown) =>
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(body));
+    const page = (status: number, title: string, text: string) =>
+      res
+        .writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
+        .end(linkerPage(title, text));
     // How the desktop app on the user's other computers recognizes this one.
     if (urlPath === "/api/hello") {
       json(200, { app: "linker-edit", name: os.hostname(), version: app.version });
       return;
     }
+    if (source === "connect" && connect) {
+      // Through the Linker Connect tunnel, only these two get in without a session: they make one.
+      if (urlPath === "/api/connect/session") {
+        const auth = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
+        if (req.method !== "POST" || !auth) {
+          json(401, { error: "Open this computer from Linker-Edit's computer menu, signed in with Linker." });
+          return;
+        }
+        readSmallJson(req)
+          .then((body) => connect.admit(auth, typeof body.name === "string" ? body.name : ""))
+          .then((result) => ("code" in result ? json(200, result) : json(result.status, { error: result.error })))
+          .catch(() => json(400, { error: "Bad request." }));
+        return;
+      }
+      if (urlPath === "/api/connect/enter") {
+        const entered = connect.sessions.enter(query.get("code") ?? "");
+        if (!entered) {
+          page(401, "That link ran out", `Open ${os.hostname()} again from Linker-Edit's computer menu.`);
+          return;
+        }
+        res
+          .writeHead(302, {
+            location: "/",
+            "cache-control": "no-store",
+            "referrer-policy": "no-referrer",
+            "set-cookie": `${SESSION_COOKIE}=${entered.token}; Path=/; Max-Age=${entered.maxAgeSeconds}; HttpOnly; Secure; SameSite=Lax`,
+          })
+          .end();
+        return;
+      }
+      if (!sessionOf(req)) {
+        page(401, "Signed out", `Open ${os.hostname()} from Linker-Edit's computer menu, signed in with the same Linker account.`);
+        return;
+      }
+    }
+    // The desktop app opening another of your Linker Connect computers: only from this computer itself.
+    if (urlPath === "/api/connect/open") {
+      if (source !== "local" || req.method !== "POST" || !isAllowedOrigin(req.headers.origin, req.headers.host) || !connect) {
+        json(403, { error: "Not allowed." });
+        return;
+      }
+      readSmallJson(req)
+        .then((body) => {
+          if (typeof body.url !== "string") throw new Error("url must be the computer's address.");
+          return connect.open(body.url);
+        })
+        .then((url) => json(200, { url }))
+        .catch((error: unknown) => json(400, { error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
     if (urlPath === "/api/computers") {
-      remote
-        .computers()
-        .then((others) => json(200, { name: os.hostname(), version: app.version, others }))
+      const probe = connect?.probe ?? probeLinkerEdit;
+      // Your other computers linked with Linker Connect, each asked its name and version through its tunnel.
+      const linked = async (): Promise<Computer[]> =>
+        Promise.all(
+          (connect ? await connect.others() : []).map(async (computer) => {
+            const origin = new URL(computer.url).origin;
+            const hello = computer.online === false ? null : await probe(origin);
+            return { name: hello?.name || computer.name, url: origin, version: hello?.version ?? "", via: "linker" as const, online: hello !== null };
+          }),
+        );
+      Promise.all([remote.computers(), linked()])
+        .then(([tailscale, viaLinker]) => json(200, { name: os.hostname(), version: app.version, others: [...tailscale, ...viaLinker] }))
         .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
       return;
     }
     if (urlPath === "/api/linker/sign-in" || urlPath === "/api/linker/callback") {
-      const page = (status: number, title: string, text: string) =>
-        res
-          .writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
-          .end(linkerPage(title, text));
       if (!linker) {
         page(404, "Linker sign-in is off", "This Linker-Edit can't sign in to Linker.");
         return;
       }
       // Linker sends the browser back to 127.0.0.1, which is only this computer.
-      if (requestSource(req.headers, gate()) !== "local") {
+      if (source !== "local") {
         page(403, "Sign in on the computer itself", "Linker can only sign in on the computer Linker-Edit runs on.");
         return;
       }
@@ -280,17 +388,34 @@ export function createServer(
     path: "/ws",
     verifyClient: (info: { origin?: string; req: http.IncomingMessage }) => {
       const current = gate();
-      switch (requestSource(info.req.headers, current)) {
+      switch (sourceOf(info.req)) {
         case "local":
           return isAllowedOrigin(info.origin, info.req.headers.host);
         case "remote":
           return info.origin === `https://${current!.host}`;
+        case "connect":
+          return info.origin === `https://${connectHost()}` && sessionOf(info.req) !== null;
         default:
           return false;
       }
     },
   });
-  wss.on("connection", (socket) => {
+  // A device signed out of Linker Connect is cut off at once, not when it next reconnects.
+  const bySession = new Map<string, Set<{ close: () => void }>>();
+  connect?.sessions.onRevoke((ids) => {
+    for (const id of ids) for (const socket of bySession.get(id) ?? []) socket.close();
+  });
+  wss.on("connection", (socket, req) => {
+    const session = sourceOf(req) === "connect" ? sessionOf(req) : null;
+    if (session) {
+      const sockets = bySession.get(session) ?? new Set();
+      sockets.add(socket);
+      bySession.set(session, sockets);
+      socket.on("close", () => {
+        sockets.delete(socket);
+        if (sockets.size === 0) bySession.delete(session);
+      });
+    }
     const client = { send: (data: string) => socket.send(data) };
     const disconnect = app.connect(client);
     socket.on("message", (data) => {

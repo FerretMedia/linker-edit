@@ -10,7 +10,8 @@ import { createApp } from "./app.ts";
 import { memoryLibraryStore } from "./library/folders.ts";
 import { createLibrary } from "./library/library.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
-import { byteRange, createServer, isAllowedOrigin, staticFile } from "./http.ts";
+import { createSessions } from "./connect/sessions.ts";
+import { byteRange, createServer, isAllowedOrigin, staticFile, type ConnectRoutes } from "./http.ts";
 import type { RemoteGate } from "./remote.ts";
 
 describe("isAllowedOrigin", () => {
@@ -207,6 +208,130 @@ describe("server", () => {
     const [data] = (await once(socket, "message")) as [Buffer];
     expect(JSON.parse(String(data))).toMatchObject({ type: "snapshot", state: { busy: false, items: [] } });
     socket.close();
+  });
+});
+
+describe("Linker Connect", () => {
+  const TUNNEL = "edit-0123456789abcdef.linker.example";
+  const viaTunnel = { host: TUNNEL, "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "203.0.113.9" };
+  let server: http.Server;
+  let port: number;
+  let on = true;
+  const sessions = createSessions({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-http-connect-")), "sessions.json") });
+  const opened: string[] = [];
+
+  beforeAll(async () => {
+    const app = createApp({
+      version: "0.0.0",
+      store: memoryProjectStore([{ project: { ...workspaceProject, dir: root } }]),
+      createSession: () => ({ send: async () => {}, resumeId: () => null }),
+      checkResolve: async () => ({ state: "not_running" }),
+    });
+    const connect: ConnectRoutes = {
+      host: () => (on ? TUNNEL : null),
+      admit: async (token) => (token === "jane" ? { code: sessions.issueCode("Laptop") } : { status: 403, error: "Not yours." }),
+      open: async (url) => {
+        opened.push(url);
+        return `${url}/api/connect/enter?code=x`;
+      },
+      others: async () => [
+        { id: "office", name: "Office", url: "https://edit-1111111111111111.linker.example", online: true, linkedAt: "", lastSeenAt: null },
+        { id: "away", name: "Away", url: "https://edit-2222222222222222.linker.example", online: false, linkedAt: "", lastSeenAt: null },
+      ],
+      sessions,
+      probe: async (url) => (url.includes("1111") ? { name: "Office PC", version: "2026.1114.1" } : null),
+    };
+    server = createServer(app, dist, "secret", { gate: () => null, computers: async () => [] }, undefined, connect);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    port = (server.address() as AddressInfo).port;
+  });
+
+  afterAll(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+
+  function request(
+    method: string,
+    urlPath: string,
+    headers: http.OutgoingHttpHeaders = {},
+    body?: unknown,
+  ): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
+    return new Promise((resolve, reject) => {
+      http
+        .request({ host: "127.0.0.1", port, path: urlPath, method, headers }, (res) => {
+          let text = "";
+          res.on("data", (chunk) => (text += chunk));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, body: text, headers: res.headers }));
+        })
+        .on("error", reject)
+        .end(body === undefined ? undefined : JSON.stringify(body));
+    });
+  }
+
+  async function signIn(): Promise<string> {
+    const admitted = await request("POST", "/api/connect/session", { ...viaTunnel, authorization: "Bearer jane" }, { name: "Laptop" });
+    expect(admitted.status).toBe(200);
+    const { code } = JSON.parse(admitted.body) as { code: string };
+    const entered = await request("GET", `/api/connect/enter?code=${code}`, viaTunnel);
+    expect(entered.status).toBe(302);
+    const cookie = String(entered.headers["set-cookie"]);
+    expect(cookie).toMatch(/HttpOnly; Secure; SameSite=Lax/);
+    return cookie.split(";")[0]!;
+  }
+
+  it("lets nothing through the tunnel without a session but the way in", async () => {
+    expect((await request("GET", "/", viaTunnel)).status).toBe(401);
+    expect((await request("GET", "/media/x", viaTunnel)).status).toBe(401);
+    expect((await request("GET", "/api/hello", viaTunnel)).status).toBe(200);
+    expect((await request("POST", "/api/connect/session", viaTunnel, {})).status).toBe(401);
+    expect((await request("POST", "/api/connect/session", { ...viaTunnel, authorization: "Bearer bob" }, {})).status).toBe(403);
+    expect((await request("GET", "/api/connect/enter?code=guess", viaTunnel)).status).toBe(401);
+    // Opening other computers and signing in with Linker are for this computer itself.
+    expect((await request("POST", "/api/connect/open", viaTunnel, { url: "https://x" })).status).toBe(401);
+    expect((await request("GET", "/api/linker/sign-in", viaTunnel)).status).toBe(401);
+  });
+
+  it("serves the app to a session, and cuts its connections off when it's signed out", async () => {
+    const cookie = await signIn();
+    expect(await request("GET", "/", { ...viaTunnel, cookie })).toMatchObject({ status: 200, body: "<html>app</html>" });
+    expect((await request("POST", "/api/connect/open", { ...viaTunnel, cookie }, { url: "https://x" })).status).toBe(403);
+
+    const refused = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: "https://evil.example", headers: { ...viaTunnel, cookie } });
+    const [refusedRequest, refusedResponse] = (await once(refused, "unexpected-response")) as [http.ClientRequest, http.IncomingMessage];
+    expect(refusedResponse.statusCode).toBe(401);
+    refusedRequest.destroy();
+
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin: `https://${TUNNEL}`, headers: { ...viaTunnel, cookie } });
+    await once(socket, "open");
+    const closed = once(socket, "close");
+    sessions.revokeAll();
+    await closed;
+    expect((await request("GET", "/", { ...viaTunnel, cookie })).status).toBe(401);
+  });
+
+  it("turns the tunnel away while Linker Connect is off", async () => {
+    const cookie = await signIn();
+    on = false;
+    try {
+      expect((await request("GET", "/", { ...viaTunnel, cookie })).status).toBe(403);
+    } finally {
+      on = true;
+    }
+  });
+
+  it("lists linked computers and opens them only for this computer", async () => {
+    const list = await request("GET", "/api/computers");
+    expect(JSON.parse(list.body).others).toEqual([
+      { name: "Office PC", url: "https://edit-1111111111111111.linker.example", version: "2026.1114.1", via: "linker", online: true },
+      { name: "Away", url: "https://edit-2222222222222222.linker.example", version: "", via: "linker", online: false },
+    ]);
+    const open = await request("POST", "/api/connect/open", { "content-type": "application/json" }, { url: "https://edit-1111111111111111.linker.example" });
+    expect(JSON.parse(open.body)).toEqual({ url: "https://edit-1111111111111111.linker.example/api/connect/enter?code=x" });
+    const fromWebsite = await request("POST", "/api/connect/open", { origin: "https://evil.example" }, { url: "https://x" });
+    expect(fromWebsite.status).toBe(403);
+    expect(opened).toEqual(["https://edit-1111111111111111.linker.example"]);
   });
 });
 

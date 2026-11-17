@@ -56,6 +56,8 @@ interface Session {
   refreshToken: string | null;
   /** Milliseconds since 1970. */
   expiresAt: number;
+  /** Linker's id for the person (the token's subject); null in sign-ins kept before Linker-Edit needed it. */
+  userId?: string | null;
   name: string;
   email: string | null;
   picture: string | null;
@@ -250,6 +252,7 @@ export function createLinker(options: LinkerOptions) {
       // Offline or Linker is busy; the name is enough.
     }
     return {
+      userId: text(info.sub),
       name: text(info.name) ?? (fullName || null) ?? text(info.preferred_username) ?? email ?? "Linker account",
       email,
       picture: text(info.picture),
@@ -389,6 +392,27 @@ export function createLinker(options: LinkerOptions) {
     },
 
     accessToken,
+
+    /** Linker's id for the person signed in here; null when signed out or not known yet. */
+    userId(): string | null {
+      const session = saved.session;
+      return session && session.authServer === authServer ? (session.userId ?? null) : null;
+    },
+
+    /**
+     * Who a Linker token belongs to, as Linker's id for them: null when Linker says the token isn't valid.
+     * Throws when Linker can't be reached, so being offline isn't taken for a wrong token.
+     */
+    async whoIs(token: string): Promise<string | null> {
+      const meta = await serverMetadata();
+      const res = await call(meta.userinfo_endpoint ?? `${authServer}/oauth/userinfo`, {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+      });
+      if (res.status === 401 || res.status === 403) return null;
+      if (!res.ok) throw new Error(`Linker didn't say who that is (${res.status}).`);
+      const sub = ((await res.json()) as { sub?: unknown }).sub;
+      return typeof sub === "string" && sub ? sub : null;
+    },
 
     /** Brings the name and plan up to date, at start. Offline keeps what was there. */
     async refresh(): Promise<void> {

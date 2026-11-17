@@ -16,7 +16,7 @@ export interface WhisperTools {
 /** What setup is doing, for the status line: a download with its percent, or null while unpacking. */
 export type SetupProgress = (step: string, percent: number | null) => void;
 
-interface Download {
+export interface Download {
   url: string;
   sha256: string;
   size: number;
@@ -64,7 +64,7 @@ const VAD_MODEL: Download = {
 };
 
 /** Downloads to a .part file and only keeps it when the hash matches, so a broken download is retried. */
-async function download(item: Download, target: string, onPercent: (percent: number) => void, signal?: AbortSignal): Promise<void> {
+export async function download(item: Download, target: string, onPercent: (percent: number) => void, signal?: AbortSignal): Promise<void> {
   if (fs.existsSync(target)) return;
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const response = await fetch(item.url, { signal });
@@ -99,7 +99,7 @@ function succeeds(file: string, args: string[]): Promise<boolean> {
   return new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout: 10_000 }, (error) => resolve(!error)));
 }
 
-function findOnPath(name: string): string | null {
+export function findOnPath(name: string): string | null {
   const names = process.platform === "win32" ? [`${name}.exe`, name] : [name];
   for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
     for (const candidate of names) {

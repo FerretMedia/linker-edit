@@ -12,6 +12,9 @@ import { fileLibraryStore } from "./library/folders.ts";
 import { createLibrary } from "./library/library.ts";
 import { ffmpegProbe } from "./library/scan.ts";
 import { createLinker } from "./linker.ts";
+import { prepareCloudflared } from "./connect/cloudflared.ts";
+import { createConnect } from "./connect/connect.ts";
+import { createSessions } from "./connect/sessions.ts";
 import { createPreviewRenderer } from "./preview/preview.ts";
 import { fileProjectStore } from "./projects/store.ts";
 import { createClaudeSession } from "./providers/claude.ts";
@@ -42,6 +45,16 @@ process.on("exit", () => resolve.close());
 const remote = createRemoteAccess({ port: config.port, servePort: config.tailscalePort });
 // The browser comes back to this server after signing in at Linker.
 const linker = createLinker({ ...config.linker, redirectUri: `http://127.0.0.1:${config.port}/api/linker/callback` });
+// Linker Connect: up to 3 of your edit computers at their own addresses at Linker, through Cloudflare Tunnels.
+const connectSessions = createSessions({ file: config.connect.sessionsFile });
+const connect = createConnect({
+  file: config.connect.file,
+  port: config.port,
+  linker,
+  appUrl: config.linker.appUrl,
+  sessions: connectSessions,
+  prepare: (onPercent) => prepareCloudflared(config.toolsDir, config.connect.cloudflared, onPercent),
+});
 
 // The desktop app started this server and talks to it over IPC: its own updates go through here.
 const appUpdates =
@@ -81,6 +94,7 @@ const app = createApp({
   }),
   remote,
   linker,
+  connect,
   settings: fileSettings(config.settingsFile),
   setup: {
     configFile: config.configFile,
@@ -92,7 +106,7 @@ const app = createApp({
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
-export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote, linker);
+export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote, linker, { ...connect, sessions: connectSessions });
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
@@ -116,6 +130,8 @@ server.listen(config.port, "127.0.0.1", () => {
   // Picks up files added to library folders while Linker-Edit was closed; unchanged files aren't measured again.
   void app.scanLibrary();
   void linker.refresh();
+  // Linker Connect stays on across restarts, like Tailscale's remote access.
+  connect.start();
   setInterval(() => {
     if (!app.busy()) void app.refreshResolve();
   }, 15_000);
