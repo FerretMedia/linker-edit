@@ -3,7 +3,8 @@ import Foundation
 // Linker Connect from the iPad: reaching an edit computer without Tailscale, signed in with Linker.
 //
 // 1. Sign in with Linker: Clerk OAuth with PKCE in ASWebAuthenticationSession, back to linkeredit://oauth/callback.
-// 2. GET https://linker.cool/api/edit/computers with the Linker access token: your linked computers.
+// 2. GET https://app.linker.cool/api/edit/computers with the Linker access token: your linked computers. The
+//    Linker token only ever goes to one of them, at https://edit-<16 hex>.linker.cool.
 // 3. POST https://<host>/api/connect/session with the Linker access token answers { code }; then
 //    POST https://<host>/api/connect/native with { code } answers { session, expiresAt }.
 // 4. Every request to the host, /ws included, sends Authorization: Bearer <session>. A 401 drops the session.
@@ -28,7 +29,7 @@ public struct LinkerOAuthConfig: Sendable, Equatable {
         callbackScheme: String = "linkeredit",
         redirectURI: String = "linkeredit://oauth/callback",
         scopes: String = "openid profile email offline_access",
-        apiBase: URL = URL(string: "https://linker.cool")!
+        apiBase: URL = URL(string: "https://app.linker.cool")!
     ) {
         self.clientID = clientID
         self.issuer = issuer
@@ -92,6 +93,8 @@ public enum ConnectError: Error, Equatable, LocalizedError {
     /// The host or Linker said no, in its own words.
     case refused(status: Int, message: String)
     case badResponse(String)
+    /// Not one of the computers linked to the Linker account: the Linker sign-in isn't sent there.
+    case notLinked(host: String)
 
     public var errorDescription: String? {
         switch self {
@@ -100,6 +103,7 @@ public enum ConnectError: Error, Equatable, LocalizedError {
         case .cancelled: return "Signing in was cancelled."
         case .refused(_, let message): return message
         case .badResponse(let message): return message
+        case .notLinked(let host): return "\(host) isn't one of the computers linked to your Linker account."
         }
     }
 }
@@ -141,6 +145,20 @@ public final class LinkerConnectClient: ConnectAuth, @unchecked Sendable {
     static func sessionKey(_ host: HostEndpoint) -> String { "session:\(host.origin)" }
     /// Refresh this long before a token runs out.
     private let margin: TimeInterval = 60
+    private let lock = NSLock()
+    /// The origins of the linked computers Linker listed last: the only places the Linker token goes.
+    private var linked: Set<String> = []
+
+    /// Linker Connect addresses look like this; the Linker token goes nowhere else.
+    public static func isLinkerComputer(_ host: HostEndpoint) -> Bool {
+        host.origin.range(of: #"^https://edit-[0-9a-f]{16}\.linker\.cool$"#, options: .regularExpression) != nil
+    }
+
+    private func isListed(_ host: HostEndpoint) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return linked.contains(host.origin)
+    }
 
     public init(
         config: LinkerOAuthConfig,
@@ -301,7 +319,13 @@ public final class LinkerConnectClient: ConnectAuth, @unchecked Sendable {
         guard status == 200, let body = try? JSONDecoder().decode(ComputersResponse.self, from: data) else {
             throw ConnectError.refused(status: status, message: Self.errorMessage(data) ?? "Linker answered \(status).")
         }
-        return body.computers.compactMap { $0.value }
+        let computers = body.computers.compactMap { $0.value }.filter { computer in
+            computer.endpoint.map(Self.isLinkerComputer) ?? false
+        }
+        lock.lock()
+        linked = Set(computers.compactMap { $0.endpoint?.origin })
+        lock.unlock()
+        return computers
     }
 
     struct CodeResponse: Decodable {
@@ -314,16 +338,19 @@ public final class LinkerConnectClient: ConnectAuth, @unchecked Sendable {
     }
 
     public func session(for host: HostEndpoint) async throws -> HostSession {
+        guard Self.isLinkerComputer(host) else { throw ConnectError.notLinked(host: host.displayName) }
         if let data = store.read(Self.sessionKey(host)),
            let kept = try? JSONDecoder().decode(HostSession.self, from: data),
            kept.expiresAt.timeIntervalSince(now()) > margin {
             return kept
         }
+        if !isListed(host) { _ = try await computers() }
+        guard isListed(host) else { throw ConnectError.notLinked(host: host.displayName) }
         let token = try await accessToken()
 
         var ask = Self.jsonRequest(host.url(path: "/api/connect/session"), method: "POST")
         ask.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        ask.httpBody = try JSONSerialization.data(withJSONObject: ["name": deviceName])
+        ask.httpBody = try JSONSerialization.data(withJSONObject: ["name": String(deviceName.prefix(64))])
         let (codeData, codeResponse) = try await http.data(for: ask)
         let codeStatus = Self.status(codeResponse)
         if codeStatus == 401 {

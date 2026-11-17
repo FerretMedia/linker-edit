@@ -15,7 +15,7 @@ final class ConnectionTests: XCTestCase {
         XCTAssertEqual(local.webSocketURL.absoluteString, "ws://127.0.0.1:4317/ws")
 
         // Browsers leave the scheme's own port out of an origin, and the host compares origins as text.
-        XCTAssertEqual(HostEndpoint(string: "https://Edit-AB12.linker.cool:443")?.origin, "https://edit-ab12.linker.cool")
+        XCTAssertEqual(HostEndpoint(string: "https://Edit-0123456789ABCDEF.linker.cool:443")?.origin, "https://edit-0123456789abcdef.linker.cool")
 
         XCTAssertNil(HostEndpoint(string: ""))
         XCTAssertNil(HostEndpoint(string: "my studio"))
@@ -24,14 +24,16 @@ final class ConnectionTests: XCTestCase {
     }
 
     func testTheUpgradeCarriesTheOriginAndTheSession() throws {
-        let host = try XCTUnwrap(HostEndpoint(string: "https://edit-ab12.linker.cool"))
+        let host = try XCTUnwrap(HostEndpoint(string: "https://edit-0123456789abcdef.linker.cool"))
         let tailscale = HostConnection.request(endpoint: host, auth: .none)
-        XCTAssertEqual(tailscale.url?.absoluteString, "wss://edit-ab12.linker.cool/ws")
-        XCTAssertEqual(tailscale.value(forHTTPHeaderField: "Origin"), "https://edit-ab12.linker.cool")
+        XCTAssertEqual(tailscale.url?.absoluteString, "wss://edit-0123456789abcdef.linker.cool/ws")
+        XCTAssertEqual(tailscale.value(forHTTPHeaderField: "Origin"), "https://edit-0123456789abcdef.linker.cool")
         XCTAssertNil(tailscale.value(forHTTPHeaderField: "Authorization"))
 
         let linker = HostConnection.request(endpoint: host, auth: .bearer("s3cret"))
         XCTAssertEqual(linker.value(forHTTPHeaderField: "Authorization"), "Bearer s3cret")
+        // A Linker Connect session needs no Origin.
+        XCTAssertNil(linker.value(forHTTPHeaderField: "Origin"))
         XCTAssertEqual(HostAuth.bearer("s3cret").headers, ["Authorization": "Bearer s3cret"])
     }
 

@@ -25,6 +25,8 @@ final class AppModel {
 
     private var connection: HostConnection?
     private var listening: Task<Void, Never>?
+    /// A refused session was already swapped for a new one since the last connection that worked.
+    private var signedInAgain = false
 
     init(demo: Bool = false) {
         self.demo = demo
@@ -102,7 +104,14 @@ final class AppModel {
         problem = nil
         do {
             if !linker.isSignedIn { try await linker.signIn() }
-            let session = try await linker.session(for: endpoint)
+            let session: HostSession
+            do {
+                session = try await linker.session(for: endpoint)
+            } catch ConnectError.signInRequired {
+                // Linker no longer takes the kept sign-in: sign in again, once.
+                try await linker.signIn()
+                session = try await linker.session(for: endpoint)
+            }
             connect(to: endpoint, auth: .bearer(session.session), via: .linker, name: name)
         } catch ConnectError.cancelled {
             return
@@ -132,6 +141,7 @@ final class AppModel {
         case .connected:
             online = true
             problem = nil
+            signedInAgain = false
         case .message(let message):
             store.apply(message)
         case .disconnected(let reason):
@@ -141,9 +151,15 @@ final class AppModel {
             let host = endpoint
             disconnect()
             if via == .linker, let host {
-                // The session ran out or this iPad was signed out on the computer: sign in again.
+                // The session ran out or this iPad was signed out on the computer: drop it and sign in again,
+                // once, so a computer that keeps refusing doesn't loop.
                 linker.dropSession(for: host)
-                problem = "\(host.displayName) signed this iPad out (\(status)). Open it again to sign in."
+                if !signedInAgain {
+                    signedInAgain = true
+                    Task { await openWithLinker(host, name: nil) }
+                } else {
+                    problem = "\(host.displayName) signed this iPad out (\(status)). Open it again to sign in."
+                }
             } else {
                 problem = "The computer turned this iPad away (\(status)). Is remote access on there, "
                     + "and is this iPad logged in to Tailscale with the computer owner's account?"

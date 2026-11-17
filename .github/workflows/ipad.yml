@@ -101,6 +101,15 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/LinkerEdit.xcresult" \
             CODE_SIGNING_ALLOWED=NO
 
+      # Every test must have run: the ones against the real server skip themselves without it.
+      - name: Test summary
+        run: |
+          for result in LinkerEditKit LinkerEdit; do
+            xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/$result.xcresult" --compact > "$RUNNER_TEMP/$result-summary.json"
+            jq -c '{result, totalTestCount, passedTests, failedTests, skippedTests}' "$RUNNER_TEMP/$result-summary.json"
+            jq -e '.failedTests == 0 and .skippedTests == 0' "$RUNNER_TEMP/$result-summary.json" > /dev/null
+          done
+
       - name: Collect screenshots
         if: always()
         run: |

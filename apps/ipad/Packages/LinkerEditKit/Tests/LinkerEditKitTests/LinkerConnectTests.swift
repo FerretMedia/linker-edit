@@ -70,7 +70,7 @@ final class FakeAuthenticator: WebAuthenticator, @unchecked Sendable {
 
 final class LinkerConnectTests: XCTestCase {
     private let issuer = URL(string: "https://clerk.linker.test")!
-    private let host = HostEndpoint(string: "https://edit-ab12.linker.cool")!
+    private let host = HostEndpoint(string: "https://edit-0123456789abcdef.linker.cool")!
     private var store = MemorySecretStore()
     private var clock = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -83,15 +83,20 @@ final class LinkerConnectTests: XCTestCase {
              "token_endpoint":"https://clerk.linker.test/oauth/token"}
             """),
             "POST https://clerk.linker.test/oauth/token": (200, #"{"access_token":"linker-1","refresh_token":"refresh-1","expires_in":3600}"#),
+            "GET https://app.linker.cool/api/edit/computers": (200, #"{"limit":3,"computers":[{"id":"c1","name":"Studio","url":"https://edit-0123456789abcdef.linker.cool"}]}"#),
         ]
         store = MemorySecretStore()
     }
 
-    private func client(clientID: String = "ipad-client", authenticator: FakeAuthenticator? = nil) -> LinkerConnectClient {
+    private func client(
+        clientID: String = "ipad-client",
+        deviceName: String = "Jane's iPad",
+        authenticator: FakeAuthenticator? = nil
+    ) -> LinkerConnectClient {
         let fixed = clock
         return LinkerConnectClient(
             config: LinkerOAuthConfig(clientID: clientID, issuer: clientID.isEmpty ? nil : issuer),
-            deviceName: "Jane's iPad",
+            deviceName: deviceName,
             store: store,
             authenticator: authenticator ?? signedInAuthenticator(),
             session: MockURLProtocol.session(),
@@ -179,12 +184,13 @@ final class LinkerConnectTests: XCTestCase {
     }
 
     func testListsTheLinkedComputers() async throws {
-        MockURLProtocol.routes["GET https://linker.cool/api/edit/computers"] = (200, """
+        MockURLProtocol.routes["GET https://app.linker.cool/api/edit/computers"] = (200, """
         {"limit":3,"computers":[
-          {"id":"0b4e7a52-0000-4000-8000-000000000001","name":"Studio","url":"https://edit-ab12.linker.cool","online":true,
+          {"id":"0b4e7a52-0000-4000-8000-000000000001","name":"Studio","url":"https://edit-0123456789abcdef.linker.cool","online":true,
            "linkedAt":"2026-11-14T10:00:00.000Z","lastSeenAt":null,"later":"field"},
-          {"id":"0b4e7a52-0000-4000-8000-000000000002","name":"Laptop","url":"https://edit-cd34.linker.cool","online":null,
+          {"id":"0b4e7a52-0000-4000-8000-000000000002","name":"Laptop","url":"https://edit-fedcba9876543210.linker.cool","online":null,
            "linkedAt":"2026-11-15T10:00:00.000Z","lastSeenAt":"2026-11-16T10:00:00.000Z"},
+          {"id":"0b4e7a52-0000-4000-8000-000000000003","name":"Elsewhere","url":"https://edit-0123456789abcdef.linker.cool.evil.example"},
           {"name":"broken"}]}
         """)
         let linker = client()
@@ -197,7 +203,7 @@ final class LinkerConnectTests: XCTestCase {
     }
 
     func testSignsOutWhenLinkerRefusesTheToken() async throws {
-        MockURLProtocol.routes["GET https://linker.cool/api/edit/computers"] = (401, #"{"error":"unauthorized"}"#)
+        MockURLProtocol.routes["GET https://app.linker.cool/api/edit/computers"] = (401, #"{"error":"unauthorized"}"#)
         let linker = client()
         try await linker.signIn()
         do {
@@ -210,8 +216,8 @@ final class LinkerConnectTests: XCTestCase {
     }
 
     func testGetsASessionFromTheHostAndKeepsIt() async throws {
-        MockURLProtocol.routes["POST https://edit-ab12.linker.cool/api/connect/session"] = (200, #"{"code":"one-time"}"#)
-        MockURLProtocol.routes["POST https://edit-ab12.linker.cool/api/connect/native"] = (200, #"{"session":"opaque-session","expiresAt":"2027-01-15T10:00:00.000Z"}"#)
+        MockURLProtocol.routes["POST https://edit-0123456789abcdef.linker.cool/api/connect/session"] = (200, #"{"code":"one-time"}"#)
+        MockURLProtocol.routes["POST https://edit-0123456789abcdef.linker.cool/api/connect/native"] = (200, #"{"session":"opaque-session","expiresAt":"2027-01-15T10:00:00.000Z"}"#)
         let linker = client()
         try await linker.signIn()
         let session = try await linker.session(for: host)
@@ -239,8 +245,41 @@ final class LinkerConnectTests: XCTestCase {
         XCTAssertNil(store.read(LinkerConnectClient.sessionKey(host)))
     }
 
+    func testSendsTheLinkerSignInOnlyToLinkedComputers() async throws {
+        let linker = client()
+        try await linker.signIn()
+        let others = [
+            "https://studio.tail1234.ts.net:8443",
+            "http://edit-0123456789abcdef.linker.cool",
+            "https://edit-0123456789abcdef.linker.cool.evil.example",
+            // The right shape, but not one of this account's computers.
+            "https://edit-1111111111111111.linker.cool",
+        ]
+        for address in others {
+            let other = try XCTUnwrap(HostEndpoint(string: address))
+            do {
+                _ = try await linker.session(for: other)
+                XCTFail("asked \(address) for a session")
+            } catch {
+                XCTAssertEqual(error as? ConnectError, .notLinked(host: other.displayName))
+            }
+        }
+        XCTAssertFalse(MockURLProtocol.seen.contains { $0.url.path.hasPrefix("/api/connect") })
+        XCTAssertTrue(LinkerConnectClient.isLinkerComputer(host))
+    }
+
+    func testSendsTheDeviceNameUpTo64Characters() async throws {
+        MockURLProtocol.routes["POST https://edit-0123456789abcdef.linker.cool/api/connect/session"] = (200, #"{"code":"one-time"}"#)
+        MockURLProtocol.routes["POST https://edit-0123456789abcdef.linker.cool/api/connect/native"] = (200, #"{"session":"s","expiresAt":"2027-01-15T10:00:00Z"}"#)
+        let linker = client(deviceName: String(repeating: "i", count: 70))
+        try await linker.signIn()
+        _ = try await linker.session(for: host)
+        let ask = try XCTUnwrap(MockURLProtocol.seen.first { $0.url.path == "/api/connect/session" })
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: ask.body) as? [String: String], ["name": String(repeating: "i", count: 64)])
+    }
+
     func testPassesOnTheHostsRefusal() async throws {
-        MockURLProtocol.routes["POST https://edit-ab12.linker.cool/api/connect/session"] = (403, #"{"error":"Studio belongs to another Linker account."}"#)
+        MockURLProtocol.routes["POST https://edit-0123456789abcdef.linker.cool/api/connect/session"] = (403, #"{"error":"Studio belongs to another Linker account."}"#)
         let linker = client()
         try await linker.signIn()
         do {
@@ -253,7 +292,7 @@ final class LinkerConnectTests: XCTestCase {
     }
 
     func testRefreshesAnExpiredToken() async throws {
-        MockURLProtocol.routes["GET https://linker.cool/api/edit/computers"] = (200, #"{"limit":3,"computers":[]}"#)
+        MockURLProtocol.routes["GET https://app.linker.cool/api/edit/computers"] = (200, #"{"limit":3,"computers":[]}"#)
         try await client().signIn()
         clock = clock.addingTimeInterval(3600)
         MockURLProtocol.routes["POST https://clerk.linker.test/oauth/token"] = (200, #"{"access_token":"linker-2","expires_in":3600}"#)

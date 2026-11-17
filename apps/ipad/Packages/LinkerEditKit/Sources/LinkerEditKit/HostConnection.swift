@@ -43,10 +43,11 @@ public final class HostConnection: @unchecked Sendable {
         self.retry = retry
     }
 
-    /// The upgrade request: the host's origin, as the host checks it, and the session when there is one.
+    /// The upgrade request. Without a session the host lets in only WebSockets from its own origin (over
+    /// Tailscale or on 127.0.0.1), so the app sends it; with a Linker Connect session it needs none.
     public static func request(endpoint: HostEndpoint, auth: HostAuth) -> URLRequest {
         var request = URLRequest(url: endpoint.webSocketURL)
-        request.setValue(endpoint.origin, forHTTPHeaderField: "Origin")
+        if auth == .none { request.setValue(endpoint.origin, forHTTPHeaderField: "Origin") }
         auth.authorize(&request)
         return request
     }

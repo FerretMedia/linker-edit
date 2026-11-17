@@ -34,7 +34,7 @@ apps/ipad
         └── Fixtures/            real /ws messages recorded from the Node server
 ```
 
-The server is the same one the desktop app runs. The app connects to its `/ws` with the host's own address as `Origin` (the server checks it) and plays `/preview/…` files from it.
+The server is the same one the desktop app runs. Over Tailscale the app connects to its `/ws` with the host's own address as `Origin` (the server checks it), and it plays `/preview/…` files from it.
 
 Unknown message types, item kinds, states and fields decode without failing: the app skips what it doesn't know, so an iPad a release behind still works.
 
@@ -75,18 +75,19 @@ Run the `LinkerEdit` scheme on an iPad simulator. `LinkerEdit.xcodeproj` and `Li
 
 ## Linker Connect
 
-The client side is built and unit tested against a mocked network; nothing on the server side exists yet except step 3's first request. The contract, shared with the server work:
+The client side is built and unit tested against a mocked network. The host side is PR #28 (`feat/connect-native`); the two have never talked to each other. The contract:
 
-1. **Sign in with Linker**: Clerk OAuth with PKCE in `ASWebAuthenticationSession`, back to `linkeredit://oauth/callback`. The client id and issuer come from the Info.plist keys `LinkerOAuthClientID` and `LinkerOAuthIssuer` (in `project.yml`), empty for now, which keeps sign-in off. Tokens are kept in the Keychain.
-2. **Computers**: `GET https://linker.cool/api/edit/computers` with `Authorization: Bearer <Linker access token>`, answering `{ limit, computers: [{ id, name, url, online, linkedAt, lastSeenAt }] }`.
-3. **A session on the computer**: `POST <computer>/api/connect/session` with the Linker token and `{ "name": "<device name>" }` answers `{ code }`; then `POST <computer>/api/connect/native` with `{ "code": "<code>" }` answers `{ "session": "<opaque>", "expiresAt": "<ISO 8601>" }`.
-4. **Using it**: every request to the computer, the `/ws` WebSocket included, sends `Authorization: Bearer <session>`; AVPlayer gets it through `AVURLAssetHTTPHeaderFieldsKey`. The session is kept in the Keychain per computer. When the computer turns the app away (401), the session is dropped and the next open signs in again.
+1. **Sign in with Linker**: Clerk OAuth, a public client with PKCE (S256), in `ASWebAuthenticationSession`, back to `linkeredit://oauth/callback`, with the scopes `openid profile email offline_access`. The client id and issuer come from the Info.plist keys `LinkerOAuthClientID` and `LinkerOAuthIssuer` (in `project.yml`), empty for now, which keeps sign-in off. Tokens are kept in the Keychain.
+2. **Computers**: `GET https://app.linker.cool/api/edit/computers` with `Authorization: Bearer <Linker access token>`, answering `{ limit, computers: [{ id, name, url, online, linkedAt, lastSeenAt }] }`.
+3. **Where the Linker token goes**: only to a computer in that list whose address is exactly `https://edit-<16 hex digits>.linker.cool`. The app refuses any other address before sending anything.
+4. **A session on the computer**: `POST <computer>/api/connect/session` with the Linker token and `{ "name": "<this iPad's name, at most 64 characters>" }` answers `{ code }` (the computer's settings list the iPad by that name); then `POST <computer>/api/connect/native` with `{ "code": "<code>" }` answers `{ "session": "<opaque>", "expiresAt": "<ISO 8601>" }`.
+5. **Using it**: every request to the computer, the `/ws` WebSocket included, sends `Authorization: Bearer <session>` and no `Origin`; AVPlayer gets it through `AVURLAssetHTTPHeaderFieldsKey`. The session is kept in the Keychain per computer. When the computer refuses the WebSocket (401), the app drops that session and signs in to the computer again, once.
 
 ## Not done yet
 
 - **Signing, TestFlight and the App Store**: no Apple Developer account yet, so the app can't be installed on an iPad. That's thread 7 in the plan.
 - **Push notifications** for approvals and finished turns (thread 7).
 - **"Send to iPad"** project files for Resolve for iPad (thread 5).
-- **Linker Connect's server side**, and Linker's registration of the iPad app at Clerk.
+- **Linker's registration of the iPad app at Clerk**, so sign-in can be switched on. A 401 on a preview file isn't noticed yet; only the WebSocket's is.
 - **Never run on a real iPad**, over Tailscale or Linker Connect, or against a host with Resolve and a real agent.
 - The app icon is the desktop app's; it has an alpha channel, which App Store builds will need removed.
