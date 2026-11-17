@@ -17,8 +17,8 @@ A native SwiftUI app that drives Linker-Edit on your edit computer from an iPad.
 
 The app needs **iPadOS 26** and uses Apple's Liquid Glass. Following Apple's guidance, glass is for the controls that float above the content, not the content:
 
-- **The system's own parts** get glass by themselves: the split view's sidebar, the toolbar (sidebar button, Preview), the inspector, popovers and the video player's controls. The app paints no backgrounds over them.
-- **Floating controls** are glass: the composer at the bottom of the chat, its send button (which turns into Stop while the agent works), the Resolve status in the toolbar, toasts, Allow and Deny, and the buttons on the connect screen and in the preview.
+- **The system's own parts** get glass by themselves: the split view's sidebar, the toolbar (sidebar button, Resolve's status, Preview), the inspector, popovers and the video player's controls. The app paints no backgrounds over them.
+- **Floating controls** are glass: the composer at the bottom of the chat, its send button (which turns into Stop while the agent works), toasts, Allow and Deny, and the buttons on the connect screen and in the preview.
 - **Content stays plain and readable**: messages, tool calls, the approval card (with an orange border while it waits for you) and code are on the system's ordinary backgrounds.
 
 It follows the iPad's light or dark mode, with the system's colours and Linker-Edit's blue as the accent.
