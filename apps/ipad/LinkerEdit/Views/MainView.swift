@@ -16,10 +16,10 @@ struct MainView: View {
             NavigationStack {
                 ChatView()
                     .toolbar { toolbar }
-                    .inspector(isPresented: $showPreview) {
-                        PreviewPanel()
-                            .inspectorColumnWidth(min: 320, ideal: 420, max: 560)
-                    }
+            }
+            .inspector(isPresented: $showPreview) {
+                PreviewPanel()
+                    .inspectorColumnWidth(min: 320, ideal: 420, max: 560)
             }
         }
         .overlay(alignment: .top) { ToastStack() }
@@ -27,13 +27,12 @@ struct MainView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        // The pill is its own glass capsule, so it doesn't share the toolbar's.
+        // The toolbar puts the pill on glass of its own.
         ToolbarItem(placement: .topBarTrailing) {
             if let meta = model.store.state?.meta {
                 ResolveStatusPill(status: meta.resolve) { model.send(.refreshResolve) }
             }
         }
-        .sharedBackgroundVisibility(.hidden)
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 showPreview.toggle()
@@ -50,29 +49,27 @@ struct ToastStack: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        GlassEffectContainer(spacing: 8) {
-            VStack(spacing: 8) {
-                ForEach(model.store.toasts) { toast in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: toast.tone == .error ? "exclamationmark.circle.fill" : "info.circle.fill")
-                            .foregroundStyle(toast.tone == .error ? Color.red : Color.accentColor)
-                        Text(toast.text).font(.callout)
-                        Button {
-                            model.store.dismiss(toast)
-                        } label: {
-                            Image(systemName: "xmark").font(.caption)
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 18))
-                    .frame(maxWidth: 520)
-                    .task {
-                        try? await Task.sleep(nanoseconds: 6_000_000_000)
+        VStack(spacing: 8) {
+            ForEach(model.store.toasts) { toast in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: toast.tone == .error ? "exclamationmark.circle.fill" : "info.circle.fill")
+                        .foregroundStyle(toast.tone == .error ? Color.red : Color.accentColor)
+                    Text(toast.text).font(.callout)
+                    Button {
                         model.store.dismiss(toast)
+                    } label: {
+                        Image(systemName: "xmark").font(.caption)
                     }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .glassEffect(.regular, in: .rect(cornerRadius: 18))
+                .frame(maxWidth: 520)
+                .task {
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                    model.store.dismiss(toast)
                 }
             }
         }

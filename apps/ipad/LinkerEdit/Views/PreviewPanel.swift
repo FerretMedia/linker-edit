@@ -79,8 +79,8 @@ private struct PreviewPlayer: View {
     }
 }
 
-/// Whether Resolve is reachable on the computer, and what it has open, on a glass capsule in the toolbar.
-/// Tapping it checks again.
+/// Whether Resolve is reachable on the computer, and what it has open. It sits in the toolbar, which gives it
+/// its glass capsule. Tapping it checks again.
 struct ResolveStatusPill: View {
     let status: ResolveStatus
     let refresh: () -> Void
@@ -109,12 +109,10 @@ struct ResolveStatusPill: View {
                 Circle().fill(look.color).frame(width: 8, height: 8)
                 Text(look.text).font(.footnote).lineLimit(1)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 4)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityIdentifier("resolve-status")
         .popover(isPresented: $showHint) {
             Text(look.hint ?? "")
