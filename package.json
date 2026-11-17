@@ -15,8 +15,8 @@
     "build": "npm run build -w apps/desktop",
     "dist:desktop": "npm run dist:desktop -w apps/desktop",
     "start": "npm run start -w apps/desktop",
-    "typecheck": "npm run typecheck -w apps/desktop",
-    "test": "npm run test -w apps/desktop",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "test:e2e": "npm run test:e2e -w apps/desktop",
     "test:live": "npm run test:live -w apps/desktop",
     "record-fixture": "npm run record-fixture -w apps/desktop"

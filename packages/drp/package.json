@@ -1,0 +1,23 @@
+{
+  "name": "@linker-edit/drp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reads and patches DaVinci Resolve .drp project and .drt timeline files without Resolve.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

@@ -20,9 +20,9 @@ and fight scope creep: do what was asked, minimally and properly.
 
 ## Layout
 
-An npm workspaces monorepo; run `npm` from the root, which forwards to the app.
-`apps/` holds the apps, `packages/` shared libraries (each a workspace with a
-`package.json`), `docs/` plans. The app, published to npm as `linker-edit`, is
+An npm workspaces monorepo; run `npm` from the root. `apps/` holds the apps,
+`packages/` shared libraries (`packages/drp` reads and patches .drp/.drt
+files), `docs/` plans. The app, published to npm as `linker-edit`, is
 `apps/desktop`; paths here are in it:
 
 - `server/`: all state (projects, threads, turns, approvals); `/ws` and `/api`

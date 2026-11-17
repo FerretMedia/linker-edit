@@ -111,11 +111,12 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 
 ### Repo layout
 
-The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app.
+The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app, except `npm test` and `npm run typecheck`, which run in every workspace.
 
 - `apps/desktop`: the app, published to npm as `linker-edit`: the Node server (`server/`), the UI (`src/`), the Electron window (`desktop/`), their tests and build scripts. Its commands run in this folder, so a relative path you give them, like `LINKER_EDIT_REPLAY` below, is from here.
 - `apps/`: the other apps, such as the iPad app.
 - `packages/`: libraries the apps share, each a workspace with its own `package.json`.
+  - `packages/drp` (`@linker-edit/drp`): reads and patches DaVinci Resolve `.drp` project and `.drt` timeline files without Resolve. See [its README](packages/drp/README.md).
 - `docs/`: plans.
 
 ## How approvals work
