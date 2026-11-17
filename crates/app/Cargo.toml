@@ -12,5 +12,6 @@ path = "src/main.rs"
 [dependencies]
 linker-edit-protocol.workspace = true
 linker-edit-server.workspace = true
+linker-edit-ui.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
