@@ -31,8 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The app needs the iOS 26 SDK (Liquid Glass); the runner's default Xcode may be older, so take its newest 26.
       - name: Xcode
         run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          test -n "$xcode"
+          sudo xcode-select -s "$xcode"
           xcodebuild -version
           swift --version
 
@@ -46,7 +50,7 @@ jobs:
         id: simulator
         run: |
           udid=$(xcrun simctl list devices available --json \
-            | jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPad"))] | last | .udid')
+            | jq -r '[.devices | to_entries[] | select(.key | test("iOS-26")) | .value[] | select(.name | startswith("iPad"))] | last | .udid')
           test -n "$udid" && test "$udid" != null
           xcrun simctl list devices available | grep "$udid"
           echo "udid=$udid" >> "$GITHUB_OUTPUT"

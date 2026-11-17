@@ -13,6 +13,16 @@ A native SwiftUI app that drives Linker-Edit on your edit computer from an iPad.
 - **Resolve's status** in the toolbar: what Resolve has open, or why it can't be reached. Tap it to check again.
 - **Preview**: renders the timeline open in Resolve on the computer and plays it here (AVPlayer, seeking with Range requests).
 
+## Design
+
+The app needs **iPadOS 26** and uses Apple's Liquid Glass. Following Apple's guidance, glass is for the controls that float above the content, not the content:
+
+- **The system's own parts** get glass by themselves: the split view's sidebar, the toolbar (sidebar button, Preview), the inspector, popovers and the video player's controls. The app paints no backgrounds over them.
+- **Floating controls** are glass: the composer at the bottom of the chat, its send button (which turns into Stop while the agent works), the Resolve status in the toolbar, toasts, Allow and Deny, and the buttons on the connect screen and in the preview.
+- **Content stays plain and readable**: messages, tool calls, the approval card (with an orange border while it waits for you) and code are on the system's ordinary backgrounds.
+
+It follows the iPad's light or dark mode, with the system's colours and Linker-Edit's blue as the accent.
+
 What it leaves out for now: the edit history, the library, settings, adding projects, choosing the agent, compaction and the context meter. The desktop app or a browser does those.
 
 ## Layout
@@ -56,13 +66,15 @@ and push: the iPad CI fails if the models can't read the new messages.
 2. builds the app for an iPad simulator, unsigned (`CODE_SIGNING_ALLOWED=NO`);
 3. starts the Linker-Edit server from this checkout on port 4390, with its own config (no Resolve or agents there);
 4. runs the `LinkerEditKit` tests on the simulator, one of which connects to that server;
-5. runs the UI tests, which take screenshots of the connect screen and a fixed demo chat and connect the app to that server, and uploads the screenshots as the `ipad-screenshots` artifact.
+5. runs the UI tests, which take landscape screenshots of the connect screen and a fixed demo chat (light and dark) and connect the app to that server, and uploads the screenshots as the `ipad-screenshots` artifact.
+
+It picks the runner's newest Xcode 26 and an iOS 26 iPad simulator, since the app needs the iOS 26 SDK.
 
 There is no Swift toolchain on Windows or Linux, so CI is the only way to check Swift changes without a Mac.
 
 ## On a Mac
 
-With Xcode 16 or newer:
+With Xcode 26 or newer:
 
 ```sh
 brew install xcodegen
@@ -71,7 +83,7 @@ xcodegen generate
 open LinkerEdit.xcodeproj
 ```
 
-Run the `LinkerEdit` scheme on an iPad simulator. `LinkerEdit.xcodeproj` and `LinkerEdit/Info.plist` are generated and not committed; change `project.yml` instead. Launch arguments for trying it: `-demo` shows a fixed chat without a computer, `-host http://127.0.0.1:4317` connects at once (the simulator reaches the Mac's own `127.0.0.1`), `-reset` forgets recent computers.
+Run the `LinkerEdit` scheme on an iPad simulator. `LinkerEdit.xcodeproj` and `LinkerEdit/Info.plist` are generated and not committed; change `project.yml` instead. Launch arguments for trying it: `-demo` shows a fixed chat without a computer, `-host http://127.0.0.1:4317` connects at once (the simulator reaches the Mac's own `127.0.0.1`), `-reset` forgets recent computers, `-uiTestAppearance dark` (or `light`) overrides the system's appearance for screenshots.
 
 ## Linker Connect
 

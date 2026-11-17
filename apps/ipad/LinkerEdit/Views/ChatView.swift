@@ -1,7 +1,8 @@
 import LinkerEditKit
 import SwiftUI
 
-/// The open thread: its messages and tool calls as they stream in, approvals waiting, and the composer.
+/// The open thread: its messages and tool calls as they stream in, approvals waiting, and the composer floating
+/// over them. The chat is content, so it stays on plain backgrounds; only the controls above it are glass.
 struct ChatView: View {
     @Environment(AppModel.self) private var model
 
@@ -18,39 +19,36 @@ struct ChatView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if items.isEmpty, meta?.busy != true {
-                            EmptyChat()
-                        }
-                        ForEach(items) { item in
-                            ChatItemView(item: item)
-                        }
-                        ForEach(meta?.approvals ?? []) { request in
-                            ApprovalCard(request: request) { allow in
-                                model.send(.approve(id: request.id, allow: allow))
-                            }
-                        }
-                        if meta?.busy == true && meta?.approvals.isEmpty == true {
-                            WorkingRow()
-                        }
-                        Color.clear.frame(height: 1).id("bottom")
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    if items.isEmpty, meta?.busy != true {
+                        EmptyChat()
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 20)
-                    .frame(maxWidth: 820)
-                    .frame(maxWidth: .infinity)
+                    ForEach(items) { item in
+                        ChatItemView(item: item)
+                    }
+                    ForEach(meta?.approvals ?? []) { request in
+                        ApprovalCard(request: request) { allow in
+                            model.send(.approve(id: request.id, allow: allow))
+                        }
+                    }
+                    if meta?.busy == true && meta?.approvals.isEmpty == true {
+                        WorkingRow()
+                    }
+                    Color.clear.frame(height: 1).id("bottom")
                 }
-                .onChange(of: growth) {
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 20)
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
             }
-            ComposerView()
+            .safeAreaBar(edge: .bottom) { ComposerView() }
+            .onChange(of: growth) {
+                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
         }
-        .background(Theme.background)
         .navigationTitle(meta?.thread?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -61,10 +59,10 @@ private struct EmptyChat: View {
         VStack(spacing: 8) {
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.largeTitle)
-                .foregroundStyle(Theme.muted)
+                .foregroundStyle(.secondary)
             Text("Ask for an edit, such as “cut the silences” or “build a rough cut from the interview”.")
                 .multilineTextAlignment(.center)
-                .foregroundStyle(Theme.muted)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 80)
@@ -83,7 +81,7 @@ struct ChatItemView: View {
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
             }
         case .assistant(_, let text):
             Text(Markdown.inline(text))
@@ -94,7 +92,7 @@ struct ChatItemView: View {
         case .notice(_, let text, let tone):
             Label(text, systemImage: tone == .error ? "exclamationmark.triangle" : "info.circle")
                 .font(.footnote)
-                .foregroundStyle(tone == .error ? Theme.danger : Theme.muted)
+                .foregroundStyle(tone == .error ? Color.red : Color.secondary)
         case .unknown:
             EmptyView()
         }
@@ -137,22 +135,22 @@ struct ToolCard: View {
                 HStack(spacing: 8) {
                     Image(systemName: icon)
                         .frame(width: 18)
-                        .foregroundStyle(call.status == .error ? Theme.danger : Theme.muted)
+                        .foregroundStyle(call.status == .error ? Color.red : Color.secondary)
                     Text(ToolLabels.label(call.name))
-                        .foregroundStyle(call.status == .error ? Theme.danger : .primary)
+                        .foregroundStyle(call.status == .error ? Color.red : Color.primary)
                     Text(ToolLabels.summary(call.name, call.input))
-                        .foregroundStyle(Theme.muted)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     if call.status == .running {
                         ProgressView().controlSize(.mini)
                     } else if call.status == .error {
-                        Image(systemName: "xmark").font(.caption).foregroundStyle(Theme.danger)
+                        Image(systemName: "xmark").font(.caption).foregroundStyle(.red)
                     }
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Theme.muted)
+                        .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
                 .font(.callout)
@@ -166,11 +164,11 @@ struct ToolCard: View {
                     if let output = call.output {
                         Text(output)
                             .padding(.leading, 10)
-                            .overlay(alignment: .leading) { Rectangle().fill(Theme.border).frame(width: 2) }
+                            .overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 2) }
                     }
                 }
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(Theme.muted)
+                .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .padding(.leading, 26)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,12 +176,12 @@ struct ToolCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
-/// Supervised mode: the agent waits until the user allows or denies this call.
+/// Supervised mode: the agent waits until the user allows or denies this call. The card is content on a plain
+/// background with an orange border so it stands out; only Allow and Deny are glass.
 struct ApprovalCard: View {
     let request: ApprovalRequest
     let answer: (Bool) -> Void
@@ -191,32 +189,35 @@ struct ApprovalCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.warning)
+                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(.orange)
                 Text("Allow \(ToolLabels.isResolveTool(request.tool) ? "Resolve" : "tool"):").fontWeight(.semibold)
                 Text(ToolLabels.label(request.tool)).font(.system(.callout, design: .monospaced))
             }
             ScrollView {
                 Text(ToolLabels.approvalDetail(request.tool, request.input))
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Theme.muted)
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 240)
             .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Deny") { answer(false) }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("deny")
-                Button("Allow") { answer(true) }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("allow")
+            GlassEffectContainer(spacing: 10) {
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button("Deny") { answer(false) }
+                        .buttonStyle(.glass)
+                        .accessibilityIdentifier("deny")
+                    Button("Allow") { answer(true) }
+                        .buttonStyle(.glassProminent)
+                        .accessibilityIdentifier("allow")
+                }
             }
         }
         .padding(14)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.warning.opacity(0.35)))
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.orange.opacity(0.7), lineWidth: 1.5))
     }
 }
 
@@ -224,7 +225,7 @@ private struct WorkingRow: View {
     var body: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text("Working…").foregroundStyle(Theme.muted)
+            Text("Working…").foregroundStyle(.secondary)
         }
         .font(.callout)
     }

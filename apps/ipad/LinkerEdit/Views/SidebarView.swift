@@ -21,7 +21,7 @@ struct SidebarView: View {
                 if meta.projects.isEmpty {
                     Text("No projects yet. Add one in Linker-Edit on the computer.")
                         .font(.callout)
-                        .foregroundStyle(Theme.muted)
+                        .foregroundStyle(.secondary)
                 }
                 ForEach(meta.projects.filter { !$0.archived || $0.threads.contains { !$0.archived } }) { project in
                     Section {
@@ -35,15 +35,13 @@ struct SidebarView: View {
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Connecting…").foregroundStyle(Theme.muted)
+                    Text("Connecting…").foregroundStyle(.secondary)
                 }
             }
         }
         .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .background(Theme.card)
         .navigationTitle(model.store.state?.meta.computer.nilIfEmpty ?? model.endpoint?.displayName ?? "Linker-Edit")
-        .safeAreaInset(edge: .bottom) { HostFooter() }
+        .safeAreaBar(edge: .bottom) { HostFooter() }
     }
 }
 
@@ -60,7 +58,7 @@ private struct ProjectHeader: View {
             if project.open {
                 Text("Open in Resolve")
                     .font(.caption2)
-                    .foregroundStyle(Theme.success)
+                    .foregroundStyle(.green)
                     .textCase(nil)
             }
             Spacer()
@@ -85,12 +83,12 @@ private struct ThreadRow: View {
             if thread.waiting {
                 Image(systemName: "hand.raised.fill")
                     .font(.caption)
-                    .foregroundStyle(Theme.warning)
+                    .foregroundStyle(.orange)
                     .accessibilityLabel("Waiting for you")
             } else if thread.busy {
                 ProgressView().controlSize(.mini)
             } else if thread.unread {
-                Circle().fill(Theme.accent).frame(width: 7, height: 7).accessibilityLabel("Unread")
+                Circle().fill(Color.accentColor).frame(width: 7, height: 7).accessibilityLabel("Unread")
             }
         }
     }
@@ -103,7 +101,7 @@ private struct HostFooter: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(model.online ? Theme.success : Theme.warning)
+                .fill(model.online ? Color.green : Color.orange)
                 .frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 0) {
                 Text(model.endpoint?.displayName ?? "")
@@ -111,7 +109,7 @@ private struct HostFooter: View {
                     .lineLimit(1)
                 Text(model.online ? (model.via == .linker ? "Linker Connect" : "Connected") : "Reconnecting…")
                     .font(.caption2)
-                    .foregroundStyle(Theme.muted)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             Button("Disconnect") { model.disconnect() }
@@ -121,7 +119,6 @@ private struct HostFooter: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
     }
 }
 

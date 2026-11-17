@@ -3,7 +3,7 @@ name: LinkerEdit
 options:
   bundleIdPrefix: cool.linker
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -42,7 +42,6 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        UIUserInterfaceStyle: Dark
         # Hosts on this network or this Mac (the simulator) are often plain http, such as http://127.0.0.1:4317.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

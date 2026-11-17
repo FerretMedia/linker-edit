@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Drives the app on the iPad simulator and keeps screenshots, which CI uploads (see .github/workflows/ipad.yml).
@@ -5,6 +6,7 @@ final class ScreenshotTests: XCTestCase {
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        // Landscape, as an iPad sits in a keyboard case.
         XCUIDevice.shared.orientation = .landscapeLeft
     }
 
@@ -16,10 +18,30 @@ final class ScreenshotTests: XCTestCase {
     }
 
     private func screenshot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let attachment = XCTAttachment(image: upright(XCUIScreen.main.screenshot().image))
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// The simulator's screenshots come in the screen's portrait orientation even when the app runs in landscape;
+    /// this turns them the way the app is shown.
+    private func upright(_ image: UIImage) -> UIImage {
+        let orientation = XCUIDevice.shared.orientation
+        guard orientation.isLandscape, image.size.height > image.size.width else { return image }
+        let size = CGSize(width: image.size.height, height: image.size.width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            if orientation == .landscapeLeft {
+                context.cgContext.translateBy(x: 0, y: size.height)
+                context.cgContext.rotate(by: -.pi / 2)
+            } else {
+                context.cgContext.translateBy(x: size.width, y: 0)
+                context.cgContext.rotate(by: .pi / 2)
+            }
+            image.draw(at: .zero)
+        }
     }
 
     func testConnectScreen() {
@@ -35,7 +57,7 @@ final class ScreenshotTests: XCTestCase {
     }
 
     func testChatWithToolCardsAndAnApproval() {
-        let app = launch(["-demo"])
+        let app = launch(["-demo", "-uiTestAppearance", "light"])
         XCTAssertTrue(app.staticTexts["Cut the silences longer than a second out of the interview."].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["allow"].exists)
         XCTAssertTrue(app.buttons["deny"].exists)
@@ -49,6 +71,14 @@ final class ScreenshotTests: XCTestCase {
         app.buttons["preview-toggle"].tap()
         XCTAssertTrue(app.buttons["Render preview"].waitForExistence(timeout: 5))
         screenshot("4-preview")
+    }
+
+    /// The same chat in dark mode (the app follows the system's, but takes -uiTestAppearance for screenshots).
+    func testChatInDarkMode() {
+        let app = launch(["-demo", "-uiTestAppearance", "dark"])
+        XCTAssertTrue(app.staticTexts["Cut the silences longer than a second out of the interview."].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["allow"].exists)
+        screenshot("2-chat-dark")
     }
 
     /// Against a real Linker-Edit server that CI starts on this Mac (LINKER_EDIT_URL).
