@@ -1,0 +1,4 @@
+{
+  "type": "set_approval_mode",
+  "mode": "ask"
+}

@@ -1,0 +1,21 @@
+{
+  "DesktopToServer": [
+    {
+      "type": "update_state",
+      "state": {
+        "status": "downloaded",
+        "currentVersion": "2026.1117.1430",
+        "availableVersion": "2026.1118.900",
+        "downloadedVersion": "2026.1118.900",
+        "percent": null,
+        "notes": ["Faster previews"],
+        "checkedAt": "2026-11-18T09:00:00.000Z",
+        "error": null,
+        "downloadUrl": null,
+        "notApplied": null
+      }
+    },
+    { "type": "install_requested" }
+  ],
+  "ServerToDesktop": [{ "type": "ready", "url": "http://127.0.0.1:4317" }, { "type": "check_update" }, { "type": "install_update" }]
+}

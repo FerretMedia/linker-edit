@@ -1,0 +1,341 @@
+[
+  {
+    "type": "meta",
+    "meta": {
+      "projects": [
+        {
+          "id": "ep12",
+          "name": "Episode 12",
+          "dir": "D:\\Work\\Episode 12",
+          "link": { "kind": "network", "name": "Episode 12", "projectId": "resolve-ep12" },
+          "local": { "database": { "type": "PostgreSQL", "name": "Studio", "host": "10.0.0.5" }, "folder": ["Podcast"] },
+          "open": true,
+          "threads": [
+            {
+              "id": "thread-1",
+              "title": "Silences",
+              "updatedAt": "2026-11-17T09:00:00.000Z",
+              "archived": false,
+              "busy": true,
+              "waiting": true,
+              "createdAt": "2026-11-17T09:00:00.000Z",
+              "pinnedAt": "2026-11-17T09:05:00.000Z",
+              "settledAt": null,
+              "unsettledAt": "2026-11-17T09:06:00.000Z",
+              "snoozedUntil": null,
+              "snoozedAt": null,
+              "lastReadAt": "2026-11-17T09:10:00.000Z",
+              "lastSentAt": "2026-11-17T09:08:00.000Z",
+              "turnEndedAt": "2026-11-17T09:09:00.000Z"
+            }
+          ],
+          "setup": false,
+          "icon": { "kind": "lucide", "name": "mic", "color": "violet" },
+          "pinned": true,
+          "archived": false
+        },
+        {
+          "id": "setup-1",
+          "name": "Ferret Media setup",
+          "dir": "C:\\Users\\you\\LinkerEdit\\projects\\ferret-media-setup",
+          "link": null,
+          "local": {},
+          "open": false,
+          "threads": [],
+          "setup": true,
+          "icon": { "kind": "emoji", "emoji": "🎙" },
+          "pinned": false,
+          "archived": true
+        }
+      ],
+      "threadId": "thread-1",
+      "projectId": "ep12",
+      "provider": "codex",
+      "defaultProvider": "claude",
+      "approvalMode": "ask",
+      "busy": true,
+      "approvals": [{ "id": "request-1", "tool": "mcp__linker__create_timeline", "input": { "name": "AI - Cut", "from": "Cut" } }],
+      "resolve": {
+        "state": "connected",
+        "product": "DaVinci Resolve Studio",
+        "version": "21.1.2",
+        "project": "Episode 12",
+        "projectId": "resolve-ep12",
+        "database": { "type": "PostgreSQL", "name": "Studio", "host": "10.0.0.5" },
+        "timeline": null
+      },
+      "resolveHere": true,
+      "version": "2026.1117.1430",
+      "update": "2026.1118.900",
+      "appUpdate": {
+        "status": "downloading",
+        "currentVersion": "2026.1117.1430",
+        "availableVersion": "2026.1118.900",
+        "downloadedVersion": null,
+        "percent": 42.5,
+        "notes": ["Faster previews", "Fixes the sidebar"],
+        "checkedAt": "2026-11-18T09:00:00.000Z",
+        "error": null,
+        "downloadUrl": null,
+        "notApplied": null,
+        "waiting": false
+      },
+      "workspaceDir": "D:\\Work\\Episode 12",
+      "preview": {
+        "state": "ready",
+        "timeline": { "id": "timeline-1", "name": "AI - Cut" },
+        "url": "/preview/preview-1.mp4",
+        "renderedAt": "2026-11-17T09:12:00.000Z",
+        "outdated": true
+      },
+      "context": { "usedTokens": 210000, "maxTokens": 1000000, "cacheExpiresAt": "2026-11-17T10:12:00.000Z" },
+      "blocked": { "message": "Resolve has \"Interview\" open, not this project's \"Episode 12\".", "canOpen": true },
+      "opening": "ep12",
+      "applying": null,
+      "transcription": { "state": "preparing", "step": "Unpacking the speech engine", "percent": null },
+      "remote": { "state": "on", "url": "https://edit-pc.tail1234.ts.net:8443", "owner": "you@example.com" },
+      "connect": {
+        "state": "on",
+        "url": "https://edit-abc123.linker.cool",
+        "connected": true,
+        "step": null,
+        "problem": null,
+        "computerId": "computer-1",
+        "computers": [
+          {
+            "id": "computer-1",
+            "name": "edit-pc",
+            "url": "https://edit-abc123.linker.cool",
+            "online": true,
+            "linkedAt": "2026-11-10T09:00:00.000Z",
+            "lastSeenAt": null
+          },
+          {
+            "id": "computer-2",
+            "name": "laptop",
+            "url": "https://edit-def456.linker.cool",
+            "online": null,
+            "linkedAt": "2026-11-11T09:00:00.000Z",
+            "lastSeenAt": "2026-11-16T09:00:00.000Z"
+          }
+        ],
+        "limit": 3,
+        "atLimit": false,
+        "devices": [
+          { "id": "device-1", "name": "iPad", "kind": "native", "createdAt": "2026-11-15T09:00:00.000Z", "lastSeenAt": "2026-11-17T09:00:00.000Z" },
+          { "id": "device-2", "name": "Chrome on laptop", "kind": "cookie", "createdAt": "2026-11-15T09:00:00.000Z", "lastSeenAt": "2026-11-17T09:00:00.000Z" }
+        ]
+      },
+      "computer": "edit-pc",
+      "setup": {
+        "configFile": "C:\\Users\\you\\LinkerEdit\\linker-edit.config.json",
+        "folders": {
+          "projects": "C:\\Users\\you\\LinkerEdit\\projects",
+          "previews": "C:\\Users\\you\\LinkerEdit\\previews",
+          "transcripts": "C:\\Users\\you\\LinkerEdit\\transcripts",
+          "tools": "C:\\Users\\you\\LinkerEdit\\tools"
+        },
+        "resolveMcp": "C:\\Program Files\\Blackmagic Design\\DaVinci Resolve\\ResolveMCP.exe"
+      },
+      "linker": {
+        "state": "signed_in",
+        "name": "Jo",
+        "email": "jo@example.com",
+        "picture": null,
+        "plan": "Max",
+        "appUrl": "https://app.linker.cool"
+      },
+      "collections": [
+        {
+          "id": "workspace-1",
+          "kind": "workspace",
+          "name": "Ferret Media",
+          "parentId": null,
+          "icon": { "kind": "monogram", "text": "", "color": "blue" },
+          "rules": "End on the logo.",
+          "rulesFile": "C:\\Users\\you\\LinkerEdit\\collections\\ferret-media\\RULES.md",
+          "projectIds": [],
+          "autonomous": false,
+          "lessons": [],
+          "examples": [{ "name": "episode-3.md", "file": "C:\\Users\\you\\LinkerEdit\\collections\\ferret-media\\examples\\episode-3.md" }],
+          "setupProjectId": "setup-1",
+          "edits": []
+        },
+        {
+          "id": "series-1",
+          "kind": "series",
+          "name": "Podcast",
+          "parentId": "workspace-1",
+          "icon": { "kind": "lucide", "name": "mic", "color": "teal" },
+          "rules": "",
+          "rulesFile": "C:\\Users\\you\\LinkerEdit\\collections\\podcast\\RULES.md",
+          "projectIds": ["ep12"],
+          "autonomous": true,
+          "lessons": [
+            {
+              "id": "lesson-1",
+              "rule": "Keep the cold open under 10 seconds.",
+              "feedback": "the start drags",
+              "addedAt": "2026-11-16T09:00:00.000Z",
+              "project": "Episode 11"
+            }
+          ],
+          "examples": [],
+          "setupProjectId": null,
+          "edits": [{ "at": "2026-11-16T10:00:00.000Z", "project": "Episode 11", "rounds": 2 }]
+        }
+      ]
+    }
+  },
+  {
+    "type": "item",
+    "threadId": "thread-1",
+    "item": {
+      "id": "t1",
+      "kind": "tool",
+      "name": "mcp__linker__list_timelines",
+      "input": {},
+      "status": "done",
+      "output": "[\"Cut\"]"
+    }
+  },
+  { "type": "item", "threadId": "thread-1", "item": { "id": "n1", "kind": "notice", "text": "Couldn't back up the project.", "tone": "error" } },
+  {
+    "type": "history",
+    "projectId": "ep12",
+    "entries": [
+      {
+        "commit": "4af5be7727aa6ab9cd140ce7ce75e446099e4c5f",
+        "date": "2026-11-17T09:09:00.000Z",
+        "author": "Claude",
+        "agent": "claude",
+        "subject": "Cut the silences",
+        "prompt": "Cut the silences",
+        "actions": ["Created AI - Cut"],
+        "changes": ["AI - Cut: 12 clips removed"],
+        "thread": "thread-1",
+        "timelines": [
+          {
+            "id": "timeline-1",
+            "name": "AI - Cut",
+            "state": "changed",
+            "tiles": [
+              { "kind": "clip", "name": "A001.mov", "media": "media-1", "image": false, "change": null },
+              { "kind": "more", "count": 4 },
+              { "kind": "clip", "name": "A002.mov", "media": "media-2", "image": false, "change": "trimmed", "delta": -1.5 },
+              { "kind": "clip", "name": "Title", "media": null, "image": false, "change": "added" },
+              { "kind": "clip", "name": "logo.png", "media": "media-3", "image": true, "change": "moved", "delta": 2 }
+            ]
+          }
+        ]
+      },
+      {
+        "commit": "88afdaa",
+        "date": "2026-11-16T09:00:00.000Z",
+        "author": "You",
+        "agent": null,
+        "subject": "Changes in Resolve",
+        "prompt": null,
+        "actions": [],
+        "changes": [],
+        "thread": null,
+        "timelines": [{ "id": "timeline-2", "name": "Cut", "state": "new", "tiles": [] }]
+      }
+    ]
+  },
+  { "type": "project_file", "projectId": "ep12", "file": "D:\\Work\\Episode 12\\PROJECT.md", "text": "# Ep 12\n" },
+  {
+    "type": "library",
+    "library": {
+      "database": { "type": "Disk", "name": "Local Database" },
+      "databases": [{ "type": "Disk", "name": "Local Database" }, { "type": "PostgreSQL", "name": "Studio", "host": "10.0.0.5" }],
+      "projects": [{ "name": "Interview", "folder": [] }, { "name": "Episode 12", "folder": ["Podcast"] }]
+    }
+  },
+  { "type": "library", "library": { "error": "Resolve isn't running." } },
+  {
+    "type": "folders",
+    "requestId": 3,
+    "listing": {
+      "dir": "C:\\Users\\you\\",
+      "isProject": false,
+      "entries": [{ "name": "Interview", "isProject": true }, { "name": "Music", "isProject": false }],
+      "roots": ["C:\\", "D:\\"],
+      "home": "C:\\Users\\you\\"
+    }
+  },
+  { "type": "folders", "requestId": 4, "listing": { "error": "D:\\Gone doesn't exist." } },
+  { "type": "refused", "threadId": "thread-2", "text": "Add titles" },
+  { "type": "toast", "text": "Saved PROJECT.md", "tone": "info" },
+  {
+    "type": "library_view",
+    "view": {
+      "scope": { "kind": "project", "projectId": "ep12" },
+      "scopes": [
+        { "scope": { "kind": "universal" }, "label": "Everywhere" },
+        { "scope": { "kind": "project", "projectId": "ep12" }, "label": "Episode 12" }
+      ],
+      "folders": [
+        {
+          "id": "music",
+          "kind": "music",
+          "label": "Songs",
+          "path": "D:\\Music",
+          "note": "YouTube only",
+          "files": 2,
+          "scanning": { "done": 1, "total": 2 },
+          "scannedAt": null,
+          "problem": null
+        },
+        {
+          "id": "logos",
+          "kind": "graphics",
+          "label": "Brand logos",
+          "path": "D:\\Logos",
+          "note": "",
+          "files": 0,
+          "scanning": null,
+          "scannedAt": "2026-11-17T09:00:00.000Z",
+          "problem": "D:\\Logos is gone."
+        }
+      ],
+      "files": [
+        {
+          "folderId": "music",
+          "scope": "universal",
+          "kind": "music",
+          "rel": "Happy/Upbeat.wav",
+          "name": "Upbeat.wav",
+          "path": "D:\\Music\\Happy\\Upbeat.wav",
+          "size": 5120000000,
+          "modified": "2026-11-01T09:00:00.000Z",
+          "duration": 92.3,
+          "channels": 2,
+          "loudness": -14.2,
+          "tags": ["happy", "intro"],
+          "star": true,
+          "note": "for the opener",
+          "usedIn": [{ "projectId": "ep12", "project": "Episode 12", "timeline": "AI - Cut", "at": "2026-11-17T09:09:00.000Z" }]
+        },
+        {
+          "folderId": "music",
+          "scope": "project",
+          "kind": "music",
+          "rel": "Still.png",
+          "name": "Still.png",
+          "path": "D:\\Music\\Still.png",
+          "size": 2048,
+          "modified": "2026-11-01T09:00:00.000Z",
+          "duration": null,
+          "channels": null,
+          "loudness": null,
+          "tags": [],
+          "star": false,
+          "note": "",
+          "usedIn": []
+        }
+      ],
+      "total": 2
+    }
+  }
+]

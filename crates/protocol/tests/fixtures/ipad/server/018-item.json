@@ -1,0 +1,10 @@
+{
+  "type": "item",
+  "threadId": "thread-1",
+  "item": {
+    "id": "00000000-0000-4000-8000-000000000003",
+    "kind": "notice",
+    "text": "Backed up the project before the first change.",
+    "tone": "info"
+  }
+}

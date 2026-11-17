@@ -1,0 +1,165 @@
+{
+  "ChatItem": [
+    { "id": "u1", "kind": "user", "text": "Cut the silences" },
+    { "id": "a1", "kind": "assistant", "text": "Done: **AI - Cut** has the 12 long pauses taken out." },
+    { "id": "t2", "kind": "tool", "name": "mcp__linker__create_timeline", "input": { "name": "AI - Cut", "from": "Cut" }, "status": "running" },
+    { "id": "t3", "kind": "tool", "name": "Bash", "input": null, "status": "error", "output": "refused" },
+    { "id": "n1", "kind": "notice", "text": "Backed up the project before the first change.", "tone": "info" }
+  ],
+  "ResolveStatus": [
+    { "state": "checking" },
+    {
+      "state": "connected",
+      "product": "DaVinci Resolve Studio",
+      "version": "21.1.2",
+      "project": null,
+      "projectId": null,
+      "database": null,
+      "timeline": null
+    },
+    { "state": "not_running" },
+    { "state": "unreachable", "hint": "Turn on external scripting in Resolve's preferences." },
+    { "state": "blocked", "hint": "Resolve asks for a restart." },
+    { "state": "setup_needed", "hint": "Install DaVinci Resolve Studio 21." }
+  ],
+  "PreviewState": [
+    { "state": "idle" },
+    { "state": "rendering", "timeline": null, "percent": 0 },
+    { "state": "rendering", "timeline": { "id": "timeline-1", "name": "AI - Cut" }, "percent": 40 },
+    { "state": "error", "message": "Resolve couldn't render the timeline." }
+  ],
+  "TranscriptionStatus": [
+    { "state": "idle" },
+    { "state": "idle", "ready": false },
+    { "state": "preparing", "step": "Downloading the speech engine", "percent": 12.5 },
+    { "state": "transcribing", "file": "A001.mov", "done": 1, "total": 3 }
+  ],
+  "RemoteAccess": [
+    { "state": "checking" },
+    { "state": "unavailable", "hint": "Install Tailscale and log in." },
+    { "state": "off", "url": "https://edit-pc.tail1234.ts.net:8443", "problem": null },
+    { "state": "off", "url": "https://edit-pc.tail1234.ts.net:8443", "problem": "Turn on HTTPS: https://login.tailscale.com/admin/dns" },
+    { "state": "switching", "url": "https://edit-pc.tail1234.ts.net:8443" }
+  ],
+  "LinkerAccount": [
+    { "state": "signed_out", "problem": null },
+    { "state": "signed_out", "problem": "Linker said no." },
+    { "state": "signing_in" }
+  ],
+  "LinkerConnect": [
+    {
+      "state": "starting",
+      "url": null,
+      "connected": false,
+      "step": "Downloading cloudflared · 40%",
+      "problem": null,
+      "computerId": "computer-1",
+      "computers": null,
+      "limit": 3,
+      "atLimit": true,
+      "devices": []
+    }
+  ],
+  "AppUpdate": [
+    {
+      "status": "up-to-date",
+      "currentVersion": "2026.1117.1430",
+      "availableVersion": null,
+      "downloadedVersion": null,
+      "percent": null,
+      "notes": [],
+      "checkedAt": "2026-11-18T09:00:00.000Z",
+      "error": null,
+      "downloadUrl": null,
+      "notApplied": null,
+      "waiting": false
+    },
+    {
+      "status": "error",
+      "currentVersion": "2026.1117.1430",
+      "availableVersion": "2026.1118.900",
+      "downloadedVersion": "2026.1118.900",
+      "percent": 100,
+      "notes": ["Faster previews"],
+      "checkedAt": null,
+      "error": "The install failed.",
+      "downloadUrl": "https://github.com/FerretMedia/linker-edit/releases/latest",
+      "notApplied": "2026.1118.900",
+      "waiting": true
+    }
+  ],
+  "DesktopUpdate": [
+    { "version": "2026.1118.900", "state": "ready" },
+    { "version": "2026.1118.900", "state": "download", "url": "https://github.com/FerretMedia/linker-edit/releases/latest" }
+  ],
+  "Computers": [
+    { "name": "edit-pc", "others": [] },
+    {
+      "name": "edit-pc",
+      "version": "2026.1117.1430",
+      "others": [
+        { "name": "laptop", "url": "https://laptop.tail1234.ts.net:8443", "version": "2026.1110.900" },
+        { "name": "studio", "url": "https://edit-def456.linker.cool", "version": "2026.1117.1430", "via": "linker", "online": false },
+        { "name": "rig", "url": "https://rig.tail1234.ts.net:8443", "version": "2026.1117.1430", "via": "tailscale", "online": true }
+      ],
+      "home": "http://127.0.0.1:4317"
+    }
+  ],
+  "PlayableTimeline": [
+    {
+      "id": "timeline-1",
+      "name": "AI - Cut",
+      "commit": null,
+      "fps": 23.976,
+      "width": 1920,
+      "height": 1080,
+      "duration": 61.5,
+      "video": [
+        {
+          "name": "A001.mov",
+          "track": 1,
+          "start": 0,
+          "end": 4.2,
+          "offset": 12.04,
+          "rate": 1,
+          "media": "media-1",
+          "kind": "video",
+          "look": { "ZoomX": 1.2, "Pan": -40, "Flip": true }
+        },
+        { "name": "Title", "track": 2, "start": 1, "end": 3, "offset": 0, "rate": 1, "media": null, "kind": "unsupported", "look": {} }
+      ],
+      "audio": [
+        { "name": "Upbeat.wav", "track": 1, "start": 0, "end": 61.5, "offset": 0, "rate": 1, "media": "media-4", "kind": "audio", "look": {} },
+        { "name": "gone.wav", "track": 2, "start": 0, "end": 2, "offset": 0, "rate": 0.5, "media": "media-5", "kind": "missing", "look": {} },
+        { "name": "logo.png", "track": 3, "start": 0, "end": 2, "offset": 0, "rate": 1, "media": "media-6", "kind": "image", "look": { "Opacity": 50 } }
+      ],
+      "markers": [{ "time": 12.5, "color": "Blue", "name": "Chorus" }],
+      "replaces": { "id": "timeline-2", "name": "Cut" }
+    },
+    {
+      "id": "timeline-2",
+      "name": "Cut",
+      "commit": "4af5be7",
+      "fps": 25,
+      "width": 3840,
+      "height": 2160,
+      "duration": 0,
+      "video": [],
+      "audio": [],
+      "markers": []
+    }
+  ],
+  "ProjectIcon": [
+    { "kind": "lucide", "name": "clapperboard", "color": "fuchsia" },
+    { "kind": "emoji", "emoji": "🇳🇱" },
+    { "kind": "monogram", "text": "E1", "color": "emerald" }
+  ],
+  "CollectionIcon": [
+    { "kind": "lucide", "name": "mic", "color": "gray" },
+    { "kind": "emoji", "emoji": "🎙", "color": "amber" },
+    { "kind": "monogram", "text": "FM", "color": "orange" }
+  ],
+  "LibraryKind": ["music", "sfx", "graphics", "luts", "footage", "other"],
+  "MediaKind": ["video", "image", "audio", "unsupported", "missing"],
+  "ClipChange": ["added", "removed", "trimmed", "moved", "changed"]
+}
