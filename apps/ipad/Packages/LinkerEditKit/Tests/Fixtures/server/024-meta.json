@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,7 +74,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
     "threadId": "thread-1",
@@ -106,7 +108,7 @@
         "id": "timeline-1",
         "name": "AI - Cut"
       },
-      "percent": 40
+      "percent": 0
     },
     "context": null,
     "blocked": {

@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,11 +74,12 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
-    "threadId": "thread-2",
-    "projectId": "project-2",
+    "threadId": "thread-1",
+    "projectId": "project-1",
     "provider": "claude",
     "defaultProvider": "claude",
     "approvalMode": "ask",
@@ -99,15 +101,19 @@
     "version": "0.0.0",
     "update": null,
     "appUpdate": null,
-    "workspaceDir": "/promo",
+    "workspaceDir": "/work",
     "preview": {
-      "state": "idle"
+      "state": "ready",
+      "timeline": {
+        "id": "timeline-1",
+        "name": "AI - Cut"
+      },
+      "url": "/preview/preview-1.mp4",
+      "renderedAt": "2026-11-17T09:00:00.000Z",
+      "outdated": false
     },
     "context": null,
-    "blocked": {
-      "message": "Resolve has \"Interview\" open, not this project's \"Promo\". Open \"Promo\" in Resolve to continue.",
-      "canOpen": false
-    },
+    "blocked": null,
     "opening": null,
     "applying": null,
     "transcription": {

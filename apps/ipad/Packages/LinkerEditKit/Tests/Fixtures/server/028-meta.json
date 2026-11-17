@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -70,10 +71,11 @@
             "lastSentAt": null,
             "turnEndedAt": null,
             "archived": false,
-            "busy": true,
+            "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
     "threadId": "thread-2",
@@ -81,7 +83,7 @@
     "provider": "claude",
     "defaultProvider": "claude",
     "approvalMode": "ask",
-    "busy": true,
+    "busy": false,
     "approvals": [],
     "resolve": {
       "state": "connected",
@@ -104,7 +106,10 @@
       "state": "idle"
     },
     "context": null,
-    "blocked": null,
+    "blocked": {
+      "message": "Resolve has \"Interview\" open, not this project's \"Promo\". Open \"Promo\" in Resolve to continue.",
+      "canOpen": false
+    },
     "opening": null,
     "applying": null,
     "transcription": {

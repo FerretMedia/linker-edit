@@ -39,7 +39,8 @@
             "busy": true,
             "waiting": true
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,7 +74,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
     "threadId": "thread-1",

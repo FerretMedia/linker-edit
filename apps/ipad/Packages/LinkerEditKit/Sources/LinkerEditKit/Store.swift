@@ -21,7 +21,7 @@ public func applyServerMessage(_ state: AppState?, _ message: ServerMessage) -> 
             state.items.append(item)
         }
         return state
-    case .refused, .toast, .ignored:
+    case .refused, .toast, .projectFile, .ignored:
         return state
     }
 }

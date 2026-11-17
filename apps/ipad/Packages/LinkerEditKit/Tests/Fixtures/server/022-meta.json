@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,7 +74,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
     "threadId": "thread-1",
@@ -101,9 +103,7 @@
     "appUpdate": null,
     "workspaceDir": "/work",
     "preview": {
-      "state": "rendering",
-      "timeline": null,
-      "percent": 0
+      "state": "idle"
     },
     "context": null,
     "blocked": null,

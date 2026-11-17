@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,7 +74,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
     "threadId": "thread-1",
@@ -102,17 +104,11 @@
     "workspaceDir": "/work",
     "preview": {
       "state": "rendering",
-      "timeline": {
-        "id": "timeline-1",
-        "name": "AI - Cut"
-      },
+      "timeline": null,
       "percent": 0
     },
     "context": null,
-    "blocked": {
-      "message": "Resolve is rendering a preview. Send when it's done, or stop it in the preview panel.",
-      "canOpen": false
-    },
+    "blocked": null,
     "opening": null,
     "applying": null,
     "transcription": {

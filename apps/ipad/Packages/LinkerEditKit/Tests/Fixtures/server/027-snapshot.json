@@ -1,6 +1,6 @@
 {
-  "type": "meta",
-  "meta": {
+  "type": "snapshot",
+  "state": {
     "projects": [
       {
         "id": "project-1",
@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,11 +74,12 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
-    "threadId": "thread-1",
-    "projectId": "project-1",
+    "threadId": "thread-2",
+    "projectId": "project-2",
     "provider": "claude",
     "defaultProvider": "claude",
     "approvalMode": "ask",
@@ -99,12 +101,15 @@
     "version": "0.0.0",
     "update": null,
     "appUpdate": null,
-    "workspaceDir": "/work",
+    "workspaceDir": "/promo",
     "preview": {
       "state": "idle"
     },
     "context": null,
-    "blocked": null,
+    "blocked": {
+      "message": "Resolve has \"Interview\" open, not this project's \"Promo\". Open \"Promo\" in Resolve to continue.",
+      "canOpen": false
+    },
     "opening": null,
     "applying": null,
     "transcription": {
@@ -132,6 +137,7 @@
       "state": "signed_out",
       "problem": null
     },
-    "collections": []
+    "collections": [],
+    "items": []
   }
 }

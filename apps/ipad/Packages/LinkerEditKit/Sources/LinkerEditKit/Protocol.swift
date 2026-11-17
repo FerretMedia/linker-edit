@@ -371,6 +371,8 @@ public enum ServerMessage: Decodable, Sendable {
     /// The message wasn't sent; it goes back in the composer.
     case refused(threadId: String, text: String)
     case toast(text: String, tone: Tone)
+    /// A project's PROJECT.md, sent when a project opens. Read but not shown on the iPad yet.
+    case projectFile(projectId: String, file: String, text: String)
     /// A message only the web UI uses (history, library, folders…), or one this app doesn't know.
     case ignored(type: String)
 
@@ -383,6 +385,8 @@ public enum ServerMessage: Decodable, Sendable {
         case "item": self = try .item(threadId: c.required("threadId"), item: c.required("item"))
         case "refused": self = .refused(threadId: c.value("threadId", ""), text: c.value("text", ""))
         case "toast": self = .toast(text: c.value("text", ""), tone: c.value("tone", Tone.info))
+        case "project_file":
+            self = .projectFile(projectId: c.value("projectId", ""), file: c.value("file", ""), text: c.value("text", ""))
         default: self = .ignored(type: type)
         }
     }

@@ -1,6 +1,6 @@
 {
-  "type": "snapshot",
-  "state": {
+  "type": "meta",
+  "meta": {
     "projects": [
       {
         "id": "project-1",
@@ -39,7 +39,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       },
       {
         "id": "project-2",
@@ -73,7 +74,8 @@
             "busy": false,
             "waiting": false
           }
-        ]
+        ],
+        "setup": false
       }
     ],
     "threadId": "thread-2",
@@ -135,7 +137,6 @@
       "state": "signed_out",
       "problem": null
     },
-    "collections": [],
-    "items": []
+    "collections": []
   }
 }
