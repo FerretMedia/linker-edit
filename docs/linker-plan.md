@@ -19,9 +19,9 @@ Checked against Linker's code and its live Clerk on 2026-11-11:
 
 | Piece | Where |
 |---|---|
-| OAuth code flow with PKCE, refresh, sign-out | `server/linker.ts` |
-| `GET /api/linker/sign-in` redirects to Linker; `GET /api/linker/callback` finishes | `server/http.ts` |
-| Account row at the bottom of the sidebar | `src/lib/components/LinkerAccount.svelte` |
+| OAuth code flow with PKCE, refresh, sign-out | `apps/desktop/server/linker.ts` |
+| `GET /api/linker/sign-in` redirects to Linker; `GET /api/linker/callback` finishes | `apps/desktop/server/http.ts` |
+| Account row at the bottom of the sidebar | `apps/desktop/src/lib/components/LinkerAccount.svelte` |
 | The client file Clerk reads | Linker: `apps/app/src/routes/oauth/linker-edit.json` (separate PR) |
 
 - **The browser comes back to this server**, at `http://127.0.0.1:4317/api/linker/callback` (RFC 8252). So signing in works only on the edit machine itself. Other computers using it over Tailscale see "Sign in with Linker on <computer>".
@@ -87,7 +87,7 @@ A Viewer reads and can't move items. This meets the multi-user edit history goal
 
 When you're signed in, attach Linker's MCP server (`https://mcp.linker.cool/mcp`) to Claude and Codex with your token. Then "put the new video on my Linker page" or "make a tracked link for the upload" just work.
 
-Linker writes go through the same Allow/Deny as Resolve writes (`server/policy.ts`). This follows the connector's plan rules (Pro and Max), which is right here because it is an AI acting.
+Linker writes go through the same Allow/Deny as Resolve writes (`apps/desktop/server/policy.ts`). This follows the connector's plan rules (Pro and Max), which is right here because it is an AI acting.
 
 ## Later, if real use asks for it
 

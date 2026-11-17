@@ -9,11 +9,14 @@
 // dependency of the npm package, which starts it, and electron-builder refuses to package it as one.
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as path from "node:path";
 import { Arch, build, Platform, type Configuration } from "electron-builder";
 import { releaseName } from "#shared/release-name.ts";
 
 const ROOT = path.join(import.meta.dirname, "..");
+// The repository root: LICENSE, NOTICE, the npm workspaces' lockfile and its install policy (allowScripts).
+const REPO = path.join(ROOT, "..", "..");
 const STAGE = path.join(ROOT, ".desktop-stage");
 const OUT = path.join(ROOT, "release");
 
@@ -24,12 +27,13 @@ type Pkg = {
   license: string;
   repository: { url: string };
   dependencies: Record<string, string>;
-  allowScripts?: Record<string, boolean>;
 };
 
 const readJson = <T>(file: string) => JSON.parse(fs.readFileSync(file, "utf8")) as T;
 const pkg = readJson<Pkg>(path.join(ROOT, "package.json"));
-const electronVersion = readJson<{ version: string }>(path.join(ROOT, "node_modules", "electron", "package.json")).version;
+const { allowScripts } = readJson<{ allowScripts?: Record<string, boolean> }>(path.join(REPO, "package.json"));
+// npm workspaces install electron at the repository root, so ask Node where it is.
+const electronVersion = readJson<{ version: string }>(createRequire(import.meta.url).resolve("electron/package.json")).version;
 const [owner, repo] = new URL(pkg.repository.url).pathname.replace(/^\//, "").replace(/\.git$/, "").split("/");
 
 for (const built of ["build/index.html", "dist/desktop.js", "dist/linker-edit.js"]) {
@@ -42,8 +46,9 @@ for (const built of ["build/index.html", "dist/desktop.js", "dist/linker-edit.js
 console.log(`Staging Linker-Edit ${releaseName(pkg.version)} in ${STAGE}`);
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.rmSync(OUT, { recursive: true, force: true });
-const files = ["build", "dist", "desktop/preload.cjs", "NOTICE", "LICENSE", ...fs.globSync("server/resolve/scripts/*.py", { cwd: ROOT })];
+const files = ["build", "dist", "desktop/preload.cjs", ...fs.globSync("server/resolve/scripts/*.py", { cwd: ROOT })];
 for (const file of files) fs.cpSync(path.join(ROOT, file), path.join(STAGE, file), { recursive: true });
+for (const file of ["NOTICE", "LICENSE"]) fs.copyFileSync(path.join(REPO, file), path.join(STAGE, file));
 
 const { electron: _, ...dependencies } = pkg.dependencies;
 const stagePkg = {
@@ -57,11 +62,15 @@ const stagePkg = {
   type: "module",
   main: "dist/desktop.js",
   dependencies,
-  allowScripts: pkg.allowScripts,
+  allowScripts,
 };
 fs.writeFileSync(path.join(STAGE, "package.json"), `${JSON.stringify(stagePkg, null, 2)}\n`);
-// The lockfile keeps the staged packages at the versions CI tested.
-fs.copyFileSync(path.join(ROOT, "package-lock.json"), path.join(STAGE, "package-lock.json"));
+// The lockfile keeps the staged packages at the versions CI tested. It's the workspaces' one, made the app's own:
+// the app's entry becomes the root, and the workspace folders and their links go.
+const lock = readJson<{ packages: Record<string, { link?: boolean }> }>(path.join(REPO, "package-lock.json"));
+const installed = Object.entries(lock.packages).filter(([key, entry]) => key.startsWith("node_modules/") && !entry.link);
+const stageLock = { ...lock, name: pkg.name, version: pkg.version, packages: { "": { ...lock.packages["apps/desktop"], version: pkg.version }, ...Object.fromEntries(installed) } };
+fs.writeFileSync(path.join(STAGE, "package-lock.json"), `${JSON.stringify(stageLock, null, 2)}\n`);
 const install = spawnSync("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: STAGE, stdio: "inherit", shell: true });
 if (install.status !== 0) process.exit(install.status ?? 1);
 

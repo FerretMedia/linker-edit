@@ -8,7 +8,7 @@ model: haiku
 # Test signal review
 
 Review only the tests the branch adds or grows against `origin/main`
-(`git diff origin/main...HEAD -- '**/*.test.ts' 'e2e/**'`). Tests it moves,
+(`git diff origin/main...HEAD -- '**/*.test.ts' '**/e2e/**'`). Tests it moves,
 renames or deletes are not findings. Read "Verifying" in the root `AGENTS.md`
 first and hold the new tests to it.
 

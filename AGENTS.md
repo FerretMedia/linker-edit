@@ -20,17 +20,20 @@ and fight scope creep: do what was asked, minimally and properly.
 
 ## Layout
 
-| Path               | What                                                                 |
-| ------------------ | -------------------------------------------------------------------- |
-| `server/`          | All state: projects, threads, turns, approvals; `/ws` and `/api`     |
-| `server/providers` | Claude (Agent SDK) and Codex sessions, and replaying a recorded turn |
-| `server/resolve`   | The connection to Resolve, its tools, and the Python they run        |
-| `server/agents`    | The `linker` MCP server the agents get                               |
-| `server/history`   | The edit history: the Resolve project in Git, per turn               |
-| `server/projects`  | Projects, threads, and their link to a Resolve project               |
-| `src/`             | The UI, built to `build/` and served by the server                   |
-| `shared/`          | What both sides import; `protocol.ts` is everything on `/ws`         |
-| `desktop/`         | Electron: the window and the updater                                 |
+An npm workspaces monorepo; run `npm` from the root, which forwards to the app.
+`apps/` holds the apps, `packages/` shared libraries (each a workspace with a
+`package.json`), `docs/` plans. The app, published to npm as `linker-edit`, is
+`apps/desktop`; paths here are in it:
+
+- `server/`: all state (projects, threads, turns, approvals); `/ws` and `/api`
+- `server/providers`: Claude and Codex sessions, and replaying a recorded turn
+- `server/resolve`: the connection to Resolve, its tools, the Python they run
+- `server/agents`: the `linker` MCP server the agents get
+- `server/history`: the edit history, the Resolve project in Git, per turn
+- `server/projects`: projects, threads, and their link to a Resolve project
+- `src/`: the UI, built to `build/` and served by the server
+- `shared/`: what both sides import; `protocol.ts` is everything on `/ws`
+- `desktop/`: Electron, the window and the updater
 
 - **The server owns the state.** The UI renders what arrives over `/ws` and
   sends commands back; a rule enforced only in the UI isn't enforced.
@@ -88,7 +91,7 @@ applied:
 
 ## Verifying
 
-- **While iterating**, run only the tests you touch: `npx vitest run <file>`.
+- **While iterating**, run only the tests you touch: `npm test -- <file>`.
 - **Before calling it done**, `npm run typecheck` and `npm test`, and
   `npm run test:e2e` when a flow in the UI changed.
 - **Test what can break:** the guardrails and their refusals, the Resolve

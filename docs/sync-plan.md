@@ -18,10 +18,10 @@ T3 Code doesn't copy data between computers. The sources are `docs/user/remote-a
 
 ## What Linker-Edit already has
 
-- **One copy of the state, streamed live.** `server/app.ts` sends every open window a snapshot plus patches.
-- **Remote access over Tailscale** (`server/remote.ts`). It only lets in the owner's own devices.
+- **One copy of the state, streamed live.** `apps/desktop/server/app.ts` sends every open window a snapshot plus patches.
+- **Remote access over Tailscale** (`apps/desktop/server/remote.ts`). It only lets in the owner's own devices.
 - **The computer menu**, which opens another computer in the window.
-- **Sign in with Linker** (`server/linker.ts`), which is Clerk, the same kind of login T3 Connect uses.
+- **Sign in with Linker** (`apps/desktop/server/linker.ts`), which is Clerk, the same kind of login T3 Connect uses.
 
 ## The design
 

@@ -36,7 +36,7 @@ jobs:
           node-version: 24
       - name: Pick the version
         id: version
-        run: node scripts/release-version.ts >> "$GITHUB_OUTPUT"
+        run: node apps/desktop/scripts/release-version.ts >> "$GITHUB_OUTPUT"
 
   # Each installer is built on its own platform: the agents' programs are installed per platform and architecture.
   desktop:
@@ -69,10 +69,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # The app is the apps/desktop workspace; only its package.json carries the version.
       - name: Stamp the version
-        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version
+        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --no-workspaces-update -w apps/desktop
       - run: npm run build
       - name: Build the installer
+        working-directory: apps/desktop
         run: node scripts/build-desktop.ts
         env:
           # Optional. Unset, Windows builds are unsigned and Mac builds are signed ad hoc; see RELEASING.md.
@@ -85,12 +87,12 @@ jobs:
         with:
           name: desktop-${{ matrix.artifact }}
           path: |
-            release/*.exe
-            release/*.dmg
-            release/*.zip
-            release/*.AppImage
-            release/*.blockmap
-            release/latest*.yml
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
           if-no-files-found: error
           retention-days: 7
 
@@ -122,7 +124,7 @@ jobs:
           pattern: desktop-*
           path: ${{ runner.temp }}/desktop
       - name: Gather the installers
-        run: node scripts/release-assets.ts "$RUNNER_TEMP/desktop" "$RUNNER_TEMP/assets"
+        run: node apps/desktop/scripts/release-assets.ts "$RUNNER_TEMP/desktop" "$RUNNER_TEMP/assets"
       # A day has one release: releasing again that day replaces it, tag and all.
       - name: Replace today's earlier release
         env:
@@ -140,12 +142,13 @@ jobs:
       # npm refuses provenance from a private repository, so the package waits until the repo is public.
       - name: Stamp the version
         if: ${{ !github.event.repository.private }}
-        run: npm version "$VERSION" --no-git-tag-version
+        run: npm version "$VERSION" --no-git-tag-version --no-workspaces-update -w apps/desktop
       - if: ${{ !github.event.repository.private }}
         run: npm run build
+      # Publishes the apps/desktop workspace as the linker-edit package; its prepack copies README, LICENSE and NOTICE in.
       - name: Publish to npm
         if: ${{ !github.event.repository.private }}
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public -w apps/desktop
         env:
           # Only needed until trusted publishing is set up on npmjs.com; see RELEASING.md.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -75,8 +75,8 @@ jobs:
         with:
           name: playwright-report
           path: |
-            playwright-report/
-            test-results/
+            apps/desktop/playwright-report/
+            apps/desktop/test-results/
           retention-days: 7
 
   # Installs the npm package the way users get it and starts it, so a broken bundle or a missing file never ships.
@@ -92,7 +92,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm pack
+      # The npm package is the desktop workspace; the tarball lands here, at the root.
+      - run: npm pack -w apps/desktop
       - name: Install and start the package
         run: |
           app="$RUNNER_TEMP/app"
@@ -133,7 +134,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node scripts/build-desktop.ts --dir
+        working-directory: apps/desktop
       - name: Start the app
+        working-directory: apps/desktop
         run: |
           app=release/linux-unpacked/linker-edit
           cat > "$RUNNER_TEMP/config.json" <<EOF
@@ -155,6 +158,7 @@ jobs:
           pkill -9 -f release/linux-unpacked || true
       # Downloads an update from a feed on the runner, restarts to install it, and checks the app stopped its server.
       - name: Try updates
+        working-directory: apps/desktop
         run: xvfb-run -a node scripts/update-smoke.ts
 
   # The one check to require before merging. It fails when any job above fails, is cancelled or is
