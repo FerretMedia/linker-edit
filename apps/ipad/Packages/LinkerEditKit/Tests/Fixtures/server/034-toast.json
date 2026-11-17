@@ -1,0 +1,5 @@
+{
+  "type": "toast",
+  "text": "Resolve has \"Interview\" open, not this project's \"Promo\". Open \"Promo\" in Resolve to continue.",
+  "tone": "error"
+}

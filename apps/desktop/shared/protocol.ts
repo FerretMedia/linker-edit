@@ -1,4 +1,6 @@
 // Messages exchanged between the local server and the browser UI over /ws.
+// The iPad app (apps/ipad) reads them too: after a change, run
+// RECORD_IPAD_FIXTURES=1 npm test -- scripts/ipad-fixtures.test.ts and push, so its CI decodes the new messages.
 
 export type Provider = "claude" | "codex";
 

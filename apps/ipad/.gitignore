@@ -1,0 +1,9 @@
+# Written by `xcodegen generate` from project.yml.
+LinkerEdit.xcodeproj/
+LinkerEdit/Info.plist
+# Swift Package Manager and Xcode.
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/
+*.xcresult

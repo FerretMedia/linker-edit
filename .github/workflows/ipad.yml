@@ -1,0 +1,141 @@
+name: iPad
+
+# The native iPad app (apps/ipad) builds only on macOS, so this is where its Swift is compiled and tested.
+on:
+  pull_request:
+    paths:
+      - "apps/ipad/**"
+      - ".github/workflows/ipad.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/ipad/**"
+      - ".github/workflows/ipad.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ipad:
+    name: Build and test (iPad simulator)
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      # A Linker-Edit server on this runner, for the tests that connect to a real one.
+      LINKER_EDIT_PORT: "4390"
+    steps:
+      - uses: actions/checkout@v5
+
+      # The app needs the iOS 26 SDK (Liquid Glass); the runner's default Xcode may be older, so take its newest 26.
+      - name: Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          test -n "$xcode"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          swift --version
+
+      - name: Generate the Xcode project
+        working-directory: apps/ipad
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Pick an iPad simulator
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '[.devices | to_entries[] | select(.key | test("iOS-26")) | .value[] | select(.name | startswith("iPad"))] | last | .udid')
+          test -n "$udid" && test "$udid" != null
+          xcrun simctl list devices available | grep "$udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+
+      - name: Build the app
+        working-directory: apps/ipad
+        run: |
+          xcodebuild build -quiet \
+            -project LinkerEdit.xcodeproj -scheme LinkerEdit \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # The real server, from this checkout, with a config of its own: no Resolve, agents or Tailscale here.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Start a Linker-Edit server
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: |
+          npm ci --no-audit --no-fund
+          cat > "$RUNNER_TEMP/config.json" <<EOF
+          { "port": $LINKER_EDIT_PORT, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects" }
+          EOF
+          LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" nohup node apps/desktop/server/index.ts > "$RUNNER_TEMP/server.log" 2>&1 &
+          curl --silent --fail --retry 30 --retry-delay 1 --retry-all-errors "http://127.0.0.1:$LINKER_EDIT_PORT/api/hello" \
+            || { cat "$RUNNER_TEMP/server.log"; exit 1; }
+
+      - name: Test LinkerEditKit
+        working-directory: apps/ipad/Packages/LinkerEditKit
+        env:
+          TEST_RUNNER_LINKER_EDIT_URL: http://127.0.0.1:${{ env.LINKER_EDIT_PORT }}
+        run: |
+          xcodebuild test -quiet \
+            -scheme LinkerEditKit \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/LinkerEditKit.xcresult" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test the app (UI tests)
+        working-directory: apps/ipad
+        env:
+          TEST_RUNNER_LINKER_EDIT_URL: http://127.0.0.1:${{ env.LINKER_EDIT_PORT }}
+        run: |
+          xcodebuild test -quiet \
+            -project LinkerEdit.xcodeproj -scheme LinkerEdit \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/LinkerEdit.xcresult" \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Every test must have run: the ones against the real server skip themselves without it.
+      - name: Test summary
+        run: |
+          for result in LinkerEditKit LinkerEdit; do
+            xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/$result.xcresult" --compact > "$RUNNER_TEMP/$result-summary.json"
+            jq -c '{result, totalTestCount, passedTests, failedTests, skippedTests}' "$RUNNER_TEMP/$result-summary.json"
+            jq -e '.failedTests == 0 and .skippedTests == 0' "$RUNNER_TEMP/$result-summary.json" > /dev/null
+          done
+
+      - name: Collect screenshots
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/screenshots"
+          if [ -d "$RUNNER_TEMP/LinkerEdit.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/LinkerEdit.xcresult" --output-path "$RUNNER_TEMP/screenshots" || true
+          fi
+          ls -la "$RUNNER_TEMP/screenshots"
+          cat "$RUNNER_TEMP/server.log" 2>/dev/null | tail -50 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-screenshots
+          path: ${{ runner.temp }}/screenshots
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ipad-test-results
+          path: |
+            ${{ runner.temp }}/*.xcresult
+            ${{ runner.temp }}/server.log
+          retention-days: 7
