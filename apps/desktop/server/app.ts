@@ -49,7 +49,7 @@ import type { ResolveProjects } from "./resolveProjects.ts";
 import type { SettingsStore } from "./settings.ts";
 import { findResolveTool } from "./resolve/tools.ts";
 import { readOrigins, type Applied } from "./resolve/versions.ts";
-import { LINKER_MCP_NAME } from "./rules.ts";
+import { LINKER_MCP_NAME, PROJECT_NOTES_FILE, readProjectFile, writeProjectFile } from "./rules.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
 
@@ -241,6 +241,8 @@ export function createApp(options: AppOptions) {
       },
       release() {
         if (turnOwner === saved.id) turnOwner = null;
+        // The agent may have written PROJECT.md in its turn.
+        publishProjectFile(projectId);
       },
       check: () => {
         prepareFolder(project.saved);
@@ -488,6 +490,24 @@ export function createApp(options: AppOptions) {
     if (!history) return;
     const entries = await history.log().catch(() => []);
     for (const target of client ? [client] : clients.keys()) send(target, { type: "history", projectId, entries });
+  }
+
+  /** A project's PROJECT.md as it is on disk. A setup project has none. */
+  function publishProjectFile(projectId: string, client?: Client) {
+    const saved = projects.get(projectId)?.saved;
+    if (!saved || saved.setup) return;
+    const message: ServerMessage = { type: "project_file", projectId, file: path.join(saved.dir, PROJECT_NOTES_FILE), text: readProjectFile(saved.dir) };
+    for (const target of client ? [client] : clients.keys()) send(target, message);
+  }
+
+  function saveProjectFile(client: Client, projectId: string, text: unknown) {
+    const saved = projects.get(projectId)?.saved;
+    if (!saved || saved.setup || typeof text !== "string") return;
+    const refusal = writeProjectFile(saved.dir, text);
+    if (refusal) return toast(client, refusal);
+    // Codex reads it from AGENTS.md, so that follows at once.
+    prepareFolder(saved);
+    publishProjectFile(projectId);
   }
 
   /**
@@ -1065,6 +1085,12 @@ export function createApp(options: AppOptions) {
         break;
       case "load_history":
         if (current) void publishHistory(current.projectId, client);
+        break;
+      case "load_project_file":
+        if (current) publishProjectFile(current.projectId, client);
+        break;
+      case "save_project_file":
+        saveProjectFile(client, message.projectId, message.text);
         break;
       case "render_preview":
         renderPreview(client, current?.projectId ?? null, message.timelineId ?? null);

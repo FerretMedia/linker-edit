@@ -47,6 +47,15 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
   expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "RULES.md"), "utf8")).toBe("End every video on the logo.");
 });
 
+test("a project's own file is read and saved in the project file panel", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Project file", exact: true }).click();
+  await page.getByRole("textbox", { name: "Project file" }).fill("# Promo\n\n## Brief\nThirty seconds, for the launch.");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Saved", exact: true })).toBeDisabled();
+  expect(fs.readFileSync(path.join(dir, "workspace", "PROJECT.md"), "utf8")).toBe("# Promo\n\n## Brief\nThirty seconds, for the launch.\n");
+});
+
 test("a workspace is set up with AI in a thread of its own, and can be set to work on its own", async ({ page }) => {
   await page.goto("/#settings/workspaces");
   await page.getByRole("button", { name: "New workspace" }).click();

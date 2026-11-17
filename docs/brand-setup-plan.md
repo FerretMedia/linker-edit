@@ -197,13 +197,13 @@ Built in one PR:
 - Setup threads with **Set up with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
 - **Works on its own** per workspace or series, with the footage form in a new thread.
 - Lessons from feedback, the retro on "Use as main timeline", rounds until approved, and feedback at a moment of the preview.
-- `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from.
+- `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from. **Project file** in the app shows it and lets you edit it.
+- The measured check: working on its own, the agent renders its cut and measures it against Must before showing it.
 
 Not built:
 
-- A place in the app to read and edit `PROJECT.md`. It is a file in the project's folder for now.
 - A footage log of its own. What the agent finds in the footage is a section of `PROJECT.md`; long shoots will need a file per shoot that isn't in every prompt.
-- Checking **Must** by measuring: the agent is told to check each line, but nothing runs `study_media` on its render and compares the numbers for it.
+- A **Must** the code can read. The agent working on its own is told to render its cut, measure it with `study_media` and compare each Must line, and to report the numbers. The comparing is the agent's: Must is plain text, so Linker-Edit can't refuse a cut that breaks it.
 - Folding old lessons into the rules when there are many.
 - Library folders on a workspace or series (thread 4 of the library plan). Until then the brief names the brand's assets by their path, and the universal library holds the music.
 - Reading past Resolve projects.

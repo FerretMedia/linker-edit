@@ -145,7 +145,8 @@ describe("workspaces and series", () => {
 
 describe("workspaces and series in the app", () => {
   it("sends collections to every client and gives both agents the project's rules at each turn", async () => {
-    const projects = memoryProjectStore([{ project: project("ep12") }, { project: project("ep11") }]);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-file-"));
+    const projects = memoryProjectStore([{ project: project("ep12", dir) }, { project: project("ep11") }]);
     const prepared = new Map<string, string>();
     const rules: string[] = [];
     const app = createApp({
@@ -174,12 +175,20 @@ describe("workspaces and series in the app", () => {
     expect(clients[1]!.state.collections.find((collection) => collection.id === series.id)!.projectIds).toEqual(["ep12", "ep11"]);
     expect(projects.projects.get("ep12")!.collection).toEqual({ id: series.id, name: "Podcast" });
     // Codex's AGENTS.md is rewritten straight away for both projects.
-    expect(prepared.get("/projects/ep12")).toContain("Never use the word 'synergy'.");
+    expect(prepared.get(dir)).toContain("Never use the word 'synergy'.");
     expect(prepared.get("/projects/ep11")).toContain("Never use the word 'synergy'.");
 
     send({ type: "delete_collection", id: workspace.id });
     expect(clients[0]!.toasts).toEqual(['Workspace "Ferret Media" still has 1 series in it. Move it out first.']);
     expect(clients[1]!.toasts).toEqual([]);
+
+    // PROJECT.md saved in the app reaches every client and Codex's AGENTS.md; one that is too long isn't saved.
+    send({ type: "save_project_file", projectId: "ep12", text: "# Ep 12\n\n## Brief\nThe anniversary episode." });
+    expect(clients[1]!.files.at(-1)).toEqual({ projectId: "ep12", file: path.join(dir, "PROJECT.md"), text: "# Ep 12\n\n## Brief\nThe anniversary episode.\n" });
+    expect(prepared.get(dir)).toContain("## This project (PROJECT.md in the working folder)\n\n# Ep 12");
+    send({ type: "save_project_file", projectId: "ep12", text: "x".repeat(20_001) });
+    expect(clients[0]!.toasts.at(-1)).toMatch(/up to 20,000 characters/);
+    expect(fs.readFileSync(path.join(dir, "PROJECT.md"), "utf8")).toMatch(/^# Ep 12/);
 
     // Claude gets them in its system prompt, read when the turn starts.
     send({ type: "send", text: "Cut the intro" });
@@ -192,11 +201,14 @@ describe("workspaces and series in the app", () => {
 function client() {
   let state: AppState | null = null;
   const toasts: string[] = [];
+  const files: { projectId: string; file: string; text: string }[] = [];
   return {
     toasts,
+    files,
     send(data: string) {
       const message = JSON.parse(data) as ServerMessage;
       if (message.type === "toast") toasts.push(message.text);
+      if (message.type === "project_file") files.push({ projectId: message.projectId, file: message.file, text: message.text });
       state = applyServerMessage(state, message);
     },
     get state(): AppState {

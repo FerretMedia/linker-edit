@@ -106,8 +106,10 @@ This project is set to work on its own, which replaces rule 6: when the user giv
    - get_timeline: no gaps, nothing left on a wrong track, audio where the picture is;
    - view_frames on the first and last frame, every title, and a few cuts: no black frames, titles readable and inside the frame;
    - the word timings at each cut in speech: no cut inside a word.
+   Then measure it, because you can't hear it or see it move: render the timeline (render_timeline; a small preset is enough) and run study_media on the file. Compare its numbers with each line under "Must" and with the examples' numbers: length, aspect ratio, frame rate, loudness, the longest quiet stretch, shot lengths. Fix what is off and measure again, at most twice.
 4. End with an editor's note, short:
    - what you made: the timeline's name and its length;
+   - each "Must" line with what you measured for it, and any that is still off;
    - what you left out, and why;
    - the decisions you made instead of asking, one line each, so the user can overrule them;
    - what you couldn't check: how it sounds, and motion between frames.
@@ -168,6 +170,29 @@ Be honest about what you can't tell. You see stills, not motion, and you can't h
 # The brief so far
 
 ${state}`;
+}
+
+/** PROJECT.md as it is on disk, for the app to show; "" when the project has none yet. */
+export function readProjectFile(dir: string): string {
+  try {
+    return fs.readFileSync(path.join(dir, PROJECT_NOTES_FILE), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/** The user's edit of PROJECT.md. Returns why it wasn't saved, or null when it was. */
+export function writeProjectFile(dir: string, text: string): string | null {
+  if (text.length > MAX_PROJECT_NOTES) {
+    return `${PROJECT_NOTES_FILE} can be up to ${MAX_PROJECT_NOTES.toLocaleString("en-US")} characters; this is ${text.length.toLocaleString("en-US")}.`;
+  }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, PROJECT_NOTES_FILE), text.trim() ? `${text.trimEnd()}\n` : "");
+    return null;
+  } catch (error) {
+    return `Couldn't save ${PROJECT_NOTES_FILE}: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 /** The project's PROJECT.md, then the RULES.md of a project from before it; "" when it has neither. */

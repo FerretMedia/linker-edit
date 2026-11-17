@@ -479,6 +479,9 @@ export type ClientMessage =
   /** Whether this computer has Resolve (or will); see AppMeta.resolveHere. */
   | { type: "set_resolve_here"; resolveHere: boolean }
   | { type: "load_history" }
+  /** PROJECT.md of the project in view: what the video is, kept by the agent and edited here by the user. */
+  | { type: "load_project_file" }
+  | { type: "save_project_file"; projectId: string; text: string }
   /** Without a timeline id, renders Resolve's current timeline. */
   | { type: "render_preview"; timelineId?: string }
   /** The user is happy with an AI timeline: it takes the main timeline's place, which is kept renamed. */
@@ -541,6 +544,8 @@ export type ServerMessage =
   | { type: "meta"; meta: AppMeta }
   | { type: "item"; threadId: string; item: ChatItem }
   | { type: "history"; projectId: string; entries: HistoryEntry[] }
+  /** A project's PROJECT.md: on request, after a save, and after each turn in the project. file is its path. */
+  | { type: "project_file"; projectId: string; file: string; text: string }
   | { type: "library"; library: ResolveLibrary | { error: string } }
   | { type: "folders"; requestId: number; listing: FolderListing | { error: string } }
   /** The message wasn't sent; it goes back in the composer. */

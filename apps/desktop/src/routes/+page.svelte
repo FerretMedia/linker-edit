@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { CircleAlert, FolderPlus, History, Library, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
+  import { CircleAlert, FileText, FolderPlus, History, Library, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
   import type { ChatItem, HistoryEntry, Provider } from "#shared/protocol.ts";
   import AddProjectDialog from "#lib/components/AddProjectDialog.svelte";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
   import Composer from "#lib/components/Composer.svelte";
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
+  import ProjectFilePanel from "#lib/components/ProjectFilePanel.svelte";
   import LibraryPage from "#lib/components/LibraryPage.svelte";
   import PreviewPanel from "#lib/components/PreviewPanel.svelte";
   import ProjectSettingsDialog from "#lib/components/ProjectSettingsDialog.svelte";
@@ -97,7 +98,7 @@
   let scroller: HTMLElement | undefined = $state();
   let stickToBottom = true;
   // One side panel at a time, opened from the header like T3 Code's diff panel.
-  let panel = $state<"preview" | "history" | null>(null);
+  let panel = $state<"preview" | "history" | "file" | null>(null);
   const historyOpen = $derived(panel === "history");
 
   const app = $derived(server.state);
@@ -154,6 +155,7 @@
   const PANELS = [
     { name: "preview", label: "Preview", Icon: MonitorPlay },
     { name: "history", label: "History", Icon: History },
+    { name: "file", label: "Project file", Icon: FileText },
   ] as const;
 
   // ToolSearch is the agent loading tool schemas: plumbing, not work the user cares about.
@@ -193,6 +195,13 @@
     if (historyOpen && server.connected && app?.projectId) server.send({ type: "load_history" });
   });
 
+  $effect(() => {
+    // While open, the server pushes it again after each turn and each save.
+    if (panel === "file" && server.connected && app?.projectId) server.send({ type: "load_project_file" });
+  });
+
+  const projectFile = $derived(server.projectFile && server.projectFile.projectId === app?.projectId ? server.projectFile : null);
+
   const historyEntries = $derived(server.history && server.history.projectId === app?.projectId ? server.history.entries : null);
 
   function restore(entry: HistoryEntry) {
@@ -202,7 +211,7 @@
     composer?.focus();
   }
 
-  function togglePanel(name: "preview" | "history") {
+  function togglePanel(name: "preview" | "history" | "file") {
     panel = panel === name ? null : name;
   }
 
@@ -534,6 +543,14 @@
         onRestore={restore}
         onPreview={(id, commit) => openPreview({ id, commit })}
       />
+    {:else if panel === "file" && !project?.setup}
+      {#key app.projectId}
+        <ProjectFilePanel
+          file={projectFile}
+          onSave={(text) => app?.projectId && server.send({ type: "save_project_file", projectId: app.projectId, text })}
+          onClose={() => (panel = null)}
+        />
+      {/key}
     {:else if panel === "preview" && !project?.setup}
       <PreviewPanel
         projectId={app.projectId}
