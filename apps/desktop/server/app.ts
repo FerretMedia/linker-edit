@@ -29,6 +29,8 @@ import type { AppUpdates } from "./appUpdate.ts";
 import { createCollections } from "./collections/collections.ts";
 import type { CollectionStore } from "./collections/store.ts";
 import { memoryCollectionStore } from "./collections/testing.ts";
+import { ADD_LESSON, isBriefTool, SAVE_BRIEF, SAVE_EXAMPLE } from "./collections/tools.ts";
+import { isStudyTool, type StudyService } from "./study/study.ts";
 import { browseFolders, expandHome } from "./folders.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
 import { checkFolder, cleanFolder, cleanTags, keepLibrary, newFolder, projectFolders, withProjectFolders } from "./library/folders.ts";
@@ -103,7 +105,18 @@ export interface AppOptions {
   appUpdates?: Pick<AppUpdates, "status" | "onStatus" | "check" | "install" | "cancel">;
   /** Folders of files the user reuses, for the library page and the agents' library tools. */
   library?: LibraryService;
+  /** Measures example videos and compares a cut with its raw footage, for the agents' study tools. */
+  study?: StudyService;
 }
+
+/** Starts the chat line that marks an approved edit; feedback rounds are counted from the last one. */
+const APPROVED = "Approved:";
+/** Starts the message Linker-Edit sends for the user after an approval, so it isn't counted as feedback. */
+const LEARN = "Learn from this edit:";
+/** The Resolve tools that work on files alone, which a setup thread may use. */
+const usesNoResolve = (tool: string, input: Record<string, unknown>) =>
+  tool === "find_silences" || (tool === "view_frames" && typeof input.file === "string");
+const SETUP_REFUSAL = "This is a setup thread: it has no Resolve project, so tools that work in Resolve are refused here. Study the videos as files instead.";
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 
@@ -174,13 +187,18 @@ export function createApp(options: AppOptions) {
       store.saveProject(project.saved);
       project.history?.commitProjectFile(commitMessage).catch((error: unknown) => console.error("Couldn't commit linker-edit.json", error));
     },
+    removeProject: (projectId) => removeProject(projectId),
     changed() {
       for (const project of projects.values()) prepareFolder(project.saved);
       sendMeta();
     },
   });
 
-  const projectName = (saved: SavedProject) => saved.name ?? saved.link?.name ?? path.basename(saved.dir);
+  function projectName(saved: SavedProject): string {
+    // Follows a rename of what it sets up.
+    if (saved.setup) return `${collections.get(saved.collection?.id ?? "")?.name ?? saved.collection?.name ?? "Brand"} setup`;
+    return saved.name ?? saved.link?.name ?? path.basename(saved.dir);
+  }
   const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || applying !== null || toolCalls > 0;
 
   /** Writes the project's rules where agents read them; again before each turn, so they are never stale. */
@@ -195,7 +213,8 @@ export function createApp(options: AppOptions) {
   function addProject(saved: SavedProject, savedThreads: SavedThread[] = []): ProjectState {
     prepareFolder(saved);
     const state: ProjectState = { saved };
-    state.history = options.createHistory?.(saved.dir, (open) => {
+    // A setup project has no Resolve project, so nothing to keep a history of.
+    state.history = saved.setup ? undefined : options.createHistory?.(saved.dir, (open) => {
       const link = state.saved.link;
       if (!link) return null;
       const same = link.projectId && open.id ? link.projectId === open.id : link.name === open.name;
@@ -286,7 +305,7 @@ export function createApp(options: AppOptions) {
   /** Why a thread of this project can't run against Resolve now; null when it can. */
   function projectRefusal(project: ProjectState): string | null {
     const open = openProject(resolve);
-    if (!open) return null;
+    if (!open || project.saved.setup) return null;
     const { link } = project.saved;
     if (link) {
       if (isLinkedProject(link, project.saved.local, open)) return null;
@@ -300,6 +319,8 @@ export function createApp(options: AppOptions) {
   }
 
   async function checkBeforeTurn(project: ProjectState): Promise<{ refusal: string } | { notice: string | null }> {
+    // Never linked to whatever Resolve has open: it studies files.
+    if (project.saved.setup) return { notice: null };
     await refreshResolve();
     const refusal = projectRefusal(project);
     if (refusal) return { refusal };
@@ -338,6 +359,7 @@ export function createApp(options: AppOptions) {
       pinned: saved.pinned,
       archived: saved.archived,
       threads: projectThreads(saved.id).map((thread) => thread.summary()),
+      setup: saved.setup === true,
     }));
   }
 
@@ -478,6 +500,10 @@ export function createApp(options: AppOptions) {
     if (resolveBusy()) return toast(client, "Resolve is busy with a turn, a render or an open. Try again when it's done.");
     applying = projectId;
     sendMeta();
+    // The thread the user approved it from learns from the edit, when the project has a brief to learn into.
+    const viewed = threads.get(clients.get(client)?.threadId ?? "");
+    const learner = viewed?.projectId === projectId && collections.get(project.saved.collection?.id ?? "") ? viewed.thread : null;
+    let learn: string | null = null;
     try {
       await refreshResolve();
       const refusal = projectRefusal(project);
@@ -491,6 +517,14 @@ export function createApp(options: AppOptions) {
       );
       await project.history?.record().catch((error: unknown) => console.error("Couldn't save the edit history", error));
       await publishHistory(projectId);
+      if (learner) {
+        // Rounds of feedback: what the user sent since the last approval, less the brief that started the edit.
+        const since = learner.items.slice(learner.items.findLastIndex((item) => item.kind === "notice" && item.text.startsWith(APPROVED)) + 1);
+        const sent = since.filter((item) => item.kind === "user" && !item.text.startsWith(LEARN)).length;
+        collections.recordEdit(project.saved, projectName(project.saved), Math.max(0, sent - 1));
+        learner.note(`${APPROVED} "${applied.was}" is now the main timeline "${applied.main.name}".`);
+        learn = `${LEARN} I approved "${applied.was}" and made it the main timeline "${applied.main.name}". Compare your first version of it with the approved one, and propose lessons for next time if there are any.`;
+      }
     } catch (error) {
       toast(client, `Couldn't make it the main timeline: ${errorText(error)}`);
     } finally {
@@ -498,6 +532,7 @@ export function createApp(options: AppOptions) {
       sendMeta();
       void refreshResolve();
     }
+    if (learn && learner && !learner.busy) learner.send(learn, false);
   }
 
   function renderPreview(client: Client, projectId: string | null, timelineId: string | null) {
@@ -653,6 +688,7 @@ export function createApp(options: AppOptions) {
   function relink(client: Client, projectId: string) {
     const project = projects.get(projectId);
     const open = openProject(resolve);
+    if (project?.saved.setup) return;
     if (!project || !open) {
       if (project) toast(client, "Open the project in Resolve first, then link it.");
       return;
@@ -915,6 +951,7 @@ export function createApp(options: AppOptions) {
     if ("refusal" in turn) return { text: turn.refusal, isError: true };
     if (!run) return { text: "Linker-Edit can't reach Resolve's tools here.", isError: true };
     const project = projects.get(turn.projectId)!;
+    if (project.saved.setup) return { text: SETUP_REFUSAL, isError: true };
     try {
       const result = await holdingResolve(() =>
         libraryImport(input, {
@@ -930,6 +967,50 @@ export function createApp(options: AppOptions) {
     } catch (error) {
       return { text: errorText(error), isError: true };
     }
+  }
+
+  /** The agents' study tools: they only read media files, so they need no turn and no Resolve. */
+  async function studyTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean; images?: string[] }> {
+    if (!options.study || !isStudyTool(tool)) return { text: `There is no study tool called ${tool}.`, isError: true };
+    const turn = runningTurn();
+    try {
+      return { ...(await options.study.run(tool, input, "refusal" in turn ? undefined : turn.signal)), isError: false };
+    } catch (error) {
+      return { text: errorText(error), isError: true };
+    }
+  }
+
+  /**
+   * The agents' brief tools. New rules and lessons steer every later edit, so they wait for the user in full
+   * access too; the agent's own notes on an example don't.
+   */
+  async function briefTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+    if (!isBriefTool(tool)) return { text: `There is no brief tool called ${tool}.`, isError: true };
+    const turn = runningTurn();
+    if ("refusal" in turn) return { text: "No Linker-Edit turn is running, so the brief can't be changed.", isError: true };
+    const project = projects.get(turn.projectId)!.saved;
+    try {
+      if (tool === SAVE_EXAMPLE) return { text: collections.saveExample(project, input), isError: false };
+      const proposal = tool === SAVE_BRIEF ? collections.proposeBrief(project, input) : collections.proposeLesson(project, input, projectName(project));
+      if ("error" in proposal) return { text: proposal.error, isError: true };
+      if (!(await turn.thread.requestApproval(`mcp__${LINKER_MCP_NAME}__${tool}`, proposal.shows))) {
+        return { text: "The user declined this change. Ask what they'd like instead; don't propose the same again.", isError: true };
+      }
+      return { text: proposal.apply(), isError: false };
+    } catch (error) {
+      return { text: errorText(error), isError: true };
+    }
+  }
+
+  /** A workspace's or series' setup thread: its newest one, in a project made for it on first use. */
+  function openSetup(client: Client, collectionId: string) {
+    const collection = collections.get(collectionId);
+    if (!collection) return;
+    const existing = [...projects.values()].find((project) => project.saved.setup && project.saved.collection?.id === collectionId);
+    const project =
+      existing ??
+      addProject(store.create({ name: `${collection.name} setup`, link: null, local: {}, collection: { id: collection.id, name: collection.name }, setup: true }));
+    select(client, projectThreads(project.saved.id).find((thread) => !thread.archived)?.id ?? newThread(project.saved.id).id);
   }
 
   /** Workspaces and series: create, update, delete, and moving a project into one. */
@@ -970,7 +1051,10 @@ export function createApp(options: AppOptions) {
         if (message.mode !== "ask" && message.mode !== "auto") break;
         approvalMode = message.mode;
         options.settings?.save({ approvalMode });
-        if (approvalMode === "auto") for (const { thread } of threads.values()) thread.settleAllApprovals(true);
+        // Changes to the brief keep waiting: those ask in full access too.
+        if (approvalMode === "auto") {
+          for (const { thread } of threads.values()) thread.settleAllApprovals(true, (request) => !isBriefTool(request.tool.split("__").at(-1) ?? ""));
+        }
         sendMeta();
         break;
       case "approve":
@@ -1080,6 +1164,9 @@ export function createApp(options: AppOptions) {
       case "cancel_app_update":
         options.appUpdates?.cancel();
         break;
+      case "setup_collection":
+        if (typeof message.id === "string") openSetup(client, message.id);
+        break;
       default:
         if (!handleSidebarMessage(message)) handleCollectionMessage(client, message);
     }
@@ -1179,6 +1266,7 @@ export function createApp(options: AppOptions) {
       if (!definition || !run) return { text: `There is no Resolve tool called ${tool}.`, isError: true };
       const turn = runningTurn();
       if ("refusal" in turn) return { text: turn.refusal, isError: true };
+      if (projects.get(turn.projectId)?.saved.setup && !usesNoResolve(tool, input)) return { text: SETUP_REFUSAL, isError: true };
       if (definition.kind === "write") {
         const refusal = await allowChange(turn.thread, tool, input);
         if (refusal) return { text: refusal, isError: true };
@@ -1191,6 +1279,8 @@ export function createApp(options: AppOptions) {
     },
     /** One of the library's tools, called by an agent's "linker" MCP server. */
     libraryTool,
+    studyTool,
+    briefTool,
     /** A library file for the library page to play, or null when it isn't one; see library/serve.ts. */
     libraryFile: (folderId: string, rel: string) => libraryFile(allLibraryFolders(), folderId, rel),
     /** Rescans every library folder, so files added or changed while the app was closed show up. */

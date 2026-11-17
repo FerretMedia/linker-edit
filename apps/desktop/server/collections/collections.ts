@@ -1,8 +1,10 @@
 import type { ClientMessage, CollectionIcon, CollectionKind, CollectionMessage, CollectionSummary, IconColor } from "../../shared/protocol.ts";
 import { COLLECTION_LABEL } from "../../src/lib/labels.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
-import { agentRules, PROJECT_NOTES_FILE, readProjectNotes, type RuleSource } from "../rules.ts";
-import type { CollectionStore, SavedCollection } from "./store.ts";
+import { randomUUID } from "node:crypto";
+import * as path from "node:path";
+import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
+import { exampleName, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the workspaces and series need from the app around them. */
 export interface CollectionsHost {
@@ -10,9 +12,26 @@ export interface CollectionsHost {
   projects(): SavedProject[];
   /** Saves the project in its new workspace or series, or in none; commitMessage is for its edit history. */
   setCollection(projectId: string, collection: ProjectCollection | null, commitMessage: string): void;
+  /** Takes a deleted collection's setup threads out of the app. */
+  removeProject(projectId: string): void;
   /** Clients and the agents' rules need to see a change. */
   changed(): void;
 }
+
+/**
+ * A change to the brief an agent proposes. The user sees `shows` and accepts or declines; apply() makes the
+ * change and returns what the agent is told.
+ */
+export interface BriefProposal {
+  shows: Record<string, unknown>;
+  apply(): string;
+}
+
+const MAX_LESSONS = 60;
+const MAX_LESSON = 400;
+const MAX_FEEDBACK = 600;
+const MAX_EXAMPLE = 12_000;
+const MAX_EDITS = 30;
 
 export const ICON_COLORS: readonly IconColor[] = ["gray", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"];
 
@@ -22,7 +41,9 @@ const MAX_NAME = 80;
 const MAX_RULES = 20_000;
 
 const isMessage = (message: ClientMessage): message is CollectionMessage =>
-  ["create_collection", "update_collection", "delete_collection", "move_project"].includes(message.type);
+  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example"].includes(message.type);
+
+const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
 export function isCollectionIcon(value: unknown): value is CollectionIcon {
   if (!value || typeof value !== "object") return false;
@@ -75,6 +96,22 @@ export function createCollections(host: CollectionsHost) {
   }
 
   const label = (collection: SavedCollection) => `${COLLECTION_LABEL[collection.kind].one} "${collection.name}"`;
+
+  /** A collection's part of the brief as agents read it: its rules, its lessons, and where its example notes are. */
+  function briefText(collection: SavedCollection): string {
+    const examples = store.examples(collection.id);
+    return [
+      collection.rules.trim(),
+      collection.lessons.length
+        ? `Lessons from the user's feedback, each accepted by the user. They win over the rules above where they disagree:\n${collection.lessons.map((lesson) => `- ${lesson.rule}`).join("\n")}`
+        : "",
+      examples.length
+        ? `Notes on ${examples.length} example video${examples.length === 1 ? "" : "s"} are in ${path.dirname(examples[0]!.file)} (${examples.map((example) => example.name).join(", ")}). Read one when you need a reference.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
 
   /** Why parentId can't hold a collection of this kind; null when it can. */
   function parentRefusal(kind: CollectionKind, parentId: string | null): string | null {
@@ -137,6 +174,7 @@ export function createCollections(host: CollectionsHost) {
       if (refusal) return refusal;
       next.parentId = message.parentId;
     }
+    if (typeof message.autonomous === "boolean") next.autonomous = message.autonomous;
     collections.set(next.id, next);
     store.save(next);
     if (next.name !== current.name) renameInProjects(next);
@@ -147,7 +185,8 @@ export function createCollections(host: CollectionsHost) {
     const collection = collections.get(id);
     if (!collection) return null;
     const series = [...collections.values()].filter((other) => other.parentId === id).length;
-    const projects = host.projects().filter((project) => project.collection?.id === id).length;
+    const inIt = host.projects().filter((project) => project.collection?.id === id);
+    const projects = inIt.filter((project) => !project.setup).length;
     if (series || projects) {
       const what = [
         series ? `${series} ${series === 1 ? COLLECTION_LABEL.series.lower : COLLECTION_LABEL.series.lowerMany}` : "",
@@ -159,12 +198,56 @@ export function createCollections(host: CollectionsHost) {
     }
     collections.delete(id);
     store.remove(id);
+    // Its setup threads go with it; their folder stays on disk like any project's.
+    for (const project of inIt) host.removeProject(project.id);
     return null;
+  }
+
+  /** The collection a brief tool writes to: the project's workspace or series, or a series of its workspace by name. */
+  function target(project: SavedProject, input: Record<string, unknown>): { collection: SavedCollection } | { create: string; parentId: string } | { error: string } {
+    const { workspace, series } = collectionChain(collections, project);
+    const where = input.for === "workspace" || input.for === "series" ? input.for : series ? "series" : "workspace";
+    if (!workspace && !series) {
+      return { error: `This project isn't in a ${COLLECTION_LABEL.workspace.lower} or ${COLLECTION_LABEL.series.lower}, so it has no brief. The user puts it in one in the project's settings.` };
+    }
+    if (where === "workspace") {
+      return workspace ? { collection: workspace } : { error: `This project's ${COLLECTION_LABEL.series.lower} isn't in a ${COLLECTION_LABEL.workspace.lower}. Pass for: "series".` };
+    }
+    const name = cleanName(input.series);
+    if (!name) return series ? { collection: series } : { error: `Name the ${COLLECTION_LABEL.series.lower} in series.` };
+    if (series && series.name.toLowerCase() === name.toLowerCase()) return { collection: series };
+    if (!workspace) return { error: `This project's ${COLLECTION_LABEL.series.lower} isn't in a ${COLLECTION_LABEL.workspace.lower}, so it can only change its own.` };
+    const found = [...collections.values()].find(
+      (candidate) => candidate.kind === "series" && candidate.parentId === workspace.id && candidate.name.toLowerCase() === name.toLowerCase(),
+    );
+    return found ? { collection: found } : { create: name, parentId: workspace.id };
+  }
+
+  function saveRules(found: { collection: SavedCollection } | { create: string; parentId: string }, rules: string): SavedCollection {
+    if ("create" in found) {
+      const created = store.create({ kind: "series", name: found.create, parentId: found.parentId, icon: defaultIcon(found.create), rules });
+      collections.set(created.id, created);
+      return created;
+    }
+    const next = { ...collections.get(found.collection.id)!, rules };
+    collections.set(next.id, next);
+    store.save(next);
+    return next;
+  }
+
+  function change(id: string, update: (collection: SavedCollection) => SavedCollection): SavedCollection | null {
+    const current = collections.get(id);
+    if (!current) return null;
+    const next = update(current);
+    collections.set(id, next);
+    store.save(next);
+    return next;
   }
 
   function move(projectId: string, collectionId: string | null): string | null {
     const project = host.projects().find((candidate) => candidate.id === projectId);
     if (!project) return null;
+    if (project.setup) return "Setup threads stay with what they set up.";
     if (collectionId === null) {
       if (project.collection) host.setCollection(projectId, null, `Take the project out of "${project.collection.name}"`);
       return null;
@@ -191,24 +274,118 @@ export function createCollections(host: CollectionsHost) {
           icon: collection.icon,
           rules: collection.rules,
           rulesFile: store.rulesFile(collection.id) ?? "",
-          projectIds: projects.filter((project) => project.collection?.id === collection.id).map((project) => project.id),
+          projectIds: projects.filter((project) => project.collection?.id === collection.id && !project.setup).map((project) => project.id),
+          autonomous: collection.autonomous,
+          lessons: collection.lessons,
+          examples: store.examples(collection.id),
+          setupProjectId: projects.find((project) => project.setup && project.collection?.id === collection.id)?.id ?? null,
+          edits: collection.edits,
         }));
     },
 
-    /** The agent's rules for this project: the editing rules, then its workspace's, its series' and its own. */
+    get: (id: string): SavedCollection | undefined => collections.get(id),
+
+    /**
+     * The agent's rules for this project: the editing rules, then its workspace's, its series' and its own, each
+     * with the lessons learned there. A setup thread gets the setup assistant's rules instead.
+     */
     rulesFor(project: SavedProject): string {
       const { workspace, series } = collectionChain(collections, project);
+      if (project.setup) {
+        const subject = series ?? workspace;
+        if (subject) {
+          const parts = subject.kind === "workspace" ? [subject, ...[...collections.values()].filter((other) => other.parentId === subject.id)] : [workspace, subject];
+          const state = parts
+            .flatMap((part) => (part ? [`## ${label(part)}\n\n${briefText(part) || "Nothing yet."}`] : []))
+            .join("\n\n");
+          return setupRules(label(subject), state);
+        }
+      }
       const sources: RuleSource[] = [];
-      if (workspace) sources.push({ heading: `${label(workspace)} (its RULES.md)`, text: workspace.rules });
-      if (series) sources.push({ heading: `${label(series)} (its RULES.md)`, text: series.rules });
+      if (workspace) sources.push({ heading: `${label(workspace)} (its RULES.md)`, text: briefText(workspace) });
+      if (series) sources.push({ heading: `${label(series)} (its RULES.md)`, text: briefText(series) });
       sources.push({ heading: `This project's notes (${PROJECT_NOTES_FILE} in the working folder)`, text: readProjectNotes(project.dir) });
-      return agentRules(sources);
+      const nearest = series ?? workspace;
+      return agentRules(sources, nearest ? [...(nearest.autonomous ? [AUTONOMOUS_RULES] : []), LEARNING_RULES] : []);
+    },
+
+    /** Whether this project's agent makes the first cut without asking. */
+    autonomous(project: SavedProject): boolean {
+      const { workspace, series } = collectionChain(collections, project);
+      return (series ?? workspace)?.autonomous === true;
+    },
+
+    /** save_brief: new rules for the project's workspace or a series, shown to the user as a change. */
+    proposeBrief(project: SavedProject, input: Record<string, unknown>): BriefProposal | { error: string } {
+      const found = target(project, input);
+      if ("error" in found) return found;
+      const rules = typeof input.rules === "string" ? input.rules.trim() : "";
+      if (!rules) return { error: "Pass the full new rules in rules." };
+      if (rules.length > MAX_RULES) return { error: `Rules can be up to ${MAX_RULES.toLocaleString("en-US")} characters; these are ${rules.length.toLocaleString("en-US")}. Make them shorter.` };
+      const name = "create" in found ? `New ${COLLECTION_LABEL.series.lower} "${found.create}"` : label(found.collection);
+      return {
+        shows: { for: name, summary: text(input.summary).slice(0, 600), was: "create" in found ? "" : found.collection.rules, rules },
+        apply() {
+          const saved = saveRules(found, `${rules}\n`);
+          host.changed();
+          return `Saved the rules of ${label(saved)}.`;
+        },
+      };
+    },
+
+    /** add_lesson: one rule learned from feedback, shown to the user next to their own words. */
+    proposeLesson(project: SavedProject, input: Record<string, unknown>, projectName: string): BriefProposal | { error: string } {
+      const found = target(project, input);
+      if ("error" in found) return found;
+      if ("create" in found) return { error: `There is no ${COLLECTION_LABEL.series.lower} "${found.create}" in this ${COLLECTION_LABEL.workspace.lower}.` };
+      const rule = text(input.rule);
+      const feedback = text(input.feedback);
+      if (!rule || !feedback) return { error: "Pass the rule, and the user's own words it comes from in feedback." };
+      if (rule.length > MAX_LESSON) return { error: `A lesson is one short rule, up to ${MAX_LESSON} characters. For more, change the rules with save_brief.` };
+      const { collection } = found;
+      if (collection.lessons.length >= MAX_LESSONS) {
+        return { error: `${label(collection)} has ${MAX_LESSONS} lessons already. Fold them into its rules with save_brief; the user removes lessons in Settings.` };
+      }
+      return {
+        shows: { for: label(collection), feedback: feedback.slice(0, MAX_FEEDBACK), rule },
+        apply() {
+          const lesson = { id: randomUUID(), rule, feedback: feedback.slice(0, MAX_FEEDBACK), addedAt: new Date().toISOString(), project: projectName };
+          change(collection.id, (current) => ({ ...current, lessons: [...current.lessons, lesson] }));
+          host.changed();
+          return `Added the lesson to ${label(collection)}.`;
+        },
+      };
+    },
+
+    /** save_example: the agent's notes on one example video. They are its own notes, so nobody is asked. */
+    saveExample(project: SavedProject, input: Record<string, unknown>): string {
+      const found = target(project, input);
+      if ("error" in found) throw new Error(found.error);
+      if ("create" in found) throw new Error(`There is no ${COLLECTION_LABEL.series.lower} "${found.create}" yet. Save its rules with save_brief first, or leave series out.`);
+      const name = text(input.name);
+      const notes = text(input.notes);
+      if (!name || !notes) throw new Error("Pass the video's name and your notes.");
+      if (notes.length > MAX_EXAMPLE) throw new Error(`Notes on one example can be up to ${MAX_EXAMPLE.toLocaleString("en-US")} characters.`);
+      const file = store.saveExample(found.collection.id, name, `# ${name}\n\n${notes}\n`);
+      if (!file) throw new Error(`${label(found.collection)} is gone.`);
+      host.changed();
+      return `Saved the notes on "${exampleName(name)}" for ${label(found.collection)}: ${file}`;
+    },
+
+    /** An AI timeline of this project became its main one, after this many rounds of feedback. */
+    recordEdit(project: SavedProject, projectName: string, rounds: number) {
+      const { workspace, series } = collectionChain(collections, project);
+      const nearest = series ?? workspace;
+      if (!nearest) return;
+      const edit = { at: new Date().toISOString(), project: projectName, rounds };
+      change(nearest.id, (current) => ({ ...current, edits: [edit, ...current.edits].slice(0, MAX_EDITS) }));
+      host.changed();
     },
 
     /** Handles the workspace and series messages; others are left alone. Returns why it was refused, if it was. */
     handle(message: ClientMessage): string | null {
       if (!isMessage(message)) return null;
-      let refusal: string | null;
+      let refusal: string | null = null;
       switch (message.type) {
         case "create_collection":
           refusal = create(message);
@@ -221,6 +398,12 @@ export function createCollections(host: CollectionsHost) {
           break;
         case "move_project":
           refusal = move(message.projectId, message.collectionId ?? null);
+          break;
+        case "remove_lesson":
+          change(message.id, (current) => ({ ...current, lessons: current.lessons.filter((lesson) => lesson.id !== message.lessonId) }));
+          break;
+        case "remove_example":
+          if (typeof message.name === "string") store.removeExample(message.id, message.name);
           break;
       }
       if (!refusal) host.changed();

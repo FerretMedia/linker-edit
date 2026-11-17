@@ -46,3 +46,39 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
   expect(JSON.parse(fs.readFileSync(path.join(dir, "workspace", "linker-edit.json"), "utf8")).collection).toMatchObject({ name: "Podcast" });
   expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "RULES.md"), "utf8")).toBe("End every video on the logo.");
 });
+
+test("a workspace is set up with AI in a thread of its own, and a series that works on its own asks for footage", async ({ page }) => {
+  await page.goto("/#settings/workspaces");
+  await page.getByRole("button", { name: "New workspace" }).click();
+  await page.getByRole("textbox", { name: "New workspace name" }).fill("Studio North");
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Studio North");
+
+  // The setup thread opens behind the settings page, without the panels that need a Resolve project.
+  await page.getByRole("button", { name: "Set up with AI" }).click();
+  await expect(page.getByRole("heading", { name: "Teach Linker-Edit how Studio North is edited" })).toBeVisible();
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Studio North setup", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0);
+
+  // It starts from a folder of finished videos. Not sent here: chat.spec.ts has the one turn that may run.
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+  await expect(page.getByRole("combobox", { name: "Finished videos" })).toBeVisible();
+  // Its agent gets the setup assistant's rules, not the editing rules.
+  const agents = path.join(dir, "projects", "Studio North setup", "AGENTS.md");
+  await expect.poll(() => fs.readFileSync(agents, "utf8")).toContain("You are Linker-Edit's setup assistant.");
+
+  // Switched on for a workspace, a new thread in its project asks for the footage.
+  await page.goto("/#settings/workspaces");
+  await page.getByRole("button", { name: /Studio North/ }).click();
+  await expect(page.getByRole("button", { name: "Open setup" })).toBeVisible();
+  await page.getByRole("switch", { name: "Works on its own" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
+  const sidebar = page.getByRole("navigation");
+  await sidebar.getByRole("button", { name: "workspace", exact: true }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Project settings" }).click();
+  await page.getByRole("combobox", { name: "Workspace / series" }).selectOption({ label: "Studio North" });
+  await page.getByRole("button", { name: "Save" }).click();
+  await sidebar.getByRole("button", { name: "New thread in workspace" }).click();
+  await expect(page.getByRole("heading", { name: "New video" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Make the first cut" })).toBeDisabled();
+});

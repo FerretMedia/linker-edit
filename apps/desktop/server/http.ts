@@ -340,6 +340,14 @@ export function createServer(
       handleAgentCall(apiToken, req, res, (body) => libraryTool(app, body));
       return;
     }
+    if (urlPath === "/api/study-tool" || urlPath === "/api/brief-tool") {
+      const run = urlPath === "/api/study-tool" ? app.studyTool : app.briefTool;
+      handleAgentCall(apiToken, req, res, async ({ tool, input }) => {
+        if (typeof tool !== "string") throw new Error("tool must be a tool name.");
+        return run(tool, input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {});
+      });
+      return;
+    }
     // Plays library files on the library page. Every request already passed the gate above: this computer, or
     // the owner's own devices over Tailscale. Only files inside library folders go out; see library/serve.ts.
     if (urlPath.startsWith("/library/")) {

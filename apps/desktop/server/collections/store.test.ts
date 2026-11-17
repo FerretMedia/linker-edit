@@ -43,6 +43,9 @@ describe("fileCollectionStore", () => {
       icon: { kind: "lucide", name: "mic", color: "violet" },
       library: [],
       musicOnlyFromHere: false,
+      autonomous: false,
+      lessons: [],
+      edits: [],
     });
     expect(fs.readFileSync(path.join(dir, "RULES.md"), "utf8")).toBe("Lower thirds in Inter Bold.\n");
     expect(store.rulesFile(series.id)).toBe(path.join(dir, "RULES.md"));
@@ -59,8 +62,17 @@ describe("fileCollectionStore", () => {
     const b = store.create({ kind: "workspace", name: "cafe unicode", parentId: null, icon: monogram, rules: "x" });
     expect(fs.readdirSync(path.join(root, "collections")).sort()).toEqual(["cafe-unicode", "cafe-unicode-2"]);
 
-    store.save({ ...a, name: "Renamed", rules: "New rules" });
-    expect(open().load()[0]).toMatchObject({ name: "Renamed", rules: "New rules" });
+    const lesson = { id: "l1", rule: "Intro at most 3 seconds.", feedback: "too slow at the start", addedAt: "2026-11-17T10:00:00.000Z", project: "Ep 12" };
+    store.save({ ...a, name: "Renamed", rules: "New rules", autonomous: true, lessons: [lesson] });
+    expect(open().load()[0]).toMatchObject({ name: "Renamed", rules: "New rules", autonomous: true, lessons: [lesson] });
+
+    // Notes on example videos are files next to the rules, named after the video.
+    const file = store.saveExample(a.id, "Reel 12 - Launch!.mp4", "# Reel 12\n");
+    expect(file).toBe(path.join(root, "collections", "cafe-unicode", "examples", "reel-12-launch.md"));
+    expect(open().examples(a.id)).toEqual([{ name: "reel-12-launch", file }]);
+    store.removeExample(a.id, "reel-12-launch");
+    expect(store.examples(a.id)).toEqual([]);
+    expect(store.saveExample("gone", "x", "y")).toBeNull();
 
     store.remove(b.id);
     expect(fs.existsSync(path.join(root, "collections", "cafe-unicode-2"))).toBe(false);

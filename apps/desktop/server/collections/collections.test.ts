@@ -23,6 +23,7 @@ function setup(projects: SavedProject[] = []) {
       saved.set(projectId, { ...saved.get(projectId)!, collection });
       commits.push(commitMessage);
     },
+    removeProject: (projectId) => saved.delete(projectId),
     changed: () => (changes += 1),
   });
   const send = (message: ClientMessage) => collections.handle(message);

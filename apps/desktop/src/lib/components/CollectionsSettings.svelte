@@ -160,6 +160,9 @@
       projectNames={projectNames(selected)}
       seriesCount={selected.kind === "workspace" ? seriesIn(selected.id).length : 0}
       onUpdate={(changes) => send({ type: "update_collection", id: selected.id, ...changes })}
+      onSetup={() => send({ type: "setup_collection", id: selected.id })}
+      onRemoveLesson={(lessonId) => send({ type: "remove_lesson", id: selected.id, lessonId })}
+      onRemoveExample={(name) => send({ type: "remove_example", id: selected.id, name })}
       onDelete={() => {
         send({ type: "delete_collection", id: selected.id });
         selectedId = null;
@@ -167,7 +170,7 @@
     />
   {/key}
 {:else if app.collections.length}
-  <p class="-mt-4 px-1 text-xs text-muted-foreground">Pick one to rename it, change its icon or write its rules.</p>
+  <p class="-mt-4 px-1 text-xs text-muted-foreground">Pick one to rename it, change its icon, write its rules or set it up with AI.</p>
 {/if}
 
 <p class="px-1 text-xs text-muted-foreground">
