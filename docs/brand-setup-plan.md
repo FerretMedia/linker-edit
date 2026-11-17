@@ -4,7 +4,7 @@ The goal: you point Linker-Edit at a brand's example videos and project folders,
 
 ## Where we are (main, b43861a)
 
-- A workspace and a series each have a `RULES.md`. The agent gets them on every turn, from the most general to the most specific (`server/rules.ts`, `agentRules`). You write them by hand, up to 20,000 characters.
+- A workspace and a series each have a `RULES.md`. The agent gets them on every turn, from the most general to the most specific (`apps/desktop/server/rules.ts`, `agentRules`). You write them by hand, up to 20,000 characters.
 - The library points at folders of music, sound effects and graphics. The code already takes a chain (universal → workspace → series → project), but a workspace or series can't have its own library folders yet (`CollectionLibraryFolder = never`).
 - The agent can already study footage: `transcribe` (local, with word times), `find_silences`, `view_frames` on a media file, `detect_scene_cuts` on a timeline.
 - The edit history saves every timeline as JSON in Git, with the agent's turns and your own changes in Resolve as separate commits.
