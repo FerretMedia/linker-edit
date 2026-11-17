@@ -42,7 +42,7 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
 
   // Codex reads the rules from AGENTS.md in the project's folder; Claude gets the same text.
   const agents = path.join(dir, "workspace", "AGENTS.md");
-  await expect.poll(() => fs.readFileSync(agents, "utf8")).toContain('## Workspace "Ferret Media" (its RULES.md)\n\nEnd every video on the logo.');
+  await expect.poll(() => fs.readFileSync(agents, "utf8")).toContain(`## Workspace "Ferret Media" (${path.join(dir, "collections", "ferret-media", "RULES.md")})\n\nEnd every video on the logo.`);
   expect(JSON.parse(fs.readFileSync(path.join(dir, "workspace", "linker-edit.json"), "utf8")).collection).toMatchObject({ name: "Podcast" });
   expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "RULES.md"), "utf8")).toBe("End every video on the logo.");
 });

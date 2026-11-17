@@ -62,7 +62,41 @@ collections/<workspace>/
   examples/<video>.md   # the AI's notes on one example
 ```
 
-`RULES.md` and the lessons go into every prompt, so they stay short. The notes on examples don't: the agent is told where they are and reads one when it needs a reference. The measured numbers of each video are cached in `~/LinkerEdit/cache/study`.
+### The structure: like a code repository
+
+A project is the repository of one video. It gets its rules from the folders of its series and its workspace, the way a code repository gets instructions from the folders above it. Each level answers one question:
+
+| Level | Question | Changes | File |
+| --- | --- | --- | --- |
+| Workspace (brand) | What is always true? | Rarely | `collections/<workspace>/RULES.md` |
+| Series (format) | How is this kind of video made? | Sometimes | `collections/<series>/RULES.md` |
+| Project (one video) | What is this video? | Every session | `projects/<project>/PROJECT.md` |
+
+```
+projects/Reel 14/       # a Git repository (the edit history, in Vit's format)
+  PROJECT.md            # the video: Brief, Footage, Decisions, Feedback, Status. The agent keeps it
+  linker-edit.json      # which Resolve project, and which series it is in
+  resolve/              # its timelines as text, one commit per turn
+  AGENTS.md             # generated before each turn: Linker-Edit's rules, then the three files above,
+                        # each under a heading with the path it comes from
+```
+
+- **The project file is the agent's, the brand's files are yours.** The agent writes `PROJECT.md` without asking: it is about one video, and every change is a commit you can read and undo. Rules for a workspace or series still always ask.
+- **Fixed headings.** Workspace: Who, Voice, Must, Look, Sound, Assets. Series: Must, Structure, Style, How an edit goes. **Must** holds only what can be measured on a finished video, and the agent checks its cut against each line. Taste goes under the others, and is taught mostly by the examples.
+- **Later wins.** Project over series over workspace. Linker-Edit's own rules (only `AI - …` timelines change, nothing is deleted) can't be lifted by any of them.
+- **One name for both agents.** Not `CLAUDE.md`: Codex wouldn't read it. Linker-Edit puts the three files in `AGENTS.md` for Codex and gives Claude the same text.
+- A project made before `PROJECT.md` keeps its `RULES.md`; both are read.
+
+Examples of what each level holds:
+
+| Kind of work | Series | Project |
+| --- | --- | --- |
+| Reels | 9:16, 30 to 40 s, question in the first 2 s, a cut every 2 s | The topic, the must-have shot, which take of the intro is cleanest |
+| Podcast | Camera switching, intro and outro, how clips are picked | The guest, timestamps of good moments, what to cut for privacy |
+| YouTube long-form | Hook, B-roll rhythm, chapter style | The outline, the B-roll list, which parts ran long |
+| Client work | The client's format and deliverables per platform | The client's brief, their feedback per round |
+
+`RULES.md` and the lessons go into every prompt, so they stay short. `PROJECT.md` does too: the agent is told to rewrite it, not append, and to keep it under 4,000 characters. The notes on examples don't: the agent is told where they are and reads one when it needs a reference. The measured numbers of each video are cached in `~/LinkerEdit/cache/study`.
 
 ## Part 2: setup, with the AI
 
@@ -163,9 +197,14 @@ Built in one PR:
 - Setup threads with **Set up with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
 - **Works on its own** per workspace or series, with the footage form in a new thread.
 - Lessons from feedback, the retro on "Use as main timeline", rounds until approved, and feedback at a moment of the preview.
+- `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from.
 
 Not built:
 
+- A place in the app to read and edit `PROJECT.md`. It is a file in the project's folder for now.
+- A footage log of its own. What the agent finds in the footage is a section of `PROJECT.md`; long shoots will need a file per shoot that isn't in every prompt.
+- Checking **Must** by measuring: the agent is told to check each line, but nothing runs `study_media` on its render and compares the numbers for it.
+- Folding old lessons into the rules when there are many.
 - Library folders on a workspace or series (thread 4 of the library plan). Until then the brief names the brand's assets by their path, and the universal library holds the music.
 - Reading past Resolve projects.
 - Questions as cards with choices: the agent asks numbered questions with options in the chat.
@@ -179,3 +218,4 @@ Not checked against a real Resolve or a real agent yet: see the PR.
 2. **Raw against final is in from the start**: the user can supply raw footage with the examples.
 3. **Works on its own is per workspace or series.**
 4. **Lessons always ask.**
+5. **Laid out like a code repository**: a project is a repository with its own `PROJECT.md`, under the files of its series and workspace.

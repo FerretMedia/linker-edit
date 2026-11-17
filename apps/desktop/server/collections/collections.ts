@@ -3,8 +3,8 @@ import { COLLECTION_LABEL } from "../../src/lib/labels.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
-import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
-import { exampleName, type CollectionStore, type SavedCollection } from "./store.ts";
+import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJECT_RULES, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
+import { exampleName, RULES_FILE, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the workspaces and series need from the app around them. */
 export interface CollectionsHost {
@@ -302,11 +302,13 @@ export function createCollections(host: CollectionsHost) {
         }
       }
       const sources: RuleSource[] = [];
-      if (workspace) sources.push({ heading: `${label(workspace)} (its RULES.md)`, text: briefText(workspace) });
-      if (series) sources.push({ heading: `${label(series)} (its RULES.md)`, text: briefText(series) });
-      sources.push({ heading: `This project's notes (${PROJECT_NOTES_FILE} in the working folder)`, text: readProjectNotes(project.dir) });
+      // Like a repository inside folders with instructions of their own: each heading names the file it is from.
+      for (const part of [workspace, series]) {
+        if (part) sources.push({ heading: `${label(part)} (${store.rulesFile(part.id) ?? RULES_FILE})`, text: briefText(part) });
+      }
+      sources.push({ heading: `This project (${PROJECT_NOTES_FILE} in the working folder)`, text: readProjectNotes(project.dir) });
       const nearest = series ?? workspace;
-      return agentRules(sources, nearest ? [...(nearest.autonomous ? [AUTONOMOUS_RULES] : []), LEARNING_RULES] : []);
+      return agentRules(sources, [PROJECT_RULES, ...(nearest ? [...(nearest.autonomous ? [AUTONOMOUS_RULES] : []), LEARNING_RULES] : [])]);
     },
 
     /** Whether this project's agent makes the first cut without asking. */

@@ -160,13 +160,18 @@ describe("edit history", () => {
       readSnapshot: async () => snapshot,
       checkProject: (open) => (open.id === "p-1" ? null : `Resolve has "${open.name}" open.`),
     });
+    // The project's own file is saved once with a save, as the turn's agent, also when Resolve's side is refused.
+    fs.writeFileSync(path.join(dir, "PROJECT.md"), "# Promo\n");
+    await expect(history.record({ provider: "claude", prompt: "Log the footage", actions: [], summary: "" })).rejects.toThrow('Resolve has "Promo" open.');
     await expect(history.record()).rejects.toThrow('Resolve has "Promo" open.');
     expect(fs.existsSync(path.join(dir, "resolve"))).toBe(false);
 
     fs.writeFileSync(path.join(dir, "linker-edit.json"), "{}\n");
     await history.commitProjectFile("Link to Resolve project Doc");
     await history.commitProjectFile("Link to Resolve project Doc");
-    expect(execFileSync("git", ["log", "--format=%s"], { cwd: dir, encoding: "utf8" })).toBe("Link to Resolve project Doc\n");
+    expect(execFileSync("git", ["log", "--format=%an: %s"], { cwd: dir, encoding: "utf8" })).toMatch(
+      /^.+: Link to Resolve project Doc\nClaude: Update PROJECT\.md: Log the footage\n$/,
+    );
   });
 
   it("keeps one history when the project is renamed in Resolve", async () => {

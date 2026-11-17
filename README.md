@@ -158,7 +158,7 @@ These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Cod
 
 ## Projects and threads
 
-A **project** is one Resolve project with its own folder: its edit history, the agent's notes and exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
+A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
 
 Resolve has one project open at a time, so Linker-Edit follows it:
 
@@ -230,6 +230,22 @@ A **workspace** is a client, brand or channel, and a **series** is one of its fo
 5. It proposes rules for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
 
 Its notes on each example are kept as files next to the rules, in `~/LinkerEdit/collections/<name>/examples`.
+
+**It is laid out like code.** A project is a repository of one video, and it gets its rules from the folders of its series and workspace:
+
+```
+~/LinkerEdit/collections/ferret-media/   the workspace
+  RULES.md                               what is always true for the brand
+  examples/                              the agent's notes on example videos
+~/LinkerEdit/collections/reels/          a series in it
+  RULES.md                               how this kind of video is made
+~/LinkerEdit/projects/Reel 14/           a project in that series: a Git repository
+  PROJECT.md                             this video: brief, footage, decisions, feedback, status
+  resolve/                               its timelines as text, one save per turn
+  AGENTS.md                              written by Linker-Edit: everything above in one file, for the agent
+```
+
+The agent reads the three files from the most general to the most specific, and the later one wins. It keeps `PROJECT.md` itself, so a new thread knows what the video is about, what is in the footage and what you already said. You can edit it too, and each change is saved in the project's edit history. Rules set up with AI use the same headings for every brand. **Must** holds what can be measured, such as length and aspect ratio, and the agent checks its cut against it before it shows you.
 
 **Works on its own** is a switch on a workspace or series. With it on, a new thread in one of its projects asks for the footage folder, and the agent makes the whole first cut without asking questions: it imports and transcribes the footage, builds the cut the way the rules describe, checks its own work, and ends with a note of what it made, what it left out and what it decided for you. It still only changes `AI - …` timelines, and you still make one the main timeline yourself.
 

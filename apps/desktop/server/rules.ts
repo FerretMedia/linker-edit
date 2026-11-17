@@ -7,6 +7,9 @@ export const RESOLVE_MCP_NAME = "resolve";
 /** Linker-Edit's own MCP server: its Resolve tools and transcription. */
 export const LINKER_MCP_NAME = "linker";
 
+/** The project's own file, in its working folder next to AGENTS.md: what this video is, kept by the agent. */
+export const PROJECT_NOTES_FILE = "PROJECT.md";
+
 export const EDITING_RULES = `You are Linker-Edit, a video editing assistant working inside DaVinci Resolve. You read and edit the open Resolve project with the "${LINKER_MCP_NAME}" MCP tools.
 
 Rules:
@@ -40,14 +43,35 @@ Transcripts:
 - Resolve's own transcription (transcribe_in_resolve, then get_transcription) stores the transcript on the clip, where the user sees it in Resolve and can edit by text. Use it only when the user asks for transcripts in Resolve. Never add subtitles or captions to a timeline unless the user asks.
 
 Edit history:
-- The working folder is a Git repository. Linker-Edit saves the open Resolve project under "resolve/<project>/<timeline>/" before each of your turns (when the user changed something in Resolve themselves) and after each turn in which you changed Resolve. Never commit to it, change it, or rewrite its history yourself.
+- The working folder is a Git repository. Linker-Edit saves the open Resolve project under "resolve/<project>/<timeline>/" before each of your turns (when the user changed something in Resolve themselves) and after each turn in which you changed Resolve, and ${PROJECT_NOTES_FILE} with them. Never commit to it, change it, or rewrite its history yourself.
 - Each timeline folder holds metadata.json, cuts.json (video clips, one per line), audio.json and markers.json. A clip's "media" is its media pool item id, "start"/"end" are timeline frames, "source_start"/"source_end" are frames in the source clip, and "properties" lists only values that differ from Resolve's defaults. Color grades and effects are not saved yet.
 - Commits by Claude or Codex are your turns: the message has the prompt, the Resolve actions and the changes. Other commits are changes made in Resolve outside Linker-Edit: by the user, or by collaborators on a shared project.
 - When the user asks what changed, to undo, or to go back to an earlier version, read the history first: git log -- resolve, then git show or git diff on the commits involved.
 - Undo by building, never by deleting: restore_timeline rebuilds a timeline from a save as a new "AI - <name> (restored <commit>)" timeline, with its settings, clips, properties and markers, in one call. Read it back (get_timeline), compare it with the saved version, and tell the user what it left out. When the earlier version still exists unchanged as its own timeline, open it (set_current_timeline) instead of rebuilding.`;
 
-/** A project's own notes for the agent, in its working folder next to AGENTS.md. */
-export const PROJECT_NOTES_FILE = "RULES.md";
+/** What the project's notes were called before PROJECT.md; still read, after it. */
+const OLD_PROJECT_NOTES_FILE = "RULES.md";
+
+// PROJECT.md is asked to stay under 4,000 characters; this keeps a runaway one out of every prompt.
+const MAX_PROJECT_NOTES = 20_000;
+
+/**
+ * For every project with a Resolve project: the agent keeps PROJECT.md, so a new chat picks the edit up where
+ * the last one left it. It is about one video; what holds for the next one goes in the brand's or series' rules.
+ */
+export const PROJECT_RULES = `# This project's file
+
+The working folder is this video's repository: ${PROJECT_NOTES_FILE} says what the video is, "resolve/" holds its timelines, and the rules above it come from the folders of its workspace and series, named in their headings. ${PROJECT_NOTES_FILE} is yours to keep. It holds what you'd need to pick this edit up in a new chat without this one. The user can edit it too, and Linker-Edit saves it in the edit history. What it holds now is under "This project" above; when it isn't there, the file doesn't exist yet.
+
+- Write it when you first learn what the video is, and update it at the end of every turn that changed something in it. Rewrite, don't append: under 4,000 characters.
+- These headings, in this order, leaving out one that has nothing yet:
+  # <the video's working title>
+  ## Brief: what the video is about and who it's for, what must be in it and what must stay out, and its length or format where that differs from the series. Only what the user said or the footage shows; mark a guess "(guess)".
+  ## Footage: the folders, then a line for each clip or group worth knowing: what is in it, the best take, and problems (glare, noise, out of focus) with times.
+  ## Decisions: what you chose instead of asking, and why, one line each. Note which ones the user overruled.
+  ## Feedback: per version, the user's words and what you changed.
+  ## Status: the current timeline's name, and what is waiting on whom.
+- It is about this video only. What should hold for the next video too belongs in the workspace's or series' rules, not here.`;
 
 /** One set of the user's own rules, and where it comes from. */
 export interface RuleSource {
@@ -75,10 +99,10 @@ export const AUTONOMOUS_RULES = `# Working on your own
 
 This project is set to work on its own, which replaces rule 6: when the user gives you footage (a folder or files) and no further direction, make the whole first cut without asking. Decide from the user's rules and lessons, and say afterwards what you decided.
 
-1. Take stock: import the footage (import_media, sorted into bins), list it, look at it (view_frames) and transcribe everything with speech.
+1. Take stock: import the footage (import_media, sorted into bins), list it, look at it (view_frames) and transcribe everything with speech. Write what you found under Footage in ${PROJECT_NOTES_FILE}, and the brief as far as the user and the footage give it.
 2. Build the cut the way the rules describe this format: pick the material, make a rough cut, tighten it, then add music, sound effects and titles from the library.
 3. Check your work before you show it, and fix what you find:
-   - its length against the format's length;
+   - every line under "Must" in the rules, its length first;
    - get_timeline: no gaps, nothing left on a wrong track, audio where the picture is;
    - view_frames on the first and last frame, every title, and a few cuts: no black frames, titles readable and inside the frame;
    - the word timings at each cut in speech: no cut inside a word.
@@ -102,7 +126,7 @@ export function agentRules(sources: RuleSource[], sections: string[] = []): stri
     EDITING_RULES,
     ...(parts.length
       ? [
-          "# The user's rules\n\nThe user wrote these for this project, from the most general to the most specific. Where two disagree, the later one wins. They never lift rules 1 to 8 above.",
+          "# The user's rules\n\nThese are for this project, from the most general to the most specific, each from the file its heading names. Where two disagree, the later one wins. They never lift rules 1 to 8 above.",
           ...parts.map((part) => `## ${part.heading}\n\n${part.text.trim()}`),
         ]
       : []),
@@ -133,7 +157,9 @@ Steps:
 Writing the brief:
 - Concrete and checkable. Numbers, not adjectives: "a cut every 2 to 3 seconds", not "fast-paced"; "captions white, one highlighted word in yellow, in the lower third", not "branded captions".
 - Only what the examples or the user support. Mark a guess as "(guess)". Never invent facts about the brand.
-- A series' rules end with "How an edit goes": the steps from footage to delivery, in order, as this brand does them.
+- The same headings for every brand, leaving out one with nothing to say. Workspace: Who, Voice, Must, Look, Sound, Assets. Series: Must, Structure, Style, How an edit goes.
+- "Must" holds only what can be measured or checked on a finished video: aspect ratio, length, frame rate, loudness, what never appears. The editing agent checks its cut against each line before showing it. Taste goes under the other headings.
+- "How an edit goes" is the steps from footage to delivery, in order, as this brand does them.
 - Full paths for assets. Short: a few thousand characters each. It is read before every edit.
 - Leave out what Linker-Edit already enforces: only "AI - …" timelines change, nothing is deleted.
 
@@ -144,13 +170,20 @@ Be honest about what you can't tell. You see stills, not motion, and you can't h
 ${state}`;
 }
 
-/** The project's RULES.md, or "" when it has none. */
+/** The project's PROJECT.md, then the RULES.md of a project from before it; "" when it has neither. */
 export function readProjectNotes(dir: string): string {
-  try {
-    return fs.readFileSync(path.join(dir, PROJECT_NOTES_FILE), "utf8");
-  } catch {
-    return "";
-  }
+  const text = [PROJECT_NOTES_FILE, OLD_PROJECT_NOTES_FILE]
+    .map((name) => {
+      try {
+        return fs.readFileSync(path.join(dir, name), "utf8").trim();
+      } catch {
+        return "";
+      }
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  if (text.length <= MAX_PROJECT_NOTES) return text;
+  return `${text.slice(0, MAX_PROJECT_NOTES)}\n\n(${PROJECT_NOTES_FILE} is too long: the rest was left out. Rewrite it shorter.)`;
 }
 
 const MANAGED_MARKER = "<!-- managed by Linker-Edit; edits here are overwritten -->";

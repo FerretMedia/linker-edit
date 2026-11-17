@@ -7,7 +7,7 @@ import { applyServerMessage } from "../../src/lib/appState.ts";
 import { createApp } from "../app.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { memoryProjectStore } from "../projects/testing.ts";
-import { EDITING_RULES } from "../rules.ts";
+import { EDITING_RULES, PROJECT_RULES } from "../rules.ts";
 import { createCollections } from "./collections.ts";
 import { memoryCollectionStore } from "./testing.ts";
 
@@ -111,7 +111,9 @@ describe("workspaces and series", () => {
 
   it("stacks the agent's rules: editing rules, workspace, series, then the project's own, most specific last", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-rules-"));
-    fs.writeFileSync(path.join(dir, "RULES.md"), "Ep 12 is the anniversary episode.\n");
+    fs.writeFileSync(path.join(dir, "PROJECT.md"), "Ep 12 is the anniversary episode.\n");
+    // A project from before PROJECT.md keeps the notes it had.
+    fs.writeFileSync(path.join(dir, "RULES.md"), "Guest asked to cut the salary talk.\n");
     const { send, byName, collections, saved } = setup([project("ep12", dir), project("ep11")]);
     send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
     send({ type: "update_collection", id: byName("Ferret Media").id, rules: "End on the logo." });
@@ -124,9 +126,9 @@ describe("workspaces and series", () => {
     expect(rules.startsWith(EDITING_RULES)).toBe(true);
     const order = [
       "# The user's rules",
-      '## Workspace "Ferret Media" (its RULES.md)\n\nEnd on the logo.',
-      '## Series "Podcast" (its RULES.md)\n\nLower thirds in Inter Bold.',
-      "## This project's notes (RULES.md in the working folder)\n\nEp 12 is the anniversary episode.",
+      `## Workspace "Ferret Media" (/collections/${byName("Ferret Media").id}/RULES.md)\n\nEnd on the logo.`,
+      `## Series "Podcast" (/collections/${byName("Podcast").id}/RULES.md)\n\nLower thirds in Inter Bold.`,
+      "## This project (PROJECT.md in the working folder)\n\nEp 12 is the anniversary episode.\n\nGuest asked to cut the salary talk.",
     ].map((part) => rules.indexOf(part));
     expect(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1]!))).toBe(true);
 
@@ -134,10 +136,10 @@ describe("workspaces and series", () => {
     const other = collections.rulesFor(saved.get("ep11")!);
     expect(other).toContain("End on the logo.");
     expect(other).toContain("Lower thirds in Inter Bold.");
-    expect(other).not.toContain("This project's notes");
+    expect(other).not.toContain("## This project (");
 
-    // A project in no collection, with no notes, gets the editing rules alone.
-    expect(collections.rulesFor(project("loose"))).toBe(EDITING_RULES);
+    // A project in no collection, with no file yet, gets the editing rules and how to keep its file.
+    expect(collections.rulesFor(project("loose"))).toBe(`${EDITING_RULES}\n\n${PROJECT_RULES}`);
   });
 });
 

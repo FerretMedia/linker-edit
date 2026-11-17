@@ -174,6 +174,7 @@
 {/if}
 
 <p class="px-1 text-xs text-muted-foreground">
-  A project can have its own notes for the agent too: a RULES.md in the project's folder. They come after the
+  Each project has a file of its own too: PROJECT.md in the project's folder, with the video's brief, footage notes,
+  decisions and feedback. The agent keeps it, and you can edit it. It comes after the
   {COLLECTION_LABEL.workspace.lower}'s and {COLLECTION_LABEL.series.lower}' rules.
 </p>
