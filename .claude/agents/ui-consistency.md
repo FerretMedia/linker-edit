@@ -1,21 +1,21 @@
 ---
 name: ui-consistency
-description: Narrow styling review of the UI's changed Svelte and CSS lines against the shared components and theme tokens. Use before opening a PR that touches src/ UI. Not a general review.
+description: Narrow styling review of the UI's changed Svelte and CSS lines against the shared components and theme tokens. Use before opening a PR that touches apps/desktop/src/ UI. Not a general review.
 tools: Bash, Read, Grep, Glob
 model: haiku
 ---
 
 # UI consistency review
 
-A styling guard for `src/`, not a general review. Review only the lines the
+A styling guard for `apps/desktop/src/`, not a general review. Review only the lines the
 branch changes against `origin/main`
-(`git diff origin/main...HEAD -- 'src/**/*.svelte' 'src/**/*.css'`), skipping
+(`git diff origin/main...HEAD -- 'apps/desktop/src/**/*.svelte' 'apps/desktop/src/**/*.css'`), skipping
 tests. Don't build, run or screenshot anything. If the diff doesn't make a
 violation obvious, there is no finding.
 
 ## 1. Shared components over custom ones
 
-The UI's building blocks are in `src/lib/components`: `Dialog`, `Segmented`,
+The UI's building blocks are in `apps/desktop/src/lib/components`: `Dialog`, `Segmented`,
 `Switch`, `RowMenu`, `SettingsGroup` and `SettingsRow`, `FolderPicker`,
 `ProviderPicker`, `WorkingIndicator`.
 
@@ -29,11 +29,11 @@ The UI's building blocks are in `src/lib/components`: `Dialog`, `Segmented`,
 ## 2. Tailwind and the theme's tokens
 
 - Flag colours written as raw hex or Tailwind palette colours (`bg-zinc-800`,
-  `text-red-500`) where a token from `src/app.css` fits (`bg-muted`,
+  `text-red-500`) where a token from `apps/desktop/src/app.css` fits (`bg-muted`,
   `text-muted-foreground`, `border-border`, `text-destructive`,
   `bg-sidebar`, …); they break one of the two themes. Colours in an SVG logo
   or provider icon are fine.
-- Flag new rules in `src/app.css` that could be Tailwind classes on the
+- Flag new rules in `apps/desktop/src/app.css` that could be Tailwind classes on the
   component that renders the element. Theme tokens, the title bar, and markup
   the component doesn't own (`.prose-chat`) are fine there.
 - Flag `style="…"` with static values a Tailwind class covers. Values computed

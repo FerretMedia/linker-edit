@@ -2,7 +2,7 @@
 
 Three things, built in separate threads.
 
-**Naming:** the top level is called a **workspace** in the UI (a client, a brand, a channel: whatever you work for). A workspace holds **series** and projects. In code the type is `Collection` with kind `"workspace" | "series"`, and the UI words live in one place (`src/lib/labels.ts`), so renaming later is one line.
+**Naming:** the top level is called a **workspace** in the UI (a client, a brand, a channel: whatever you work for). A workspace holds **series** and projects. In code the type is `Collection` with kind `"workspace" | "series"`, and the UI words live in one place (`apps/desktop/src/lib/labels.ts`), so renaming later is one line.
 
 
 1. **Library**: folders with the files you use again and again (music, sound effects, logos, LUTs…). One **universal** library for everything, and a library per **workspace**, **series** or **project** on top of it. The agent can search it and bring files into Resolve.
@@ -13,7 +13,7 @@ Three things, built in separate threads.
 
 - `Sidebar.svelte` lists projects as Resolve projects: a disk/network/cloud icon, an "Add *X*, open in Resolve" banner, every thread under each project, archived threads per project.
 - A project is a folder with `linker-edit.json` (committed) and `.linker-edit/local.json` (this machine). `~/LinkerEdit/projects.json` lists them.
-- `EDITING_RULES` in `server/rules.ts` is one block of rules for every project. Nothing per client or series.
+- `EDITING_RULES` in `apps/desktop/server/rules.ts` is one block of rules for every project. Nothing per client or series.
 - `import_media` imports absolute paths into the media pool. ffmpeg ships with the app (`findFfmpeg`), so reading durations and loudness needs nothing new.
 - The settings page (`#settings/<section>`, PR #17) is the pattern for a full page: the library page works the same way.
 
@@ -144,10 +144,10 @@ main ─┬─ 1. Sidebar like T3 Code ───────┐
 
 To keep the parallel threads from fighting over files:
 
-- `shared/protocol.ts`: every thread **only adds** types and messages, in its own block with a comment header, so merges are additions.
+- `apps/desktop/shared/protocol.ts`: every thread **only adds** types and messages, in its own block with a comment header, so merges are additions.
 - `Sidebar.svelte`: owned by thread 1. Threads 2 and 3 don't touch it (3 adds its Library button in thread 4).
-- `server/rules.ts`: thread 2 adds rule stacking, thread 3 adds one library rule line. Small, easy merge.
-- `server/app.ts`: each thread adds its own handlers in its own function, wired in with one line.
+- `apps/desktop/server/rules.ts`: thread 2 adds rule stacking, thread 3 adds one library rule line. Small, easy merge.
+- `apps/desktop/server/app.ts`: each thread adds its own handlers in its own function, wired in with one line.
 
 ### Thread 1: Sidebar like T3 Code
 
@@ -162,7 +162,7 @@ To keep the parallel threads from fighting over files:
 
 - Branch `feat/collections` from `origin/main`.
 - Goal: the `Collection` model and its management, without a new sidebar.
-- Server: `server/collections/store.ts` (files as above, written like `projects/store.ts`: whole-file writes, bad files kept aside), `collection` in `linker-edit.json`. Messages `create_collection`, `update_collection`, `delete_collection` (only when empty), `move_project { projectId, collectionId | null }`.
+- Server: `apps/desktop/server/collections/store.ts` (files as above, written like `projects/store.ts`: whole-file writes, bad files kept aside), `collection` in `linker-edit.json`. Messages `create_collection`, `update_collection`, `delete_collection` (only when empty), `move_project { projectId, collectionId | null }`.
 - Rules: `rules.ts` builds the agent's rules as editing rules + workspace `RULES.md` + series `RULES.md` + project notes, each under its own heading, so the agent knows where a rule comes from.
 - UI: a **Workspaces & series** settings section (list, create, rename, icon, rules editor) and a "Workspace / series" picker in project settings.
 - Tests: store, nesting only one level, deleting a non-empty collection is refused, rule stacking order.
@@ -172,7 +172,7 @@ To keep the parallel threads from fighting over files:
 
 - Branch `feat/library` from `origin/main`.
 - Goal: the universal and per-project library, its page, and the agent tools. Workspace and series libraries come in thread 4 (the code takes a list of scopes, so that's wiring only).
-- Server: `server/library/` with `folders.ts` (universal in `library.json`, project folders in `local.json`), `scan.ts` (ffmpeg duration + loudness, cache per folder, only changed files), `search.ts`, `tools.ts` (`library_search`, `library_import`), and the file route for playback, limited to library folders.
+- Server: `apps/desktop/server/library/` with `folders.ts` (universal in `library.json`, project folders in `local.json`), `scan.ts` (ffmpeg duration + loudness, cache per folder, only changed files), `search.ts`, `tools.ts` (`library_search`, `library_import`), and the file route for playback, limited to library folders.
 - UI: `#library` page like the settings page: scope tabs (Universal / This project), folders with kind and note, a file list with search, kind filter, play button, star, tags, note.
 - Rule line in `EDITING_RULES` for the library.
 - Tests: scan cache reuse, search filters, the file route refuses paths outside library folders (including `..` and symlinks), `library_import` reuses an existing media pool item (fixture Resolve).

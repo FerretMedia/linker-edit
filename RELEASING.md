@@ -5,30 +5,32 @@ Each release ships Linker-Edit two ways:
 - **Desktop installers** on the GitHub release: Windows (NSIS `.exe`), macOS (`.dmg`, plus the `.zip` updates use) for Apple silicon and Intel, and Linux (`.AppImage`). Installed apps update themselves from the newest GitHub release.
 - **The npm package** `linker-edit`, which users run with `npx linker-edit@latest`.
 
+Both are built from `apps/desktop`, the app's npm workspace.
+
 ## Make a release
 
 GitHub → Actions → **Release** → Run workflow, on `main`.
 
 The workflow runs CI, then:
 
-1. Names the release after today's date (UTC), like Linker's releases: `2026.11.08` is the release of 8 November 2026. That name is on the tag (`v2026.11.08`), the GitHub release, the installers and in the app. A day has one release: running the workflow again that day replaces it. npm and the app updater need three numbers without leading zeros that sort in order, so underneath, the release's version is `YYYY.MDD.HHMM`, the UTC time it was made: `2026.1108.1430`. That's what's stamped into `package.json` and what npm shows, and a release that replaces the day's earlier one has a later time, so installed apps still update to it. `shared/release-name.ts` turns a version into its name.
+1. Names the release after today's date (UTC), like Linker's releases: `2026.11.08` is the release of 8 November 2026. That name is on the tag (`v2026.11.08`), the GitHub release, the installers and in the app. A day has one release: running the workflow again that day replaces it. npm and the app updater need three numbers without leading zeros that sort in order, so underneath, the release's version is `YYYY.MDD.HHMM`, the UTC time it was made: `2026.1108.1430`. That's what's stamped into `apps/desktop/package.json` and what npm shows, and a release that replaces the day's earlier one has a later time, so installed apps still update to it. `apps/desktop/shared/release-name.ts` turns a version into its name.
 2. Builds the installers from the commit the workflow ran on, each on its own platform: the agents' programs ship inside the app, and npm installs only the current platform's. Nothing is tagged yet, so a run that fails leaves the releases as they were.
 3. Once every installer has built, deletes the day's earlier release and its tag if there is one, then tags the commit and creates the GitHub release with them and notes generated from the merged PRs. The `latest*.yml` files are what installed apps check for updates; the two Mac builds' lists are merged into one `latest-mac.yml`.
-4. Builds and publishes the npm package with provenance. While the repository is private this step is skipped: npm refuses provenance from a private repository.
+4. Builds and publishes the npm package with provenance, from `apps/desktop` (`npm publish -w apps/desktop`). Its `prepack` copies the root's README, LICENSE and NOTICE into the package. While the repository is private this step is skipped: npm refuses provenance from a private repository.
 
-The repository's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check 15 seconds after they start and then every hour (desktop), or once a day (npm), and show the update in the sidebar.
+The app's `package.json` stays at `0.0.0`; the version is only stamped into what's built. Running apps check 15 seconds after they start and then every hour (desktop), or once a day (npm), and show the update in the sidebar.
 
 ## How the desktop app updates
 
-- `desktop/updater.ts` drives electron-updater. `desktop/update-state.ts` moves its state from status to status, like T3 Code's update machine: checking, available, downloading, downloaded, up to date, error.
-- The app sends that state to its server over IPC (`server/appUpdate.ts`), and the server shows it to every page. A page on another of your computers shows that computer's update and can restart it.
+- `apps/desktop/desktop/updater.ts` drives electron-updater. `apps/desktop/desktop/update-state.ts` moves its state from status to status, like T3 Code's update machine: checking, available, downloading, downloaded, up to date, error.
+- The app sends that state to its server over IPC (`apps/desktop/server/appUpdate.ts`), and the server shows it to every page. A page on another of your computers shows that computer's update and can restart it.
 - *Restart to update* waits until nothing is busy with Resolve: no turn, render or open. Then the app stops the server and everything it started (the agents, ffmpeg, the helpers running the app's own binary), because any of them still running keeps the installer from replacing its files. Then it runs the installer silently, which opens the app again.
 - Before installing, it writes `update-install.json` in the app's data folder. If the app comes back on the old version, the sidebar says the update didn't install and offers to try again or download it.
 - Its log is `updates.log`, next to `server.log`.
 
 Before a release that changes any of this, run the update smoke test (see the README's Testing section). CI runs it on Linux.
 
-Before a release that changes how Linker-Edit drives Resolve (`server/resolve/`), run `npm run test:live` against a scratch project.
+Before a release that changes how Linker-Edit drives Resolve (`apps/desktop/server/resolve/`), run `npm run test:live` against a scratch project.
 
 ## Building an installer locally
 
@@ -36,9 +38,9 @@ Before a release that changes how Linker-Edit drives Resolve (`server/resolve/`)
 npm run dist:desktop
 ```
 
-builds the installer for the computer you're on into `release/`. `node scripts/build-desktop.ts --dir` after `npm run build` only lays out the unpacked app in `release/<platform>-unpacked`, which is quicker to try.
+builds the installer for the computer you're on into `apps/desktop/release/`. `node apps/desktop/scripts/build-desktop.ts --dir` after `npm run build` only lays out the unpacked app in `apps/desktop/release/<platform>-unpacked`, which is quicker to try.
 
-The build stages the app in `.desktop-stage` with its own `package.json` and only the packages it runs with, then runs electron-builder there. The app ships without an asar archive, because the agents' programs (`claude`, `codex`) and ffmpeg have to be real files to run, and the server reads the Resolve scripts from disk. They are also why the installer is about 400 MB.
+The build stages the app in `apps/desktop/.desktop-stage` with its own `package.json`, a lockfile made from the workspaces' one at the root, and only the packages it runs with, then runs electron-builder there. The app ships without an asar archive, because the agents' programs (`claude`, `codex`) and ffmpeg have to be real files to run, and the server reads the Resolve scripts from disk. They are also why the installer is about 400 MB.
 
 In the installed app, Electron starts the server as Node (`ELECTRON_RUN_AS_NODE`) with `linker-edit --serve`, and its log goes to the app's log folder (`%APPDATA%\Linker-Edit\logs\server.log` on Windows, `~/Library/Logs/Linker-Edit` on macOS, `~/.config/Linker-Edit/logs` on Linux). Helper processes the agents start (the `linker` MCP server, the Resolve guard) run the same way.
 
@@ -51,7 +53,7 @@ Releases build unsigned for now: Windows shows SmartScreen on first launch, and 
 | `CSC_LINK`, `CSC_KEY_PASSWORD` | The code signing certificate (`.p12`, base64) and its password. A Developer ID Application certificate on macOS, or an Authenticode one on Windows. |
 | `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | Notarizing the Mac app, so macOS opens it without asking. |
 
-With a Developer ID, Mac apps can update themselves too: set `canInstall` to true on macOS in `desktop/main.ts`.
+With a Developer ID, Mac apps can update themselves too: set `canInstall` to true on macOS in `apps/desktop/desktop/main.ts`.
 
 ## One-time npm setup
 
@@ -68,7 +70,7 @@ Linker-Edit drives Resolve through the MCP server that comes with Resolve Studio
 - run `npm run test:live -- --project "<scratch project>"`;
 - check the Resolve status in the app.
 
-A newer Resolve may add tools to its MCP server. Agents don't get a new tool until it's added to `server/policy.ts`.
+A newer Resolve may add tools to its MCP server. Agents don't get a new tool until it's added to `apps/desktop/server/policy.ts`.
 
 ## Merging
 

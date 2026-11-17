@@ -7,3 +7,7 @@ playwright-report/
 dist/
 release/
 .desktop-stage/
+# Copied from the repository root when the npm package is packed.
+apps/desktop/README.md
+apps/desktop/LICENSE
+apps/desktop/NOTICE

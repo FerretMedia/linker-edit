@@ -109,6 +109,15 @@ npm run dev
 
 Open http://localhost:5317, or run `npm run dev:desktop` to get the app window as well. `npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead. Releases are described in [RELEASING.md](RELEASING.md).
 
+### Repo layout
+
+The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app.
+
+- `apps/desktop`: the app, published to npm as `linker-edit`: the Node server (`server/`), the UI (`src/`), the Electron window (`desktop/`), their tests and build scripts. Its commands run in this folder, so a relative path you give them, like `LINKER_EDIT_REPLAY` below, is from here.
+- `apps/`: the other apps, such as the iPad app.
+- `packages/`: libraries the apps share, each a workspace with its own `package.json`.
+- `docs/`: plans.
+
 ## How approvals work
 
 Like T3 Code, there are two modes, switched in the composer. **Full access** (the default) runs every allowed change without asking: Claude runs with `bypassPermissions`, and Codex without a sandbox. **Supervised** shows Allow/Deny before each change, and keeps Codex sandboxed to the project's folder. The mode you pick is kept across restarts, in `~/LinkerEdit/settings.json`. What Linker-Edit refuses, it refuses in both modes, so full access never means anything goes.
@@ -262,11 +271,11 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 
 ## Testing
 
-- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`server/resolve/scripts`) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
+- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`apps/desktop/server/resolve/scripts`) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
-- `node scripts/update-smoke.ts`, after `npm run build && node scripts/build-desktop.ts --dir`: starts the unpacked desktop app against an update feed on your computer and checks that it downloads the update, stops its server and quits to install it, and says so when the install didn't take. On Linux, run it under `xvfb-run`.
+- `node apps/desktop/scripts/update-smoke.ts`, after `npm run build && node apps/desktop/scripts/build-desktop.ts --dir`: starts the unpacked desktop app against an update feed on your computer and checks that it downloads the update, stops its server and quits to install it, and says so when the install didn't take. On Linux, run it under `xvfb-run`.
 - `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing
