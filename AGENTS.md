@@ -62,6 +62,25 @@ An npm workspaces monorepo; run `npm` from the root, which forwards to the app.
    in a worktree; before committing, check `git log -1` and the branch.
 5. **Shipping.** Never run the release workflow, `npm publish`, or push tags.
 
+## Blackmagic Cloud terms
+
+[Blackmagic Cloud's terms](https://static.cloud.blackmagicdesign.com/html/terms)
+forbid using the service with automated scripts or software (31.5), reverse
+engineering it (17.3), and getting around its limits (31.12). So Linker-Edit
+never:
+
+- calls `CreateCloudProject`, `LoadCloudProject`, `ImportCloudProject`,
+  `RestoreCloudProject` or `CLOUD_*` settings, from our scripts or the agent's
+  (`server/resolve/scripts.test.ts` and `server/policy.ts` hold this);
+- talks to Blackmagic Cloud servers, probes their endpoints or automates their
+  website;
+- uploads, syncs or opens cloud projects for the user. The user opens a cloud
+  project in Resolve's Project Manager; Linker-Edit only recognises it once
+  it's open.
+
+Reading and writing Resolve's own file formats (.drp, .drt) from files the user
+exported is fine: that's the files, not the service.
+
 ## Worktrees
 
 `t3.json` runs `npm ci` when T3 Code creates a worktree; run it yourself in a

@@ -7,7 +7,6 @@ import type {
   ComputerSetup,
   ChatItem,
   ClientMessage,
-  CloudSyncMode,
   LibraryClientMessage,
   LibraryFolder,
   LibraryQuery,
@@ -585,7 +584,7 @@ export function createApp(options: AppOptions) {
     if (source.kind === "cloud") {
       return {
         link: { kind: "cloud", name: source.name.trim(), projectId: null },
-        local: { mediaPath: expandHome(source.mediaPath), syncMode: source.syncMode },
+        local: {},
       };
     }
     return {
@@ -614,8 +613,8 @@ export function createApp(options: AppOptions) {
         }
         next = linkFromOpen(open);
       } else {
-        if (!source.name.trim() || (source.kind === "cloud" && !source.mediaPath.trim())) {
-          toast(client, source.kind === "cloud" ? "A cloud project needs its name and a media folder." : "Pick a project.");
+        if (!source.name.trim()) {
+          toast(client, source.kind === "cloud" ? "A cloud project needs its name." : "Pick a project.");
           return;
         }
         next = linkFromSource(source);
@@ -632,17 +631,12 @@ export function createApp(options: AppOptions) {
     select(client, defaultThread(state.saved.id));
   }
 
-  function updateProject(projectId: string, changes: { name?: string; mediaPath?: string; syncMode?: CloudSyncMode }) {
+  function updateProject(projectId: string, changes: { name?: string }) {
     const project = projects.get(projectId);
     if (!project) return;
     const { saved } = project;
     const name = changes.name === undefined ? saved.name : changes.name.trim() || null;
-    const local: LocalLink = {
-      ...saved.local,
-      ...(changes.mediaPath === undefined ? {} : { mediaPath: expandHome(changes.mediaPath) }),
-      ...(changes.syncMode === undefined ? {} : { syncMode: changes.syncMode }),
-    };
-    project.saved = { ...saved, name, local };
+    project.saved = { ...saved, name };
     store.saveProject(project.saved);
     if (name !== saved.name) {
       project.history?.commitProjectFile(`Rename project to "${projectName(project.saved)}"`).catch((error: unknown) => console.error(error));

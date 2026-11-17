@@ -958,15 +958,15 @@ describe("app projects", () => {
     send({ type: "add_project", source: { kind: "open" } });
     expect(client.toasts).toEqual(['"Promo" is already in Linker-Edit.']);
 
-    send({ type: "add_project", source: { kind: "cloud", name: "Client X", mediaPath: " ", syncMode: "proxy_only" } });
-    expect(client.toasts.at(-1)).toBe("A cloud project needs its name and a media folder.");
-    send({ type: "add_project", source: { kind: "cloud", name: "Client X", mediaPath: "D:\\Cloud\\Client X", syncMode: "proxy_only" } });
+    send({ type: "add_project", source: { kind: "cloud", name: " " } });
+    expect(client.toasts.at(-1)).toBe("A cloud project needs its name.");
+    send({ type: "add_project", source: { kind: "cloud", name: "Client X" } });
     send({
       type: "add_project",
       source: { kind: "library", name: "Old", folder: ["2025"], database: { type: "PostgreSQL", name: "Team", host: "10.0.0.5" } },
     });
     expect(client.state.projects.slice(2)).toMatchObject([
-      { name: "Client X", link: { kind: "cloud", projectId: null }, local: { mediaPath: "D:\\Cloud\\Client X", syncMode: "proxy_only" } },
+      { name: "Client X", link: { kind: "cloud", projectId: null }, local: {} },
       { name: "Old", link: { kind: "network" }, local: { folder: ["2025"], database: { name: "Team" } } },
     ]);
     expect(store.projects.size).toBe(4);

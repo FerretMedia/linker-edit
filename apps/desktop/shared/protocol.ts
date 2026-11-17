@@ -62,16 +62,11 @@ export interface ResolveLink {
   projectId: string | null;
 }
 
-export type CloudSyncMode = "none" | "proxy_only" | "proxy_and_orig";
-
 /** This machine's side of a link: where to find the project, never committed. */
 export interface LocalLink {
   database?: ResolveDatabase;
   /** Project Manager folders down to the project. */
   folder?: string[];
-  /** Where a cloud project's media goes on this machine. Resolve needs one to open it. */
-  mediaPath?: string;
-  syncMode?: CloudSyncMode;
 }
 
 export interface ThreadSummary extends ThreadSidebarState {
@@ -115,7 +110,8 @@ export interface ResolveLibrary {
 export type ProjectSource =
   | { kind: "open" }
   | { kind: "library"; name: string; folder: string[]; database: ResolveDatabase | null }
-  | { kind: "cloud"; name: string; mediaPath: string; syncMode: CloudSyncMode }
+  /** A Blackmagic Cloud project by name. Linker-Edit never opens it: you open it in Resolve yourself. */
+  | { kind: "cloud"; name: string }
   /** A working folder that already has a linker-edit.json, such as a teammate's cloned history. */
   | { kind: "folder"; dir: string };
 
@@ -485,7 +481,7 @@ export type ClientMessage =
   | { type: "archive_thread"; threadId: string; archived: boolean }
   | { type: "delete_thread"; threadId: string }
   | { type: "add_project"; source: ProjectSource }
-  | ({ type: "update_project"; projectId: string; name?: string; mediaPath?: string; syncMode?: CloudSyncMode } & ProjectSidebarChanges)
+  | ({ type: "update_project"; projectId: string; name?: string } & ProjectSidebarChanges)
   /** Links the project to the one open in Resolve now. */
   | { type: "relink_project"; projectId: string }
   /** Takes the project out of Linker-Edit. Its folder and its Resolve project stay. */
