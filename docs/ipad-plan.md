@@ -19,7 +19,7 @@ bridges:
 
 | Bridge | What it does | Status |
 |---|---|---|
-| **A. Remote brain** | The iPad is a client of the desktop Linker-Edit host. The agent edits in *desktop* Resolve (full scripting), the iPad shows chat, tool cards and previews. | Works today over Tailscale in Safari; UI isn't touch/responsive yet |
+| **A. Remote brain** | A **native SwiftUI iPad app** is a client of the desktop Linker-Edit host. The agent edits in *desktop* Resolve (full scripting), the iPad shows chat, tool cards and previews. | Decided 2026-11-17: native SwiftUI, not a PWA or Capacitor |
 | **B. Cloud, by hand** | *You* move the project into a Blackmagic Cloud library in Resolve's Project Manager and open it on the iPad. Linker-Edit never automates any of it (see "Blackmagic Cloud rules"); it only shows the steps and recognises the project once you've opened it. | Manual only |
 | **C. File handoff** (primary) | Our own **.drp/.drt reader/patcher** (from the files Resolve exports) + proxy bundle, handed to the iPad via Files/share sheet. Works offline, no cloud. | Reader works on samples; iPad import untested |
 | **D. Hardware remote** (optional) | An ESP32 paired to the iPad as a Bluetooth keyboard, typing Resolve shortcuts on command from our app. | Prototype idea only |
@@ -108,27 +108,42 @@ The two biggest unknowns decide which bridge is primary. Nothing gets built on a
 - [ ] Optional: pair any Bluetooth keyboard to the iPad and check which Resolve shortcuts work
       on Cut/Color pages (bridge D's ceiling).
 
-## Work split — agent threads
+## Monorepo (decided 2026-11-17)
 
-Each thread is a T3 worktree thread from `origin/main`, one PR each, like the library plan.
+The repo becomes an npm-workspaces monorepo so the iPad app lives next to the desktop app:
+
+```
+apps/desktop   today's app: Electron shell, Node server, SvelteKit UI (npm package `linker-edit`)
+apps/ipad      native SwiftUI iPad app (XcodeGen project, built on macOS CI runners)
+packages/drp   @linker-edit/drp: .drp/.drt reader and patcher, zero dependencies
+docs/          plans, shared by all apps
+```
+
+The conversion comes first (`chore/monorepo`); threads 1, 2 and 6 stack on it.
+
+## Work split — agents
+
+Each item is a subagent in its own worktree, one PR each, stacked on the monorepo PR.
 
 | # | Branch | Bridge | Depends on | Scope |
 |---|---|---|---|---|
-| 1 | `feat/ipad-web` | A | — | Responsive + touch UI: sidebar drawer ≤1024px, preview as sheet/overlay, long-press menus, always-visible row actions, 44px targets, safe areas, `manifest.webmanifest` + icons, iPad Safari e2e viewport in Playwright. |
-| 2 | `feat/drp-format` | C | — | `server/drp/`: zero-dep reader (from `docs/ipad/drp-dump.mjs`), typed model (project, media pool, timelines, clips), patcher for cut-level edits that keeps blobs untouched, version-gate check. Fixtures from desktop exports. Vendoring the MIT drp-format library is allowed where it saves work. |
+| 0 | `chore/monorepo` | — | — | Move the app to `apps/desktop`, npm workspaces at the root, CI/release/auto-update paths, AGENTS.md and docs updated. |
+| 1 | `feat/ipad-native` | A | 0 | Native SwiftUI iPad app in `apps/ipad`: connect to a host (Tailscale URL first), projects/threads sidebar (`NavigationSplitView`), streaming chat, tool cards, Allow/Deny approvals, Resolve status, preview player (AVPlayer). Swift package for protocol models + WebSocket client with unit tests; GitHub Actions macOS job builds and tests on the iPad simulator. No signing yet. |
+| 2 | `feat/drp-format` | C | 0 | `packages/drp` (`@linker-edit/drp`): zero-dep reader (from `docs/ipad/drp-dump.mjs`), typed model (project, media pool, timelines, clips), patcher for cut-level edits that keeps blobs untouched, version-gate check. Fixtures from desktop exports. Vendoring the MIT drp-format library is allowed where it saves work. |
 | 3 | `feat/project-browser` | — | 2 | "Browse any project without opening it" + "pull timeline from project X into Y" (.drt export/import, enable `.drt` in `import_timeline`'s `IMPORTABLE`). UI in sidebar/library. |
 | 4 | — | B | — | **Dropped.** Automating Blackmagic Cloud would break its terms (31.5). Done instead: the `fix/cloud-terms` PR, which removes our only cloud call and adds a guard test. |
 | 5 | `feat/ipad-bundle` | C | 2, Phase 0 file check | "Send to iPad": render proxies (`server/resolve/render.ts`), patched .drp (or .drt/FCPXML, whichever the iPad accepts best) pointing at proxy names, zipped bundle, `navigator.share({files})` / download from the iPad UI. |
-| 6 | `feat/connect-browser` (+ Linker PR) | A | — | Hosted Linker sign-in page that mints the Connect session code, so the iPad works without Tailscale. One hub origin listing your host computers. |
-| 7 | `feat/ipad-app` | A | 1, 6 | Capacitor wrapper of the SvelteKit build: configurable host URL, bearer-token auth on `/ws` + HTTP (Origin check / SameSite cookies block `capacitor://`), Clerk PKCE sign-in, APNs push for approvals/finished turns, native share sheet + Files. CI: GitHub Actions macOS + fastlane `match`/`pilot` → TestFlight. |
+| 6 | `feat/connect-native` (+ Linker PR later) | A | 0 | Linker Connect for the native app: bearer-session auth on `/ws` and HTTP, so the iPad app reaches a host without Tailscale after Linker sign-in (Clerk PKCE in `ASWebAuthenticationSession`). |
+| 7 | `feat/ipad-release` | A | 1, 6 | Signing + TestFlight: GitHub Actions macOS + fastlane `match`/`pilot`, App Store Connect API key, APNs push for approvals/finished turns. Needs the Apple Developer account. |
 | 8 | `hw/ble-remote` (separate repo) | D | Phase 0 keyboard check | Optional: ESP32-S3 BLE HID keyboard firmware + a GATT command channel; app sends "blade at playhead", "next clip", etc. Keystrokes only, no feedback from Resolve. |
 
-**Wave 1 (now, in parallel):** 1, 2, 6.
+**Wave 1:** 0, then 1, 2, 6 in parallel on top of it.
 **Wave 2 (after Phase 0):** 3, 5.
 **Wave 3:** 7, then optionally 8.
 
-Native SwiftUI is deliberately skipped: it duplicates every UI change. Revisit only if the
-web UI is the limit on iPad.
+The iPad client is native SwiftUI (your call, 2026-11-17). The cost is a second UI to keep in
+step with the web UI; the Swift protocol models are tested against JSON fixtures recorded
+from the Node server so drift shows up as a failing test.
 
 ## Blackmagic Cloud rules (decided 2026-11-17)
 
@@ -147,8 +162,8 @@ These are hard rules for every thread (also in `AGENTS.md`):
 ## Decisions for you
 
 1. **File handoff (C) is the primary path.** Cloud stays manual.
-2. **Apple Developer account** ($99/yr) for thread 7. Until then, the PWA from thread 1 is
-   the iPad app (Add to Home Screen).
+2. **Apple Developer account** ($99/yr) for thread 7 (TestFlight). Until then the app only
+   builds and runs in the simulator on CI; you can't install it on the iPad without it.
 3. **Speed Editor emulation: not planned.** Its Bluetooth link uses a challenge/response
    authentication (documented by [smunaut/blackmagic-misc](https://github.com/smunaut/blackmagic-misc));
    faking a genuine device means getting around that check. A plain Bluetooth keyboard (8)
