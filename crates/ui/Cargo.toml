@@ -1,0 +1,31 @@
+[package]
+name = "linker-edit-ui"
+description = "The GPUI window: one client of the server, like the browser UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Why GPUI comes through gpui-kit 0.10.0, pinned exactly:
+# - gpui-kit is Longbridge's facade over GPUI + gpui-component (inputs, virtual lists,
+#   scrolling, dialogs, menus, tooltips, markdown, resizable panes, title bar) and the
+#   Lucide icon assets. Its 0.10.0 pins the GPUI it was tested with: `gpui-pre` =0.3.12,
+#   a crates.io snapshot of zed-industries/zed@d2a4fb6, plus `gpui-pre-platform` =0.3.12.
+# - crates.io `gpui` 0.2.2 is a frozen Oct 2025 snapshot that no current gpui-component
+#   builds on, and a git pin of zed would need a matching gpui-component git rev by hand.
+#   This gives the same "one known-good Zed commit" from crates.io, with checksums.
+# - Upgrade on purpose: bump gpui-kit, which moves gpui-pre with it, then run the UI tests
+#   and look at the window on Windows. Licenses: all Apache-2.0, icons ISC (see NOTICE).
+[dependencies]
+gpui-kit = "=0.10.0"
+anyhow.workspace = true
+# The link to the server is a pair of channels; GPUI awaits them on its own executor.
+futures = "0.3"
+# Single instance: a local socket (named pipe on Windows) the first copy listens on.
+interprocess = "2"
+
+[target.'cfg(windows)'.dependencies]
+# Lets the first copy's window come to the front when a second copy hands over.
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+gpui-kit = { version = "=0.10.0", features = ["test-support"] }
