@@ -20,7 +20,20 @@ describe("Linker Connect sessions", () => {
     expect(entered).not.toBeNull();
     expect(sessions.enter(code)).toBeNull();
     expect(sessions.check(entered!.token)).toEqual(expect.any(String));
-    expect(sessions.list()).toEqual([expect.objectContaining({ name: "Laptop" })]);
+    expect(sessions.list()).toEqual([expect.objectContaining({ name: "Laptop", kind: "cookie" })]);
+  });
+
+  it("takes a session only the way it was given out", () => {
+    const sessions = make();
+    const native = sessions.enter(sessions.issueCode("iPad"), "native")!;
+    expect(sessions.check(native.token, "native")).toEqual(expect.any(String));
+    expect(sessions.check(native.token, "cookie")).toBeNull();
+    const cookie = sessions.enter(sessions.issueCode("Laptop"))!;
+    expect(sessions.check(cookie.token, "native")).toBeNull();
+    expect(sessions.list().map((device) => [device.name, device.kind])).toEqual([
+      ["iPad", "native"],
+      ["Laptop", "cookie"],
+    ]);
   });
 
   it("refuses codes after a minute, and guesses", () => {
@@ -45,8 +58,10 @@ describe("Linker Connect sessions", () => {
   it("ends sessions after 30 days", () => {
     const sessions = make();
     const { token } = sessions.enter(sessions.issueCode("Laptop"))!;
+    const native = sessions.enter(sessions.issueCode("iPad"), "native")!;
     clock += SESSION_LIFETIME + 1;
     expect(sessions.check(token)).toBeNull();
+    expect(sessions.check(native.token, "native")).toBeNull();
     expect(sessions.list()).toEqual([]);
   });
 
