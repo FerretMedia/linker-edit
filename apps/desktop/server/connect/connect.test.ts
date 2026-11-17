@@ -200,6 +200,37 @@ describe("Linker Connect", () => {
     expect(await connect.admit("token-jane", "Laptop")).toEqual({ status: 502, error: expect.any(String) });
   });
 
+  it("gives the iPad app a Bearer session for a code, once, and only while on", async () => {
+    const { connect, sessions } = setup();
+    expect(connect.redeem("anything")).toEqual({ status: 503, error: expect.any(String) });
+    await connect.setEnabled(true);
+    const { code } = (await connect.admit("token-jane", "iPad")) as { code: string };
+    const redeemed = connect.redeem(code);
+    expect(redeemed).toEqual({ session: expect.any(String), expiresAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT.*Z$/) });
+    const { session } = redeemed as { session: string };
+    expect(sessions.check(session, "native")).toEqual(expect.any(String));
+    expect(sessions.list()).toEqual([expect.objectContaining({ name: "iPad", kind: "native" })]);
+  });
+
+  it("allows only so many tries a minute at each way in", async () => {
+    const { connect } = setup();
+    await connect.setEnabled(true);
+    for (let i = 0; i < 20; i++) expect(connect.redeem("guess")).toMatchObject({ status: 401 });
+    expect(connect.redeem("guess")).toEqual({ status: 429, error: expect.any(String) });
+    // Guessing codes doesn't lock you out of asking for one.
+    expect(await connect.admit("token-jane", "iPad")).toEqual({ code: expect.any(String) });
+  });
+
+  it("signs every device out when another Linker account links this computer", async () => {
+    const first = setup();
+    await first.connect.setEnabled(true);
+    const native = first.sessions.enter(first.sessions.issueCode("iPad"), "native")!;
+    // Restarted with Bob signed in here: Linker Connect comes back on for him, and drops Jane's devices first thing.
+    first.linker.fake.userId = "user_bob";
+    first.make().start();
+    expect(first.sessions.check(native.token, "native")).toBeNull();
+  });
+
   it("turns off and signs every device out when Linker is signed out", async () => {
     const { connect, linker, sessions, tunnels } = setup();
     await connect.setEnabled(true);
@@ -240,10 +271,13 @@ describe("Linker Connect", () => {
   });
 
   it("unlinking this computer turns it off and forgets its address", async () => {
-    const { connect, tunnels } = setup();
+    const { connect, tunnels, sessions } = setup();
     await connect.setEnabled(true);
+    const { code } = (await connect.admit("token-jane", "iPad")) as { code: string };
+    const { session } = connect.redeem(code) as { session: string };
     await connect.unlink(connect.status().computerId);
     expect(tunnels.runs[0]!.stopped).toBe(true);
+    expect(sessions.check(session, "native")).toBeNull();
     expect(connect.status()).toMatchObject({ state: "off", url: null, computers: [] });
   });
 });

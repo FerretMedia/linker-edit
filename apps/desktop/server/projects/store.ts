@@ -34,6 +34,8 @@ export interface SavedProject {
   archived: boolean;
   /** The workspace or series it is in. Missing in files from before workspaces. */
   collection?: ProjectCollection | null;
+  /** Holds its collection's setup threads rather than a Resolve project; see ProjectSummary.setup. */
+  setup?: boolean;
 }
 
 /** The sidebar fields of a thread that has none yet. */
@@ -93,6 +95,7 @@ interface ProjectFile {
   /** Missing in files from before project icons. */
   icon?: ProjectIcon | null;
   collection?: ProjectCollection;
+  setup?: boolean;
 }
 
 interface RegistryEntry {
@@ -240,6 +243,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       pinned: pinned === true,
       archived: archived === true,
       ...(collection && typeof collection.id === "string" ? { collection: { id: collection.id, name: String(collection.name ?? "") } } : {}),
+      ...(file?.setup === true ? { setup: true } : {}),
     };
   }
 
@@ -301,6 +305,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
         resolve: project.link,
         ...(project.icon ? { icon: project.icon } : {}),
         ...(project.collection ? { collection: { id: project.collection.id, name: project.collection.name } } : {}),
+        ...(project.setup ? { setup: true } : {}),
       };
       writeJson(path.join(project.dir, PROJECT_FILE), file);
       writeJson(path.join(stateDir(project.dir), "local.json"), project.local);

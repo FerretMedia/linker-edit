@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { Cloud, FolderInput, HardDrive, MonitorUp } from "@lucide/svelte";
-  import type { CloudSyncMode, FolderListing, ProjectSource, ResolveLibrary, ResolveStatus } from "#shared/protocol.ts";
+  import type { FolderListing, ProjectSource, ResolveLibrary, ResolveStatus } from "#shared/protocol.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
-  import { LIBRARY_LABEL, SYNC_MODES } from "#lib/labels.ts";
+  import { LIBRARY_LABEL } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
   import FolderPicker from "./FolderPicker.svelte";
 
@@ -37,8 +37,6 @@
   let tab = $state<(typeof TABS)[number]["value"]>(untrack(() => (openProject ? "open" : "library")));
   let filter = $state("");
   let cloudName = $state("");
-  let mediaPath = $state("");
-  let syncMode = $state<CloudSyncMode>("proxy_only");
   let folder = $state("");
   let folderStatus = $state<{ exists: boolean; isProject: boolean } | null>(null);
   const folderHint = $derived.by(() => {
@@ -151,27 +149,16 @@
       Project name, exactly as in Resolve
       <input class={field} bind:value={cloudName} />
     </label>
-    <div class="flex flex-col gap-1 text-xs text-muted-foreground">
-      Media folder on this computer
-      <FolderPicker bind:value={mediaPath} browse={browseFolders} listOnFocus label="Media folder" />
-    </div>
-    <label class="flex flex-col gap-1 text-xs text-muted-foreground">
-      Sync
-      <select class={field} bind:value={syncMode}>
-        {#each SYNC_MODES as mode (mode.value)}
-          <option value={mode.value}>{mode.label}</option>
-        {/each}
-      </select>
-    </label>
     <p class="text-xs text-muted-foreground">
-      Resolve can't list {LIBRARY_LABEL.cloud} projects to Linker-Edit. If the project is open in Resolve now, add it from the first tab
-      instead.
+      You open {LIBRARY_LABEL.cloud} projects in Resolve's Project Manager yourself: {LIBRARY_LABEL.cloud}'s terms don't allow scripts
+      to use it, so Linker-Edit never opens, creates or uploads cloud projects. If the project is open in Resolve now, add it from the
+      first tab instead.
     </p>
     <button
       type="button"
       class="h-8 self-end rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-      disabled={!cloudName.trim() || !mediaPath.trim()}
-      onclick={() => add({ kind: "cloud", name: cloudName.trim(), mediaPath: trimSeparators(mediaPath), syncMode })}
+      disabled={!cloudName.trim()}
+      onclick={() => add({ kind: "cloud", name: cloudName.trim() })}
     >
       Add
     </button>

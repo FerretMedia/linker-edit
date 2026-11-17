@@ -160,6 +160,9 @@
       projectNames={projectNames(selected)}
       seriesCount={selected.kind === "workspace" ? seriesIn(selected.id).length : 0}
       onUpdate={(changes) => send({ type: "update_collection", id: selected.id, ...changes })}
+      onSetup={() => send({ type: "setup_collection", id: selected.id })}
+      onRemoveLesson={(lessonId) => send({ type: "remove_lesson", id: selected.id, lessonId })}
+      onRemoveExample={(name) => send({ type: "remove_example", id: selected.id, name })}
       onDelete={() => {
         send({ type: "delete_collection", id: selected.id });
         selectedId = null;
@@ -167,10 +170,11 @@
     />
   {/key}
 {:else if app.collections.length}
-  <p class="-mt-4 px-1 text-xs text-muted-foreground">Pick one to rename it, change its icon or write its rules.</p>
+  <p class="-mt-4 px-1 text-xs text-muted-foreground">Pick one to rename it, change its icon, write its rules or set it up with AI.</p>
 {/if}
 
 <p class="px-1 text-xs text-muted-foreground">
-  A project can have its own notes for the agent too: a RULES.md in the project's folder. They come after the
+  Each project has a file of its own too: PROJECT.md in the project's folder, with the video's brief, footage notes,
+  decisions and feedback. The agent keeps it, and you can edit it. It comes after the
   {COLLECTION_LABEL.workspace.lower}'s and {COLLECTION_LABEL.series.lower}' rules.
 </p>

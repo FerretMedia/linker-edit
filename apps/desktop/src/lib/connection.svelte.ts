@@ -15,6 +15,8 @@ class ServerConnection {
   connected = $state(false);
   /** Null until the history panel first asks for it. */
   history = $state<{ projectId: string; entries: HistoryEntry[] } | null>(null);
+  /** A project's PROJECT.md; null until the project file panel first asks for it. */
+  projectFile = $state<{ projectId: string; file: string; text: string } | null>(null);
   /** Null until the add-project dialog asks for it. */
   library = $state<ResolveLibrary | { error: string } | null>(null);
   /** The library page's library, while the page is open. */
@@ -43,6 +45,7 @@ class ServerConnection {
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data as string) as ServerMessage;
       if (message.type === "history") this.history = { projectId: message.projectId, entries: message.entries };
+      else if (message.type === "project_file") this.projectFile = { projectId: message.projectId, file: message.file, text: message.text };
       else if (message.type === "library") this.library = message.library;
       else if (message.type === "library_view") this.libraryView = message.view;
       else if (message.type === "folders") {

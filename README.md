@@ -111,11 +111,12 @@ Open http://localhost:5317, or run `npm run dev:desktop` to get the app window a
 
 ### Repo layout
 
-The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app.
+The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app, except `npm test` and `npm run typecheck`, which run in every workspace.
 
 - `apps/desktop`: the app, published to npm as `linker-edit`: the Node server (`server/`), the UI (`src/`), the Electron window (`desktop/`), their tests and build scripts. Its commands run in this folder, so a relative path you give them, like `LINKER_EDIT_REPLAY` below, is from here.
 - `apps/ipad`: the native iPad app (SwiftUI), a remote for the desktop app on your edit computer. It isn't released yet; see [its README](apps/ipad/README.md). It builds only on macOS, so pull requests that change it are built and tested on GitHub's Mac runners.
 - `packages/`: libraries the apps share, each a workspace with its own `package.json`.
+  - `packages/drp` (`@linker-edit/drp`): reads and patches DaVinci Resolve `.drp` project and `.drt` timeline files without Resolve. See [its README](packages/drp/README.md).
 - `docs/`: plans.
 
 ## How approvals work
@@ -134,12 +135,14 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - looking at footage: `view_frames`, which moves Resolve's playhead and puts it back, and `find_silences`;
   - `export_timeline`, which only writes a file into the project folder;
   - `set_current_timeline`, which only changes which timeline Resolve shows;
-  - `library_search`, which only looks in your library.
+  - `library_search`, which only looks in your library;
+  - `study_media` and `compare_cut`, which only measure and transcribe video files.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
   - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
   - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
   - The media pool: `import_media`, `library_import`, `organize_media`, `transcribe_in_resolve`.
   - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
+- **Changes to a brief always ask**, with full access too: new rules for a workspace or series (`save_brief`) and a lesson from your feedback (`add_lesson`) steer every later edit, so you accept or decline each. The agent's own notes on an example video (`save_example`) don't ask. See [Teaching it a brand](#teaching-it-a-brand).
 - **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits and commands ask only in Supervised mode; Codex's shell commands and file edits run without a sandbox with full access, and sandboxed to the project's folder in Supervised mode.
 
 The rules are built into the tools, not only into the agent's instructions:
@@ -156,7 +159,7 @@ These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Cod
 
 ## Projects and threads
 
-A **project** is one Resolve project with its own folder: its edit history, the agent's notes and exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
+A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
 
 Resolve has one project open at a time, so Linker-Edit follows it:
 
@@ -168,7 +171,7 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 
 - **Open in Resolve:** the project Resolve has open now.
 - **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
-- **Cloud:** a Blackmagic Cloud project, by its name and a folder for its media on this computer. Resolve can't list cloud projects to other apps, so if it's open in Resolve, use **Open in Resolve** instead.
+- **Cloud:** a Blackmagic Cloud project, by its name. You open it in Resolve's Project Manager yourself, and Linker-Edit picks it up once it's open: [Blackmagic Cloud's terms](https://static.cloud.blackmagicdesign.com/html/terms) don't allow scripts to use the service, so Linker-Edit never opens, creates, uploads or syncs cloud projects. If it's open in Resolve now, use **Open in Resolve** instead.
 - **Folder:** a project folder from another computer, such as a teammate's edit history you cloned.
 
 Folder fields list the folders as you type, like T3 Code's **Add project**. Use ↑/↓ to choose a folder, and Enter or Tab to open it. Enter with no folder chosen picks the path you typed. Project folders are marked **Linker-Edit project**. The folders listed are on the computer running Linker-Edit, even when you use it from another one. In the desktop app on that computer, **Browse…** also opens the system's folder dialog.
@@ -213,6 +216,49 @@ Codex has no context meter or compaction here: its SDK doesn't report how full t
 
 Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previous or next cut, F full screen, M mute.
 
+**Give feedback at this moment** starts a message with where the playhead is ("At 0:14 (frame 336) in …"), so the agent knows which spot you mean.
+
+## Teaching it a brand
+
+A **workspace** is a client, brand or channel, and a **series** is one of its formats, such as a weekly vlog or reels. Each has rules the agent follows in every project in it (**Settings → Workspaces & series**). You can write them yourself, or have the agent work them out from videos you've finished. The aim: you give it footage, it makes the first cut, and you only give feedback on the video.
+
+**Set up with AI** on a workspace or series opens a setup thread. It runs on your own Claude or Codex, and it never touches Resolve.
+
+1. Point it at a folder of **finished videos**, and if you have them the **raw footage** some were cut from and the brand's **assets**.
+2. It measures each video with the ffmpeg Linker-Edit comes with: length, aspect ratio, shot lengths, how quiet it gets, loudness, how fast people talk and how it opens. It looks at a contact sheet of its frames and reads the transcript. Measurements are kept in `~/LinkerEdit/cache/study` until a file changes.
+3. With raw footage, it lines up what is said in the finished video with what is said in the raw files. That shows what the editor kept and cut, which take they used, and whether they reordered.
+4. It tells you what it found, with the numbers, and asks only what it can't see: who watches, where the music comes from, where the examples disagree.
+5. It proposes rules for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
+
+Its notes on each example are kept as files next to the rules, in `~/LinkerEdit/collections/<name>/examples`.
+
+**It is laid out like code.** A project is a repository of one video, and it gets its rules from the folders of its series and workspace:
+
+```
+~/LinkerEdit/collections/ferret-media/   the workspace
+  RULES.md                               what is always true for the brand
+  examples/                              the agent's notes on example videos
+~/LinkerEdit/collections/reels/          a series in it
+  RULES.md                               how this kind of video is made
+~/LinkerEdit/projects/Reel 14/           a project in that series: a Git repository
+  PROJECT.md                             this video: brief, footage, decisions, feedback, status
+  resolve/                               its timelines as text, one save per turn
+  AGENTS.md                              written by Linker-Edit: everything above in one file, for the agent
+```
+
+The agent reads the three files from the most general to the most specific, and the later one wins. It keeps `PROJECT.md` itself, so a new thread knows what the video is about, what is in the footage and what you already said. You can read and edit it under **Project file**, next to Preview and History, and each change is saved in the project's edit history. Rules set up with AI use the same headings for every brand. **Must** holds what can be measured, such as length and aspect ratio, and the agent checks its cut against it before it shows you.
+
+**Works on its own** is a switch on a workspace or series. With it on, a new thread in one of its projects asks for the footage folder, and the agent makes the whole first cut without asking questions: it imports and transcribes the footage, builds the cut the way the rules describe, checks its own work, renders it and measures the file against the rules' **Must** lines (length, aspect ratio, loudness, quiet stretches), and ends with a note of what it made, what it left out and what it decided for you. It still only changes `AI - …` timelines, and you still make one the main timeline yourself.
+
+**It learns from your feedback, and you check what it learned.**
+
+- When you give feedback, the agent first says what it understood, then fixes it.
+- Feedback that will hold for the next video too becomes a **lesson**. The agent only proposes one after you've seen the fix, and shows it next to your own words. Decline it if that isn't what you meant.
+- When you press **Use as main timeline**, the agent compares its first version with the one you approved, including what you changed in Resolve yourself, and proposes lessons from the difference.
+- Lessons are listed under the rules in Settings, each with the words it came from, and you can remove any of them. Settings also shows how many rounds of feedback each approved edit took, so you can see whether the rules work.
+
+What it can't do: it sees still frames, not motion, and it can't hear. It knows how loud a video is and where it's quiet, not whether a song fits. So formats driven by speech (talking head, interview, podcast, reels cut from longer talk) work best.
+
 ## Library
 
 **Library** in the top right (or in Settings) opens the folders you reuse: music, sound effects, graphics, LUTs, footage, anything else. Linker-Edit only points at them. It never copies, moves or deletes a file in them.
@@ -241,7 +287,7 @@ Open your edit machine from your other computers, from anywhere, with your [Link
 2. On the other computer, run Linker-Edit, sign in with the **same** Linker account, open the computer menu at the top of the sidebar and pick the edit machine.
 
 - **Up to 3 edit computers per Linker account.** The computers you only work from don't count. Unlink one in the same settings to make room.
-- **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
+- **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once; the iPad app, once it's out, shows there as a *Native app*. A sign-in lasts 30 days. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
 - **Linker makes the tunnel, not the traffic.** Linker only gives the edit machine a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/); chats, previews and media go through the tunnel straight to your edit machine. Linker-Edit runs `cloudflared` for it: one on PATH, or a pinned release it downloads once (20 to 55 MB) and checks by hash.
 - **It stays on** across restarts, and is reachable while Linker-Edit runs on the edit machine.
 

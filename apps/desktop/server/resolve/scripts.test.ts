@@ -50,6 +50,17 @@ const refusal = (promise: Promise<unknown>) =>
     (error: unknown) => (error instanceof ResolveError ? `${error.kind}: ${error.message}` : String(error)),
   );
 
+// Blackmagic Cloud's terms (31.5) don't allow scripts to use the service: no script of ours may touch it.
+// The agent's run_script is held to the same rule by server/policy.ts.
+describe("Blackmagic Cloud", () => {
+  it("is never used by a Resolve script", () => {
+    const dir = path.join(import.meta.dirname, "scripts");
+    for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".py"))) {
+      expect(fs.readFileSync(path.join(dir, file), "utf8"), file).not.toMatch(/Cloud\w*Project|CLOUD_/);
+    }
+  });
+});
+
 describe.skipIf(!hasPython)("Resolve scripts", () => {
   it("has a script or a Node handler for every tool", () => {
     for (const tool of RESOLVE_TOOLS) {

@@ -52,7 +52,7 @@ describe("linker MCP server", () => {
     const { request, close } = await linker(() => ({}));
     try {
       const { tools } = (await request("tools/list")) as { tools: { name: string; annotations: { readOnlyHint: boolean }; _meta?: Record<string, unknown> }[] };
-      expect(tools.map((tool) => tool.name)).toEqual([...RESOLVE_TOOLS.map((tool) => tool.name), "transcribe", "library_search", "library_import"]);
+      expect(tools.map((tool) => tool.name)).toEqual([...RESOLVE_TOOLS.map((tool) => tool.name), "transcribe", "library_search", "library_import", "study_media", "compare_cut", "save_brief", "add_lesson", "save_example"]);
       expect(tools.find((tool) => tool.name === "library_search")!.annotations.readOnlyHint).toBe(true);
       expect(tools.find((tool) => tool.name === "library_import")!.annotations.readOnlyHint).toBe(false);
       expect(tools.find((tool) => tool.name === "view_frames")!.annotations.readOnlyHint).toBe(true);

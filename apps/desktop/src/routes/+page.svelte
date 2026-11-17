@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { CircleAlert, FolderPlus, History, Library, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
+  import { CircleAlert, FileText, FolderPlus, History, Library, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
   import type { ChatItem, HistoryEntry, Provider } from "#shared/protocol.ts";
   import AddProjectDialog from "#lib/components/AddProjectDialog.svelte";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
   import Composer from "#lib/components/Composer.svelte";
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
+  import ProjectFilePanel from "#lib/components/ProjectFilePanel.svelte";
   import LibraryPage from "#lib/components/LibraryPage.svelte";
   import PreviewPanel from "#lib/components/PreviewPanel.svelte";
   import ProjectSettingsDialog from "#lib/components/ProjectSettingsDialog.svelte";
   import SettingsPage from "#lib/components/SettingsPage.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
+  import ThreadStarter from "#lib/components/ThreadStarter.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
   import { compactSuggested } from "#lib/context.ts";
@@ -96,7 +98,7 @@
   let scroller: HTMLElement | undefined = $state();
   let stickToBottom = true;
   // One side panel at a time, opened from the header like T3 Code's diff panel.
-  let panel = $state<"preview" | "history" | null>(null);
+  let panel = $state<"preview" | "history" | "file" | null>(null);
   const historyOpen = $derived(panel === "history");
 
   const app = $derived(server.state);
@@ -128,6 +130,33 @@
   });
 
   const chatTitle = $derived(thread?.title ?? "New thread");
+
+  // The workspace or series the open project is in, or sets up.
+  const collection = $derived(
+    project ? (app?.collections.find((candidate) => candidate.projectIds.includes(project.id) || candidate.setupProjectId === project.id) ?? null) : null,
+  );
+  const startBlocked = $derived(
+    !server.connected ? "Not connected." : app?.busy ? "Wait for the agent to finish." : (app?.blocked?.message ?? (rendering ? "Wait for the render." : null)),
+  );
+
+  /** The first message of a setup thread, or of a video the agent edits on its own, from the folders picked. */
+  function start(lines: string[], notes: string) {
+    server.send({ type: "send", text: [...lines, ...(notes ? ["", notes] : [])].join("\n") });
+    stickToBottom = true;
+  }
+
+  /** Feedback on the preview starts with where in the video it is about. */
+  function commentAt(place: string) {
+    setDraft(`${draft.trim() ? `${draft.trimEnd()}\n` : ""}${place}: `);
+    composer?.focus();
+  }
+
+  // The side panels show a Resolve project's timelines; a setup thread has none.
+  const PANELS = [
+    { name: "preview", label: "Preview", Icon: MonitorPlay },
+    { name: "history", label: "History", Icon: History },
+    { name: "file", label: "Project file", Icon: FileText },
+  ] as const;
 
   // ToolSearch is the agent loading tool schemas: plumbing, not work the user cares about.
   const HIDDEN_TOOLS = new Set(["ToolSearch"]);
@@ -166,6 +195,13 @@
     if (historyOpen && server.connected && app?.projectId) server.send({ type: "load_history" });
   });
 
+  $effect(() => {
+    // While open, the server pushes it again after each turn and each save.
+    if (panel === "file" && server.connected && app?.projectId) server.send({ type: "load_project_file" });
+  });
+
+  const projectFile = $derived(server.projectFile && server.projectFile.projectId === app?.projectId ? server.projectFile : null);
+
   const historyEntries = $derived(server.history && server.history.projectId === app?.projectId ? server.history.entries : null);
 
   function restore(entry: HistoryEntry) {
@@ -175,7 +211,7 @@
     composer?.focus();
   }
 
-  function togglePanel(name: "preview" | "history") {
+  function togglePanel(name: "preview" | "history" | "file") {
     panel = panel === name ? null : name;
   }
 
@@ -247,7 +283,11 @@
     section={settings}
     onSection={showSection}
     onLibrary={() => openLibrary()}
-    send={(message) => server.send(message)}
+    send={(message) => {
+      server.send(message);
+      // Its setup thread opens behind the settings page.
+      if (message.type === "setup_collection") closeSettings();
+    }}
     onClose={closeSettings}
   />
 {:else if library}
@@ -319,7 +359,7 @@
             <Library class="size-3.5" />
             Library
           </button>
-          {#each [{ name: "preview", label: "Preview", Icon: MonitorPlay }, { name: "history", label: "History", Icon: History }] as const as toggle (toggle.name)}
+          {#each project?.setup ? [] : PANELS as toggle (toggle.name)}
             <button
               type="button"
               class="flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors {panel === toggle.name
@@ -366,7 +406,43 @@
       {:else}
         <div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller} onscroll={onScroll}>
           <div class="mx-auto flex min-h-full w-full max-w-[46rem] flex-col gap-4 px-5 py-6">
-            {#if app.items.length === 0}
+            {#if app.items.length === 0 && project?.setup && collection}
+              <ThreadStarter
+                title="Teach Linker-Edit how {collection.name} is edited"
+                intro="Point at videos you've finished. The agent studies them, asks what it can't see, and proposes the rules for you to accept. It doesn't touch Resolve."
+                fields={[
+                  { key: "finished", label: "Finished videos", hint: "A folder of videos as they were published.", required: true },
+                  { key: "raw", label: "Raw footage", hint: "What some of them were cut from. It shows what an editor leaves out.", required: false },
+                  { key: "assets", label: "Brand assets", hint: "Logo, intro, music, LUTs.", required: false },
+                ]}
+                notesPlaceholder="Which videos belong to which format, who watches them, where they're published…"
+                button="Start"
+                disabled={startBlocked}
+                browseFolders={(path) => server.browseFolders(path)}
+                onStart={(folders, notes) =>
+                  start(
+                    [
+                      `Set up the brief for ${collection.name}.`,
+                      "",
+                      `Finished videos: ${folders.finished}`,
+                      `Raw footage: ${folders.raw || "none"}`,
+                      `Brand assets: ${folders.assets || "none"}`,
+                    ],
+                    notes,
+                  )}
+              />
+            {:else if app.items.length === 0 && collection?.autonomous}
+              <ThreadStarter
+                title="New video"
+                intro="{collection.name} works on its own: give it the footage and it makes the first cut, then tells you what it decided. You give feedback on the video."
+                fields={[{ key: "footage", label: "Footage", hint: "The folder with this video's footage.", required: true }]}
+                notesPlaceholder="The second interview is the important one."
+                button="Make the first cut"
+                disabled={startBlocked}
+                browseFolders={(path) => server.browseFolders(path)}
+                onStart={(folders, notes) => start(["Make the first cut of this video on your own.", "", `Footage: ${folders.footage}`], notes)}
+              />
+            {:else if app.items.length === 0}
               <div class="my-auto flex flex-col items-center gap-5 py-10 text-center">
                 <h2 class="text-2xl font-semibold tracking-tight">What are we editing?</h2>
                 <div class="flex max-w-xl flex-wrap justify-center gap-2">
@@ -459,7 +535,7 @@
       {/if}
     </main>
 
-    {#if panel === "history"}
+    {#if panel === "history" && !project?.setup}
       <HistoryPanel
         entries={historyEntries}
         threadId={app.threadId}
@@ -467,7 +543,15 @@
         onRestore={restore}
         onPreview={(id, commit) => openPreview({ id, commit })}
       />
-    {:else if panel === "preview"}
+    {:else if panel === "file" && !project?.setup}
+      {#key app.projectId}
+        <ProjectFilePanel
+          file={projectFile}
+          onSave={(text) => app?.projectId && server.send({ type: "save_project_file", projectId: app.projectId, text })}
+          onClose={() => (panel = null)}
+        />
+      {/key}
+    {:else if panel === "preview" && !project?.setup}
       <PreviewPanel
         projectId={app.projectId}
         preview={app.preview}
@@ -477,6 +561,7 @@
         onTarget={(target) => openPreview(target)}
         onRender={(timelineId) => server.send({ type: "render_preview", timelineId })}
         onApply={(timelineId) => app?.projectId && server.send({ type: "apply_timeline", projectId: app.projectId, timelineId })}
+        onComment={commentAt}
         onStop={() => server.send({ type: "stop_preview" })}
         onClose={() => (panel = null)}
       />
@@ -497,7 +582,6 @@
       project={settingsProject}
       collections={app.collections}
       relinkTo={app.resolve.state === "connected" && !app.projects.some((candidate) => candidate.open) ? app.resolve.project : null}
-      browseFolders={(path) => server.browseFolders(path)}
       onSave={(changes) => server.send({ type: "update_project", projectId: settingsProject.id, ...changes })}
       onMove={(collectionId) => server.send({ type: "move_project", projectId: settingsProject.id, collectionId })}
       onRelink={() => server.send({ type: "relink_project", projectId: settingsProject.id })}

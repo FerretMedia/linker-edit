@@ -16,7 +16,7 @@ export interface ResolveProjects {
   open(link: ResolveLink, local: LocalLink): Promise<OpenedProject>;
 }
 
-/** How long opening may take: a cloud project can download first. */
+/** How long opening may take: a big project can take minutes to load. */
 const OPEN_TIMEOUT_MS = 5 * 60_000;
 
 export function createResolveProjects(connection: ResolveConnection, pollMs = 3000): ResolveProjects {
@@ -32,8 +32,6 @@ export function createResolveProjects(connection: ResolveConnection, pollMs = 30
             projectId: link.projectId,
             database: local.database ?? null,
             folder: local.folder ?? [],
-            mediaPath: local.mediaPath ?? null,
-            syncMode: local.syncMode ?? null,
           },
           60,
         );

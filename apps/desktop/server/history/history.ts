@@ -5,6 +5,7 @@ import * as path from "node:path";
 import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
 import { isResolveWrite } from "../policy.ts";
 import { PROJECT_FILE } from "../projects/store.ts";
+import { PROJECT_NOTES_FILE } from "../rules.ts";
 import type { ResolveConnection } from "../resolve/connection.ts";
 import { describeChanges, timelineStrips } from "./diff.ts";
 import { mediaType, playableTimeline } from "./playable.ts";
@@ -464,12 +465,29 @@ export function createHistory(options: {
       .join("\n");
   }
 
-  async function commitProjectFile(message: string) {
+  /** Commits one file of the project's folder when it changed; as the agent when given. */
+  async function commitFile(file: string, message: string, provider?: Provider) {
     const fallbackIdentity = await prepare();
-    if (!fs.existsSync(path.join(dir, PROJECT_FILE))) return;
-    await gitOk(dir, ["add", "--", PROJECT_FILE]);
-    if ((await git(dir, ["diff", "--cached", "--quiet", "--", PROJECT_FILE])).code === 0) return;
-    await gitOk(dir, [...fallbackIdentity, "commit", "-q", "--no-verify", "-F", "-", "--", PROJECT_FILE], `${message}\n`);
+    if (!fs.existsSync(path.join(dir, file))) return;
+    await gitOk(dir, ["add", "--", file]);
+    if ((await git(dir, ["diff", "--cached", "--quiet", "--", file])).code === 0) return;
+    const author = provider ? [`--author=${AGENT_NAMES[provider]} <${provider}@linker-edit.local>`] : [];
+    await gitOk(dir, [...fallbackIdentity, "commit", "-q", "--no-verify", ...author, "-F", "-", "--", file], `${message}\n`);
+  }
+
+  const commitProjectFile = (message: string) => commitFile(PROJECT_FILE, message);
+
+  /**
+   * A save of Resolve, then the project's own file when it changed. Also when the save fails, so the file
+   * isn't lost with it. Without a turn it may be the user's edit, or an agent's from a turn that left Resolve alone.
+   */
+  async function saveWithNotes(turn?: AgentTurn): Promise<Saved | null> {
+    try {
+      return await save(turn);
+    } finally {
+      const message = turn ? `Update ${PROJECT_NOTES_FILE}: ${subjectOf(turn.prompt)}` : `Update ${PROJECT_NOTES_FILE}`;
+      await commitFile(PROJECT_NOTES_FILE, message, turn?.provider).catch((error: unknown) => console.error(`Couldn't save ${PROJECT_NOTES_FILE} to the edit history`, error));
+    }
   }
 
   return {
@@ -479,7 +497,7 @@ export function createHistory(options: {
       return result;
     },
     record(turn) {
-      const result = queue.then(() => save(turn));
+      const result = queue.then(() => saveWithNotes(turn));
       queue = result.catch(() => {});
       return result;
     },

@@ -4,7 +4,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
+import { BRIEF_TOOLS, isBriefTool } from "../collections/tools.ts";
 import { isLibraryTool, LIBRARY_TOOLS } from "../library/tools.ts";
+import { isStudyTool, STUDY_TOOLS } from "../study/study.ts";
 import { CORE_TOOLS, RESOLVE_TOOLS } from "../resolve/tools.ts";
 import { postApi } from "./api.ts";
 
@@ -37,6 +39,8 @@ const TOOLS = [
   })),
   TRANSCRIBE,
   ...LIBRARY_TOOLS,
+  ...STUDY_TOOLS,
+  ...BRIEF_TOOLS,
 ];
 
 const MIME: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
@@ -75,6 +79,8 @@ async function callTool(name: unknown, args: Record<string, unknown>): Promise<R
   }
   if (RESOLVE_TOOLS.some((tool) => tool.name === name)) return post("/api/resolve-tool", { tool: name, input: args });
   if (typeof name === "string" && isLibraryTool(name)) return post("/api/library-tool", { tool: name, input: args });
+  if (typeof name === "string" && isStudyTool(name)) return post("/api/study-tool", { tool: name, input: args });
+  if (typeof name === "string" && isBriefTool(name)) return post("/api/brief-tool", { tool: name, input: args });
   return { text: `Unknown tool ${String(name)}.`, isError: true };
 }
 

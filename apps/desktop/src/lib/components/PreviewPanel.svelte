@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Check, Clapperboard, CircleAlert, History, LoaderCircle, MonitorPlay, RefreshCw, Scissors, X } from "@lucide/svelte";
+  import { Check, Clapperboard, CircleAlert, History, LoaderCircle, MessageSquarePlus, MonitorPlay, RefreshCw, Scissors, X } from "@lucide/svelte";
   import type { PlayableTimeline, PreviewState, ResolveStatus } from "#shared/protocol.ts";
   import PlayerControls from "#lib/components/PlayerControls.svelte";
   import TimelinePlayer from "#lib/components/TimelinePlayer.svelte";
@@ -15,9 +15,12 @@
     onTarget,
     onRender,
     onApply,
+    onComment,
     onStop,
     onClose,
   }: {
+    /** Starts a message about this moment of the video, as "At 0:14 in "AI - Cut"". */
+    onComment: (place: string) => void;
     /** The project whose edit history earlier versions come from. */
     projectId: string | null;
     target: PreviewTarget;
@@ -121,6 +124,15 @@
   function togglePlay() {
     if (!playing && time >= duration - 0.01) time = 0;
     playing = !playing;
+  }
+
+  /** Where the playhead is, as feedback names it: the time, and the frame for the agent's tools. */
+  function comment() {
+    if (!timeline) return;
+    playing = false;
+    const whole = Math.floor(time);
+    const clock = `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+    onComment(`At ${clock} (frame ${Math.round(time * timeline.fps)}) in "${timeline.name}"`);
   }
 
   function toggleFullscreen() {
@@ -329,6 +341,18 @@
         onToggleFullscreen={toggleFullscreen}
       />
     </div>
+
+    {#if timeline && !target.commit}
+      <button
+        type="button"
+        class="flex h-8 items-center justify-center gap-1.5 rounded-lg border bg-card text-xs font-medium transition-colors hover:bg-accent"
+        title="Starts a message about this moment, so the agent knows where you mean"
+        onclick={comment}
+      >
+        <MessageSquarePlus class="size-3.5" />
+        Give feedback at this moment
+      </button>
+    {/if}
 
     {#if source === "render" && rendered?.outdated}
       <p class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">

@@ -1,13 +1,15 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ConnectDevice } from "../../shared/protocol.ts";
+import type { ConnectDevice, ConnectDeviceKind } from "../../shared/protocol.ts";
 
 /**
  * The devices that opened this computer through Linker Connect. Getting in has two steps, so the session
  * itself never travels in an address:
- * 1. Your other Linker-Edit proves it's your Linker account and gets a one-time code (60 seconds).
- * 2. Its window opens /api/connect/enter?code=…, which swaps the code for a session cookie.
+ * 1. Your other Linker-Edit, or the iPad app, proves it's your Linker account and gets a one-time code (60 seconds).
+ * 2. Linker-Edit's window opens /api/connect/enter?code=…, which swaps the code for a session cookie; the iPad app
+ *    posts the code to /api/connect/native for a session it sends as a Bearer token.
+ * A session only works the way it was given out: a cookie's is never taken as a Bearer token, or the other way.
  * Only hashes of codes and sessions are kept, in memory and in the file.
  */
 
@@ -23,10 +25,14 @@ interface Saved {
   createdAt: number;
   lastSeenAt: number;
   expiresAt: number;
+  /** Missing in sessions from before the iPad app, which were all cookies. */
+  kind?: ConnectDeviceKind;
 }
 
 const hash = (secret: string) => createHash("sha256").update(secret).digest("hex");
 const secret = () => randomBytes(32).toString("base64url");
+/** Compares two hashes in a time that doesn't tell how much of them matched. */
+const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 export type Sessions = ReturnType<typeof createSessions>;
 
@@ -72,26 +78,28 @@ export function createSessions(options: { file: string; now?: () => number }) {
       return code;
     },
 
-    /** Step 2: swaps a code for a session; null when it's wrong, used or too old. */
-    enter(code: string): { token: string; maxAgeSeconds: number } | null {
+    /** Step 2: swaps a code for a session of that kind; null when the code is wrong, used or too old. */
+    enter(code: string, kind: ConnectDeviceKind = "cookie"): { token: string; maxAgeSeconds: number; expiresAt: number } | null {
       const key = hash(code);
-      const pending = codes.get(key);
-      codes.delete(key);
+      const found = [...codes.keys()].find((entry) => same(entry, key));
+      const pending = found === undefined ? undefined : codes.get(found);
+      if (found !== undefined) codes.delete(found);
       if (!pending || pending.expiresAt <= now()) return null;
       const token = secret();
       const at = now();
-      sessions.push({ id: randomUUID(), hash: hash(token), name: pending.name, createdAt: at, lastSeenAt: at, expiresAt: at + SESSION_LIFETIME });
+      const expiresAt = at + SESSION_LIFETIME;
+      sessions.push({ id: randomUUID(), hash: hash(token), name: pending.name, createdAt: at, lastSeenAt: at, expiresAt, kind });
       write();
       changed();
-      return { token, maxAgeSeconds: SESSION_LIFETIME / 1000 };
+      return { token, maxAgeSeconds: SESSION_LIFETIME / 1000, expiresAt };
     },
 
-    /** The session id a cookie's token belongs to, or null. */
-    check(token: string | null): string | null {
+    /** The session id a token belongs to, or null; only a session given out as kind counts. */
+    check(token: string | null, kind: ConnectDeviceKind = "cookie"): string | null {
       if (!token) return null;
       const key = hash(token);
-      const session = sessions.find((entry) => entry.hash === key);
-      if (!session) return null;
+      const session = sessions.find((entry) => same(entry.hash, key));
+      if (!session || (session.kind ?? "cookie") !== kind) return null;
       if (session.expiresAt <= now()) {
         drop([session.id]);
         return null;
@@ -109,6 +117,7 @@ export function createSessions(options: { file: string; now?: () => number }) {
         .map((entry) => ({
           id: entry.id,
           name: entry.name,
+          kind: entry.kind ?? "cookie",
           createdAt: new Date(entry.createdAt).toISOString(),
           lastSeenAt: new Date(entry.lastSeenAt).toISOString(),
         }));

@@ -2,7 +2,7 @@
 
 **Goal:** sign in with your Linker account and reach your own edit computers from any of your other computers, without setting up Tailscale. **Each Linker account links up to 3 edit computers** (the hosts), like T3 Connect's 3 machines. The computers you only drive them from don't count.
 
-**Status (2026-11-16):** being built. The Linker side is in a FerretMedia/Linker PR and this side is in `feat/sync`.
+**Status (2026-11-17):** the host side is merged (`feat/sync`) and the relay is in FerretMedia/Linker#219. The native iPad app's way in is built on the host side (`feat/connect-native`); what Linker must add for it is under "Native clients".
 
 ## How T3 Code does it
 
@@ -58,6 +58,71 @@ Unlike T3's relay handshake, the Linker token here goes to your own computer, wh
 - **Settings → Linker Connect** lists the devices with a session, and you can sign any of them out.
 - **Turning Linker Connect off, or signing out of Linker** on the edit computer, ends every session.
 - **Tailscale stays** as a second route.
+
+## Native clients
+
+The native iPad app (`apps/ipad`) reaches your edit computers the same way, without Tailscale. It has no window to hold a cookie, so the host gives it a session it sends as a Bearer token instead. Plain browsers are not supported: a hosted browser sign-in was started and dropped (it needs a confidential OAuth client and new pages on Linker, and a host that bounces Clerk codes is a risk, see below).
+
+### The flow
+
+```
+iPad ─ ASWebAuthenticationSession: Clerk /oauth/authorize (PKCE S256), redirect linkeredit://oauth/callback
+     ◀ code → POST Clerk /oauth/token (code + verifier, no secret) → Linker access token (+ refresh token)
+iPad ─ GET https://app.linker.cool/api/edit/computers   Authorization: Bearer <Linker token> ─▶ Linker
+     ◀ { limit, computers: [{ id, name, url, online, linkedAt, lastSeenAt }] }
+iPad ─ POST https://edit-x.linker.cool/api/connect/session   Bearer <Linker token>  { "name": "Jane's iPad" } ─▶ host
+host:  userinfo(token).sub is the account that linked it and the one signed in here? no → 403
+     ◀ { code }   one-time, 60 s, only on this host
+iPad ─ POST https://edit-x.linker.cool/api/connect/native   { "code": "<code>" } ─▶ host
+     ◀ { session, expiresAt }   random, 30 days; the host keeps only its SHA-256
+iPad ─ every request and the /ws upgrade: Authorization: Bearer <session>
+```
+
+### The host's side (built, `apps/desktop/server`)
+
+- **`POST /api/connect/native`**, through the tunnel only, takes JSON `{ "code" }` and answers `200 { "session": "<43 base64url chars>", "expiresAt": "<ISO 8601>" }` with `cache-control: no-store`. A wrong, used or older-than-60-s code is `401`; Linker Connect off is `503`; more than 20 tries a minute is `429`; a body that isn't JSON is `400`; any method but POST is `405`. Every refusal is `{ "error": "<words for the user>" }`.
+- **Every route and `/ws` take `Authorization: Bearer <session>`** on requests through the tunnel (those with `CF-Connecting-IP`): the app, `/api/*`, and the media routes `/preview/*`, `/media/*`, `/library/*` and `/api/timeline`, Range requests included, so AVPlayer can send the header. `/ws` takes a Bearer session with no `Origin` (native apps send none) or this computer's own; a cookie still needs this computer's own `Origin`.
+- **A refused Bearer request is `401`** with `www-authenticate: Bearer error="invalid_token"` and a JSON `{ error }`. The iPad app then signs in again: a new code, a new session.
+- **A session works only the way it was given out.** A cookie's token is never taken as a Bearer token, nor a Bearer session as a cookie; a Bearer header that isn't a session doesn't fall back to a cookie sent with it.
+- **Exactly as strong as the cookie.** Same 30 days from sign-in (not extended by use), same owner check before the code, and the same ways out: *Sign out* in Settings → Remote access → Signed-in devices (it shows *Native app*, when it signed in and when it was last used), turning Linker Connect off, signing out of Linker on the host, unlinking it, or another Linker account linking it. Signing out closes its open `/ws` at once.
+- **Only through the tunnel.** A Bearer header changes nothing for this computer itself or for Tailscale.
+- **Secrets stay out of logs and addresses.** The code and the session only travel in bodies and headers; codes and sessions are compared by SHA-256 in constant time.
+
+### What the iPad app must do
+
+- Sign in with the Clerk OAuth app below: `ASWebAuthenticationSession`, `callbackURLScheme: "linkeredit"`, PKCE S256, a random `state` checked on return. Discovery: `https://clerk.linker.cool/.well-known/openid-configuration` (`authorization_endpoint`, `token_endpoint`). Keep the tokens in the Keychain.
+- List computers at **`https://app.linker.cool/api/edit/computers`** (Linker's API lives on `app.`, not on `linker.cool`).
+- **Send the Linker token only to a computer from that list,** whose `url` matches `^https://edit-[0-9a-f]{16}\.linker\.cool$` (staging: `edit-staging-`). Any Linker user can link a computer, so an address from anywhere else may be someone else's, and the Linker token is good for the whole account.
+- Send a `name` to `/api/connect/session` (at most 64 characters, such as the device name); it's what Settings shows. Without one it shows "Another computer".
+- Keep one session per computer (by `id`), in the Keychain. On `401` from any route or a refused `/ws` upgrade, drop it and sign in to that computer again. Don't wait for `expiresAt`; a session can end sooner.
+
+### Linker's part (FerretMedia/Linker, `apps/app`)
+
+**1. A Clerk OAuth application for the iPad app** (Clerk dashboard → Configure → OAuth applications), one per instance (production `clerk.linker.cool`, and staging):
+
+| Setting | Value |
+|---|---|
+| Name | `Linker-Edit for iPad`, shown on the consent screen |
+| Public client | **On**: no client secret, the app can't keep one. PKCE (S256) is required. |
+| Redirect URI | exactly `linkeredit://oauth/callback`. No others, no wildcards. |
+| Scopes | `openid profile email offline_access`, as the desktop app asks: `openid` for `sub` (what the host checks), `profile email` to show who's signed in, `offline_access` for a refresh token so the iPad doesn't sign in again every time the access token runs out. |
+| Consent screen | On or off; it's Linker's own app. |
+
+Its client id goes into the iPad app's build settings (it's public). If Clerk refuses a custom-scheme redirect URI, the fallback is a universal link, `https://app.linker.cool/oauth/ipad/callback`, with `/.well-known/apple-app-site-association` on `app.linker.cool` naming the app, and `ASWebAuthenticationSession`'s `.https(host:path:)` callback (iOS 17.4+). Check this first.
+
+**2. Let that client list computers, and only list them.** `EditComputers.ownerOf` checks `EDIT_CONNECT_CLIENT_IDS` for every route. Add a second list, `EDIT_CONNECT_VIEW_CLIENT_IDS`, for clients that may only `GET /api/edit/computers`: the iPad's client id goes there, never in `EDIT_CONNECT_CLIENT_IDS`, so a token from it can't link or unlink computers (`PUT`/`DELETE` answer 401 `unauthorized`). While `EDIT_CONNECT_CLIENT_IDS` is unset any token may do everything, as today; set both lists when the desktop's OAuth app exists. Tests: the iPad's client id lists; it gets 401 on `PUT` and `DELETE`; an unknown client id gets 401 on all three once the lists are set.
+
+**3. What `GET /api/edit/computers` must answer** (it already does, keep it): `200 { "limit": 3, "computers": [ { "id", "name", "url", "online", "linkedAt", "lastSeenAt" } ] }`, the person's own computers only, `url` the full `https://edit-<16 hex>.linker.cool` with no path, `online` `true`/`false`/`null`, `cache-control: no-store`; `401 { "error": "unauthorized" }` for a missing or refused token, which the iPad takes as "sign in to Linker again"; `503 { "error": "unavailable" }` while Linker Connect isn't set up. No CORS is needed: a native app isn't a page.
+
+**4. Keep the AI connector out of it.** `modules/connector` takes any Clerk OAuth token. Refuse the iPad's client id there (the same check by `clientId` the edit routes use), so its token only lists computers and proves who you are to your own computers.
+
+Nothing else changes on Linker: the code and the session are made and checked on the host, and Linker never sees them.
+
+**Why not let the host do the OAuth itself** (with a fixed Linker redirect that bounces the code back to the host): the token would reach whichever host started the sign-in before anyone checks the computer is yours. Any Linker user can link a computer, run a modified Linker-Edit and send you its address. The iPad app signs in with Clerk itself and only shows its token to computers on its own list.
+
+### Not tested yet
+
+Nothing here has run against real Clerk or a real tunnel: the OAuth app doesn't exist, Linker's sign-in doesn't work in production yet (below), and #219 isn't deployed. The host's side is covered by unit tests with a stand-in for Linker.
 
 ## Prerequisites before it works for real
 

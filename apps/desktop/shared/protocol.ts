@@ -64,16 +64,11 @@ export interface ResolveLink {
   projectId: string | null;
 }
 
-export type CloudSyncMode = "none" | "proxy_only" | "proxy_and_orig";
-
 /** This machine's side of a link: where to find the project, never committed. */
 export interface LocalLink {
   database?: ResolveDatabase;
   /** Project Manager folders down to the project. */
   folder?: string[];
-  /** Where a cloud project's media goes on this machine. Resolve needs one to open it. */
-  mediaPath?: string;
-  syncMode?: CloudSyncMode;
 }
 
 export interface ThreadSummary extends ThreadSidebarState {
@@ -99,6 +94,11 @@ export interface ProjectSummary extends ProjectSidebarState {
   open: boolean;
   /** Newest first, archived ones included. */
   threads: ThreadSummary[];
+  /**
+   * A workspace's or series' setup threads: the agent studies example videos and writes the brief here. It has no
+   * Resolve project and never gets one.
+   */
+  setup: boolean;
 }
 
 /** A project in the Resolve database that is open now, for adding it to Linker-Edit. */
@@ -117,7 +117,8 @@ export interface ResolveLibrary {
 export type ProjectSource =
   | { kind: "open" }
   | { kind: "library"; name: string; folder: string[]; database: ResolveDatabase | null }
-  | { kind: "cloud"; name: string; mediaPath: string; syncMode: CloudSyncMode }
+  /** A Blackmagic Cloud project by name. Linker-Edit never opens it: you open it in Resolve yourself. */
+  | { kind: "cloud"; name: string }
   /** A working folder that already has a linker-edit.json, such as a teammate's cloned history. */
   | { kind: "folder"; dir: string };
 
@@ -313,10 +314,17 @@ export interface LinkedComputer {
   lastSeenAt: string | null;
 }
 
+/**
+ * How a Linker Connect device stays signed in: Linker-Edit's window with a cookie, or a native app (the iPad app)
+ * with a Bearer token.
+ */
+export type ConnectDeviceKind = "cookie" | "native";
+
 /** A device that opened this computer through Linker Connect, and can be signed out. */
 export interface ConnectDevice {
   id: string;
   name: string;
+  kind: ConnectDeviceKind;
   createdAt: string;
   lastSeenAt: string;
 }
@@ -476,6 +484,9 @@ export type ClientMessage =
   /** Whether this computer has Resolve (or will); see AppMeta.resolveHere. */
   | { type: "set_resolve_here"; resolveHere: boolean }
   | { type: "load_history" }
+  /** PROJECT.md of the project in view: what the video is, kept by the agent and edited here by the user. */
+  | { type: "load_project_file" }
+  | { type: "save_project_file"; projectId: string; text: string }
   /** Without a timeline id, renders Resolve's current timeline. */
   | { type: "render_preview"; timelineId?: string }
   /** The user is happy with an AI timeline: it takes the main timeline's place, which is kept renamed. */
@@ -487,7 +498,7 @@ export type ClientMessage =
   | { type: "archive_thread"; threadId: string; archived: boolean }
   | { type: "delete_thread"; threadId: string }
   | { type: "add_project"; source: ProjectSource }
-  | ({ type: "update_project"; projectId: string; name?: string; mediaPath?: string; syncMode?: CloudSyncMode } & ProjectSidebarChanges)
+  | ({ type: "update_project"; projectId: string; name?: string } & ProjectSidebarChanges)
   /** Links the project to the one open in Resolve now. */
   | { type: "relink_project"; projectId: string }
   /** Takes the project out of Linker-Edit. Its folder and its Resolve project stay. */
@@ -538,6 +549,8 @@ export type ServerMessage =
   | { type: "meta"; meta: AppMeta }
   | { type: "item"; threadId: string; item: ChatItem }
   | { type: "history"; projectId: string; entries: HistoryEntry[] }
+  /** A project's PROJECT.md: on request, after a save, and after each turn in the project. file is its path. */
+  | { type: "project_file"; projectId: string; file: string; text: string }
   | { type: "library"; library: ResolveLibrary | { error: string } }
   | { type: "folders"; requestId: number; listing: FolderListing | { error: string } }
   /** The message wasn't sent; it goes back in the composer. */
@@ -669,12 +682,48 @@ export interface CollectionSummary {
   rulesFile: string;
   /** Projects directly in it, not those in its series. */
   projectIds: string[];
+  /** Its projects' agent makes the first cut without asking, and says afterwards what it decided. */
+  autonomous: boolean;
+  /** What feedback taught the agent, oldest first. Each was accepted by the user. */
+  lessons: Lesson[];
+  /** The agent's notes on example videos it studied, kept as files next to the rules. */
+  examples: { name: string; file: string }[];
+  /** The project that holds its setup threads; null until "Set up with AI" was used. */
+  setupProjectId: string | null;
+  /** Approved edits of its projects, newest first, to see whether the brief works. */
+  edits: ApprovedEdit[];
+}
+
+/** A rule the agent learned from the user's feedback, kept with the words it came from so a wrong one is easy to spot. */
+export interface Lesson {
+  id: string;
+  rule: string;
+  /** What the user said, quoted. */
+  feedback: string;
+  /** ISO 8601. */
+  addedAt: string;
+  /** The project it was learned in. */
+  project: string | null;
+}
+
+/** An AI timeline the user made the main one. */
+export interface ApprovedEdit {
+  /** ISO 8601. */
+  at: string;
+  project: string;
+  /** Messages with feedback the user sent before approving; 0 when the first cut was right. */
+  rounds: number;
 }
 
 export type CollectionMessage =
   /** A series may go in a workspace; a workspace goes in nothing. */
   | { type: "create_collection"; kind: CollectionKind; name: string; parentId?: string | null; icon?: CollectionIcon }
-  | { type: "update_collection"; id: string; name?: string; icon?: CollectionIcon; rules?: string; parentId?: string | null }
+  | { type: "update_collection"; id: string; name?: string; icon?: CollectionIcon; rules?: string; parentId?: string | null; autonomous?: boolean }
+  /** Forgets a lesson or the notes on an example. */
+  | { type: "remove_lesson"; id: string; lessonId: string }
+  | { type: "remove_example"; id: string; name: string }
+  /** Opens its setup thread, where the agent studies example videos and writes the brief; made on first use. */
+  | { type: "setup_collection"; id: string }
   /** Refused while projects or series are in it. */
   | { type: "delete_collection"; id: string }
   /** Puts a project in a workspace or series, or in none. */
