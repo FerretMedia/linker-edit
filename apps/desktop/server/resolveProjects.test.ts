@@ -165,15 +165,17 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     expect(calls()).toEqual([]);
   });
 
-  it("opens a cloud project with this computer's media folder, and says what's missing", async () => {
-    const { projects, calls } = fakeResolve({ cloud: { "Client X": "cx-id" } });
+  it("never opens a Blackmagic Cloud project itself, only finds it once you've opened it in Resolve", async () => {
     const link = { kind: "cloud", name: "Client X", projectId: null } as const;
-    await expect(projects.open(link, {})).rejects.toThrow("needs a media folder");
-    expect((await projects.open(link, { mediaPath: "D:\\Cloud", syncMode: "proxy_and_orig" })).project).toEqual({ name: "Client X", id: "cx-id" });
-    expect(calls()).toEqual([
-      ["SaveProject", "Promo"],
-      ["LoadCloudProject", { name: "Client X", media: "D:\\Cloud", sync: 2 }],
-    ]);
+    const elsewhere = fakeResolve({ cloud: { "Client X": "cx-id" } });
+    await expect(elsewhere.projects.open(link, {})).rejects.toThrow("Open \"Client X\" yourself in Resolve's Project Manager");
+    await expect(elsewhere.projects.open({ ...link, projectId: "cx-id" }, {})).rejects.toThrow("terms don't allow scripts");
+    expect(elsewhere.calls()).toEqual([]);
+
+    const open = fakeResolve({ current: ["Client X", "cx-id"] });
+    expect((await open.projects.open(link, {})).project).toEqual({ name: "Client X", id: "cx-id" });
+    expect((await open.projects.open({ ...link, projectId: "cx-id" }, {})).project).toEqual({ name: "Client X", id: "cx-id" });
+    expect(open.calls()).toEqual([]);
   });
 
   it("says when Resolve can't find the project, back in the project it had open", async () => {
@@ -200,7 +202,7 @@ describe("opening a project that takes longer than a script may run", () => {
         return { project: polls < 3 ? "Promo" : "Client X", projectId: polls < 3 ? "promo-id" : "cx-id", database: null };
       },
     });
-    const opened = await createResolveProjects(connection, 1).open({ kind: "cloud", name: "Client X", projectId: "cx-id" }, { mediaPath: "D:/Cloud" });
+    const opened = await createResolveProjects(connection, 1).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
     expect(opened).toEqual({ project: { name: "Client X", id: "cx-id" }, database: null, folder: null });
     expect(polls).toBe(3);
   });

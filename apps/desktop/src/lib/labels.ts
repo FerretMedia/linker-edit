@@ -1,4 +1,4 @@
-import type { ClipChange, CloudSyncMode, CollectionKind, Provider, ResolveLink } from "#shared/protocol.ts";
+import type { ClipChange, CollectionKind, Provider, ResolveLink } from "#shared/protocol.ts";
 
 // Resolve's own MCP server, and Linker-Edit's, whose tools work in Resolve except the ones named here.
 const RESOLVE_PREFIX = "mcp__resolve__";
@@ -114,13 +114,6 @@ export const LIBRARY_LABEL: Record<ResolveLink["kind"], string> = {
   network: "Network database",
   cloud: "Blackmagic Cloud",
 };
-
-/** How much of a cloud project's media Resolve downloads to this computer. */
-export const SYNC_MODES: { value: CloudSyncMode; label: string }[] = [
-  { value: "proxy_only", label: "Proxies only" },
-  { value: "proxy_and_orig", label: "Proxies and original media" },
-  { value: "none", label: "No media" },
-];
 
 /**
  * What workspaces and series are called, in the app and in the agent's rules. Renaming them is a change here.

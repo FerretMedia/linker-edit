@@ -31,16 +31,12 @@ test("a project folder is picked from the list instead of typed out", async ({ p
   await expect(page.getByRole("navigation").getByText("Promo")).toBeVisible();
 });
 
-test("the cloud media folder only fills in once it's used", async ({ page }) => {
+test("a cloud project is added by name only, and says you open it in Resolve yourself", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Add project" }).click();
   await page.getByRole("tab", { name: "Cloud" }).click();
-  const media = page.getByRole("combobox", { name: "Media folder" });
-  await expect(media).toHaveValue("");
-  await expect(page.getByRole("listbox", { name: "Folders" })).toHaveCount(0);
-  await media.focus();
-  await expect(media).toHaveValue(new RegExp(`^${escape(os.homedir())}`));
-  await expect(page.getByRole("listbox", { name: "Folders" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Media folder" })).toHaveCount(0);
+  await expect(page.getByText("open Blackmagic Cloud projects in Resolve's Project Manager yourself")).toBeVisible();
 });
 
 function escape(value: string) {

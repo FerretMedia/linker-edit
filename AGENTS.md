@@ -62,6 +62,14 @@ An npm workspaces monorepo; run `npm` from the root, which forwards to the app.
    in a worktree; before committing, check `git log -1` and the branch.
 5. **Shipping.** Never run the release workflow, `npm publish`, or push tags.
 
+## Blackmagic Cloud
+
+Its [terms](https://static.cloud.blackmagicdesign.com/html/terms) ban scripts
+using the service (31.5) and reverse engineering it (17.3). Never call
+`*CloudProject` or `CLOUD_*` (`apps/desktop/server/resolve/scripts.test.ts` and
+`policy.ts` guard this), contact its servers, or open or upload cloud projects:
+the user does that in Resolve. .drp/.drt files on disk are fair game.
+
 ## Worktrees
 
 `t3.json` runs `npm ci` when T3 Code creates a worktree; run it yourself in a

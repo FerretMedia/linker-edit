@@ -50,7 +50,7 @@ describe("fileProjectStore", () => {
     const { root, open } = setup();
     const store = open();
     const link = { kind: "cloud" as const, name: 'Client: "X"', projectId: null };
-    const a = store.create({ name: null, link, local: { mediaPath: "D:\\Cloud", syncMode: "proxy_only" } });
+    const a = store.create({ name: null, link, local: { folder: ["Clients"] } });
     const b = store.create({ name: null, link, local: {} });
     expect([a.dir, b.dir]).toEqual([path.join(root, "Client X"), path.join(root, "Client X 2")]);
     expect(JSON.parse(fs.readFileSync(path.join(a.dir, "linker-edit.json"), "utf8"))).toEqual({ version: 1, name: null, resolve: link });

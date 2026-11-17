@@ -170,7 +170,7 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 
 - **Open in Resolve:** the project Resolve has open now.
 - **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
-- **Cloud:** a Blackmagic Cloud project, by its name and a folder for its media on this computer. Resolve can't list cloud projects to other apps, so if it's open in Resolve, use **Open in Resolve** instead.
+- **Cloud:** a Blackmagic Cloud project, by its name. You open it in Resolve's Project Manager yourself, and Linker-Edit picks it up once it's open: [Blackmagic Cloud's terms](https://static.cloud.blackmagicdesign.com/html/terms) don't allow scripts to use the service, so Linker-Edit never opens, creates, uploads or syncs cloud projects. If it's open in Resolve now, use **Open in Resolve** instead.
 - **Folder:** a project folder from another computer, such as a teammate's edit history you cloned.
 
 Folder fields list the folders as you type, like T3 Code's **Add project**. Use ↑/↓ to choose a folder, and Enter or Tab to open it. Enter with no folder chosen picks the path you typed. Project folders are marked **Linker-Edit project**. The folders listed are on the computer running Linker-Edit, even when you use it from another one. In the desktop app on that computer, **Browse…** also opens the system's folder dialog.
