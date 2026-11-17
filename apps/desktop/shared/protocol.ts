@@ -311,10 +311,17 @@ export interface LinkedComputer {
   lastSeenAt: string | null;
 }
 
+/**
+ * How a Linker Connect device stays signed in: Linker-Edit's window with a cookie, or a native app (the iPad app)
+ * with a Bearer token.
+ */
+export type ConnectDeviceKind = "cookie" | "native";
+
 /** A device that opened this computer through Linker Connect, and can be signed out. */
 export interface ConnectDevice {
   id: string;
   name: string;
+  kind: ConnectDeviceKind;
   createdAt: string;
   lastSeenAt: string;
 }

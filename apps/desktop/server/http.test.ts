@@ -217,19 +217,27 @@ describe("Linker Connect", () => {
   let server: http.Server;
   let port: number;
   let on = true;
-  const sessions = createSessions({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-http-connect-")), "sessions.json") });
+  const connectDir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-http-connect-"));
+  const sessions = createSessions({ file: path.join(connectDir, "sessions.json") });
   const opened: string[] = [];
+  fs.writeFileSync(path.join(connectDir, "Song.mp3"), "0123456789");
 
   beforeAll(async () => {
+    const store = memoryLibraryStore([{ id: "lib", kind: "music", label: "Music", path: connectDir, note: "" }]);
     const app = createApp({
       version: "0.0.0",
       store: memoryProjectStore([{ project: { ...workspaceProject, dir: root } }]),
       createSession: () => ({ send: async () => {}, resumeId: () => null }),
       checkResolve: async () => ({ state: "not_running" }),
+      library: createLibrary({ store, cacheDir: path.join(connectDir, ".cache"), probe: async () => ({ duration: null, channels: null, loudness: null }) }),
     });
     const connect: ConnectRoutes = {
       host: () => (on ? TUNNEL : null),
-      admit: async (token) => (token === "jane" ? { code: sessions.issueCode("Laptop") } : { status: 403, error: "Not yours." }),
+      admit: async (token, device) => (token === "jane" ? { code: sessions.issueCode(device) } : { status: 403, error: "Not yours." }),
+      redeem: (code) => {
+        const entered = sessions.enter(code, "native");
+        return entered ? { session: entered.token, expiresAt: new Date(entered.expiresAt).toISOString() } : { status: 401, error: "Ran out." };
+      },
       open: async (url) => {
         opened.push(url);
         return `${url}/api/connect/enter?code=x`;
@@ -309,6 +317,90 @@ describe("Linker Connect", () => {
     sessions.revokeAll();
     await closed;
     expect((await request("GET", "/", { ...viaTunnel, cookie })).status).toBe(401);
+  });
+
+  /** Signs in as the iPad app does; answers its Bearer session. */
+  async function signInNative(): Promise<string> {
+    const admitted = await request("POST", "/api/connect/session", { ...viaTunnel, authorization: "Bearer jane" }, { name: "iPad" });
+    const { code } = JSON.parse(admitted.body) as { code: string };
+    const redeemed = await request("POST", "/api/connect/native", viaTunnel, { code });
+    expect(redeemed.status).toBe(200);
+    expect(redeemed.headers["cache-control"]).toBe("no-store");
+    expect(redeemed.headers["set-cookie"]).toBeUndefined();
+    const body = JSON.parse(redeemed.body) as { session: string; expiresAt: string };
+    expect(Object.keys(body).sort()).toEqual(["expiresAt", "session"]);
+    expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    // The code is spent.
+    expect((await request("POST", "/api/connect/native", viaTunnel, { code })).status).toBe(401);
+    return body.session;
+  }
+
+  /** Opens /ws through the tunnel; answers whether it was let in, and the socket when it was. */
+  async function openSocket(headers: Record<string, string>, origin?: string): Promise<WebSocket | null> {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { ...(origin ? { origin } : {}), headers: { ...viaTunnel, ...headers } });
+    const [event] = await Promise.race([once(socket, "open").then(() => ["open"]), once(socket, "unexpected-response").then(() => ["refused"])]);
+    if (event === "open") return socket;
+    socket.terminate();
+    return null;
+  }
+
+  it("gives the iPad app a Bearer session that opens everything a cookie does", async () => {
+    const session = await signInNative();
+    const bearer = { authorization: `Bearer ${session}` };
+    expect(await request("GET", "/", { ...viaTunnel, ...bearer })).toMatchObject({ status: 200, body: "<html>app</html>" });
+    // AVPlayer sends the header with its Range requests.
+    expect(await request("GET", "/library/lib/Song.mp3", { ...viaTunnel, ...bearer, range: "bytes=2-4" })).toMatchObject({ status: 206, body: "234" });
+    expect(sessions.list()).toContainEqual(expect.objectContaining({ name: "iPad", kind: "native" }));
+
+    // A native app sends no Origin; a page can't add the header to a WebSocket, but if one names another site, no.
+    const socket = await openSocket(bearer);
+    expect(socket).not.toBeNull();
+    const own = await openSocket(bearer, `https://${TUNNEL}`);
+    expect(own).not.toBeNull();
+    own?.terminate();
+    expect(await openSocket(bearer, "https://evil.example")).toBeNull();
+    expect(await openSocket({ authorization: "Bearer guess" })).toBeNull();
+
+    // Signing the iPad out in Settings cuts it off at once.
+    const closed = once(socket!, "close");
+    sessions.revoke(sessions.list().find((device) => device.kind === "native")!.id);
+    await closed;
+    const after = await request("GET", "/", { ...viaTunnel, ...bearer });
+    expect(after.status).toBe(401);
+    expect(after.headers["www-authenticate"]).toContain("Bearer");
+    expect(JSON.parse(after.body)).toEqual({ error: expect.any(String) });
+    expect(await openSocket(bearer)).toBeNull();
+  });
+
+  it("takes a session only the way it was given out", async () => {
+    const session = await signInNative();
+    const cookie = await signIn();
+    expect((await request("GET", "/", { ...viaTunnel, cookie: `linker_edit_session=${session}` })).status).toBe(401);
+    expect((await request("GET", "/", { ...viaTunnel, authorization: `Bearer ${cookie.split("=")[1]}` })).status).toBe(401);
+    // A Bearer header that isn't a session doesn't fall back to the cookie next to it.
+    expect((await request("GET", "/", { ...viaTunnel, cookie, authorization: "Bearer guess" })).status).toBe(401);
+    // Without a session the native route answers nothing else.
+    expect((await request("GET", "/api/connect/native", viaTunnel)).status).toBe(405);
+    expect((await request("POST", "/api/connect/native", viaTunnel, { code: "guess" })).status).toBe(401);
+    expect((await request("POST", "/api/connect/native", viaTunnel, {})).status).toBe(401);
+  });
+
+  it("takes a Bearer session only through the tunnel", async () => {
+    const bearer = { authorization: `Bearer ${await signInNative()}` };
+    // Through Tailscale (off here) or with the tunnel's name but not through Cloudflare, it counts for nothing.
+    const tailscale = { host: "studio.tail1234.ts.net:8443", "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
+    expect((await request("GET", "/", { ...tailscale, ...bearer })).status).toBe(403);
+    expect((await request("GET", "/", { host: TUNNEL, "x-forwarded-for": "203.0.113.9", ...bearer })).status).toBe(403);
+    // This computer itself is let in as before, whatever the header says.
+    expect((await request("GET", "/", { authorization: "Bearer guess" })).status).toBe(200);
+    // And the native route is only for the tunnel.
+    expect((await request("POST", "/api/connect/native", { host: TUNNEL, "x-forwarded-for": "203.0.113.9" }, { code: "x" })).status).toBe(403);
+    on = false;
+    try {
+      expect((await request("GET", "/", { ...viaTunnel, ...bearer })).status).toBe(403);
+    } finally {
+      on = true;
+    }
   });
 
   it("turns the tunnel away while Linker Connect is off", async () => {

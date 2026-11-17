@@ -241,7 +241,7 @@ Open your edit machine from your other computers, from anywhere, with your [Link
 2. On the other computer, run Linker-Edit, sign in with the **same** Linker account, open the computer menu at the top of the sidebar and pick the edit machine.
 
 - **Up to 3 edit computers per Linker account.** The computers you only work from don't count. Unlink one in the same settings to make room.
-- **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
+- **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once; the iPad app, once it's out, shows there as a *Native app*. A sign-in lasts 30 days. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
 - **Linker makes the tunnel, not the traffic.** Linker only gives the edit machine a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/); chats, previews and media go through the tunnel straight to your edit machine. Linker-Edit runs `cloudflared` for it: one on PATH, or a pinned release it downloads once (20 to 55 MB) and checks by hash.
 - **It stays on** across restarts, and is reachable while Linker-Edit runs on the edit machine.
 

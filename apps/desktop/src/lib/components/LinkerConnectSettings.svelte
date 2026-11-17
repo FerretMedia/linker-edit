@@ -137,12 +137,18 @@
     {/if}
   </SettingsGroup>
 
-  <SettingsGroup title="Signed-in devices" description="Computers that opened {computer} through Linker Connect. Signing one out cuts it off at once.">
+  <SettingsGroup
+    title="Signed-in devices"
+    description="Computers and the iPad app that opened {computer} through Linker Connect. Signing one out cuts it off at once."
+  >
     {#if connect.devices.length === 0}
       <SettingsRow label="None" />
     {:else}
       {#each connect.devices as device (device.id)}
-        <SettingsRow label={device.name} description="Signed in {when(device.createdAt)} · last seen {when(device.lastSeenAt)}">
+        <SettingsRow
+          label={device.name}
+          description="{device.kind === 'native' ? 'Native app · ' : ''}Signed in {when(device.createdAt)} · last used {when(device.lastSeenAt)}"
+        >
           <button type="button" class="{button} flex items-center gap-1.5" onclick={() => onSignOutDevice(device.id)}>
             <X class="size-3.5" />
             Sign out

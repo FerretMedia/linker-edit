@@ -13,8 +13,9 @@ import type { Sessions } from "./sessions.ts";
  * other computers reach it from anywhere, without Tailscale. Linker only makes and removes the tunnels
  * (app.linker.cool/api/edit/computers); the traffic goes straight through the tunnel to this computer.
  *
- * Getting in (server/http.ts): your other Linker-Edit shows this computer your Linker token, this computer asks
- * Linker whose it is, and only the account signed in here gets a one-time code for a session (sessions.ts).
+ * Getting in (server/http.ts): your other Linker-Edit, or the iPad app, shows this computer your Linker token, this
+ * computer asks Linker whose it is, and only the account signed in here gets a one-time code for a session
+ * (sessions.ts): a cookie for Linker-Edit's window, a Bearer token for the iPad app (redeem).
  */
 
 export const LIMIT = 3;
@@ -22,8 +23,19 @@ const LIST_FRESH_FOR = 30_000;
 const NETWORK_TIMEOUT = 20_000;
 /** Waits before starting a stopped tunnel again, growing up to the last. */
 const RESTART_DELAYS = [2_000, 5_000, 15_000, 30_000, 60_000];
-/** Sign-in attempts through the tunnel per minute, so nobody makes this computer hammer Linker. */
+/** Sign-in attempts through the tunnel per minute, each way in, so nobody makes this computer hammer Linker. */
 const ATTEMPTS_PER_MINUTE = 20;
+
+/** True while fewer than ATTEMPTS_PER_MINUTE tries came in the last minute, counting this one. */
+function rateLimit(now: () => number) {
+  let attempts: number[] = [];
+  return () => {
+    attempts = attempts.filter((at) => now() - at < 60_000);
+    if (attempts.length >= ATTEMPTS_PER_MINUTE) return false;
+    attempts.push(now());
+    return true;
+  };
+}
 
 interface Saved {
   computerId: string;
@@ -96,7 +108,8 @@ export function createConnect(options: ConnectOptions) {
   let computers: LinkedComputer[] | null = null;
   let listedAt = 0;
   let atLimit = false;
-  let attempts: number[] = [];
+  const admitting = rateLimit(now);
+  const redeeming = rateLimit(now);
 
   function read(): Saved {
     try {
@@ -211,11 +224,12 @@ export function createConnect(options: ConnectOptions) {
       problem = "Linker didn't say who you are. Sign out of Linker and in again.";
       return false;
     }
-    // Another account signed in here: the old link isn't theirs.
+    // Another account signed in here: the old link isn't theirs, nor are the devices the old one signed in.
     if (saved.ownerId && saved.ownerId !== userId) {
       delete saved.url;
       delete saved.tunnelToken;
       saved.computerId = randomUUID();
+      options.sessions.revokeAll();
     }
     step = "Linking this computer";
     changed();
@@ -367,9 +381,7 @@ export function createConnect(options: ConnectOptions) {
      */
     async admit(token: string, device: string): Promise<{ code: string } | { status: number; error: string }> {
       if (!tunnel || !saved.ownerId) return { status: 503, error: "Linker Connect is off on this computer." };
-      attempts = attempts.filter((at) => now() - at < 60_000);
-      if (attempts.length >= ATTEMPTS_PER_MINUTE) return { status: 429, error: "Too many tries. Wait a minute." };
-      attempts.push(now());
+      if (!admitting()) return { status: 429, error: "Too many tries. Wait a minute." };
       let who: string | null;
       try {
         who = await options.linker.whoIs(token);
@@ -381,6 +393,18 @@ export function createConnect(options: ConnectOptions) {
         return { status: 403, error: `${name} belongs to another Linker account. Sign in with the same account on both computers.` };
       }
       return { code: options.sessions.issueCode(device) };
+    },
+
+    /**
+     * A native app (the iPad app) swaps the one-time code admit gave it for a session it sends as a Bearer token.
+     * The code only exists on this computer, so it can't be used at another.
+     */
+    redeem(code: string): { session: string; expiresAt: string } | { status: number; error: string } {
+      if (!tunnel || !saved.ownerId) return { status: 503, error: "Linker Connect is off on this computer." };
+      if (!redeeming()) return { status: 429, error: "Too many tries. Wait a minute." };
+      const entered = code ? options.sessions.enter(code, "native") : null;
+      if (!entered) return { status: 401, error: "That code ran out or was used already. Sign in again." };
+      return { session: entered.token, expiresAt: new Date(entered.expiresAt).toISOString() };
     },
 
     /** Your other linked computers, for the computer menu here; empty when signed out or Linker is unreachable. */

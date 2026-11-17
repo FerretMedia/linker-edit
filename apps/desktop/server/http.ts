@@ -145,13 +145,18 @@ const noRemote: RemoteRoutes = { gate: () => null, computers: async () => [] };
 export type LinkerRoutes = Pick<LinkerService, "start" | "finish">;
 
 /** Linker Connect (server/connect/connect.ts): this computer's tunnel, and opening your other computers. */
-export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "open" | "others"> & {
+export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "redeem" | "open" | "others"> & {
   sessions: Pick<Sessions, "enter" | "check" | "onRevoke">;
   /** Asks another computer's Linker-Edit its name and version; tests replace it. */
   probe?: Probe;
 };
 
 const SESSION_COOKIE = "linker_edit_session";
+
+/** The token of an Authorization: Bearer header, or null. */
+function bearerToken(req: http.IncomingMessage): string | null {
+  return /^Bearer (\S+)$/.exec(req.headers.authorization ?? "")?.[1] ?? null;
+}
 
 /** One cookie's value from a Cookie header. */
 export function cookieValue(header: string | undefined, name: string): string | null {
@@ -210,7 +215,16 @@ export function createServer(
   const gate = remote.gate;
   const connectHost = () => connect?.host() ?? null;
   const sourceOf = (req: http.IncomingMessage) => requestSource(req.headers, gate(), connectHost());
-  const sessionOf = (req: http.IncomingMessage) => connect?.sessions.check(cookieValue(req.headers.cookie, SESSION_COOKIE)) ?? null;
+  /**
+   * The Linker Connect session of a request through the tunnel: the iPad app's Bearer token, or else Linker-Edit's
+   * cookie. Called only for "connect" requests, so a Bearer token never changes how others get in.
+   */
+  const sessionOf = (req: http.IncomingMessage) => {
+    const bearer = bearerToken(req);
+    return (
+      connect?.sessions.check(bearer ?? cookieValue(req.headers.cookie, SESSION_COOKIE), bearer === null ? "cookie" : "native") ?? null
+    );
+  };
   const server = http.createServer((req, res) => {
     // Also turns away pages on other sites whose name was pointed at 127.0.0.1 (DNS rebinding).
     const source = sourceOf(req);
@@ -240,7 +254,7 @@ export function createServer(
       return;
     }
     if (source === "connect" && connect) {
-      // Through the Linker Connect tunnel, only these two get in without a session: they make one.
+      // Through the Linker Connect tunnel, only these three get in without a session: they make one.
       if (urlPath === "/api/connect/session") {
         const auth = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
         if (req.method !== "POST" || !auth) {
@@ -269,8 +283,29 @@ export function createServer(
           .end();
         return;
       }
+      // The iPad app swaps its code for a session it sends as a Bearer token: in the body, never in the address.
+      if (urlPath === "/api/connect/native") {
+        if (req.method !== "POST") {
+          json(405, { error: "POST the code." });
+          return;
+        }
+        readSmallJson(req)
+          .then((body) => {
+            const result = connect.redeem(typeof body.code === "string" ? body.code : "");
+            if ("session" in result) json(200, result);
+            else json(result.status, { error: result.error });
+          })
+          .catch(() => json(400, { error: "Bad request." }));
+        return;
+      }
       if (!sessionOf(req)) {
-        page(401, "Signed out", `Open ${os.hostname()} from Linker-Edit's computer menu, signed in with the same Linker account.`);
+        if (bearerToken(req) !== null) {
+          // The iPad app signs in again when it gets this.
+          res.setHeader("www-authenticate", 'Bearer error="invalid_token"');
+          json(401, { error: "Signed out. Sign in with Linker again." });
+        } else {
+          page(401, "Signed out", `Open ${os.hostname()} from Linker-Edit's computer menu, signed in with the same Linker account.`);
+        }
         return;
       }
     }
@@ -393,8 +428,13 @@ export function createServer(
           return isAllowedOrigin(info.origin, info.req.headers.host);
         case "remote":
           return info.origin === `https://${current!.host}`;
-        case "connect":
-          return info.origin === `https://${connectHost()}` && sessionOf(info.req) !== null;
+        case "connect": {
+          // A page can't add an Authorization header to a WebSocket, so a Bearer token comes from a native app,
+          // which sends no Origin, or one naming this address. A cookie comes from a page: only this computer's own.
+          const own = info.origin === `https://${connectHost()}`;
+          const allowed = bearerToken(info.req) === null ? own : own || info.origin === undefined;
+          return allowed && sessionOf(info.req) !== null;
+        }
         default:
           return false;
       }
