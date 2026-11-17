@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { CollectionIcon, CollectionKind } from "../../shared/protocol.ts";
+import type { ApprovedEdit, CollectionIcon, CollectionKind, Lesson } from "../../shared/protocol.ts";
 
 /** A library folder of a workspace or series. Empty until the library comes to collections. */
 export type CollectionLibraryFolder = never;
@@ -19,21 +19,41 @@ export interface SavedCollection {
   library: CollectionLibraryFolder[];
   /** Licensing: its projects only use its own music. Not used yet. */
   musicOnlyFromHere: boolean;
+  /** Its projects' agent makes the first cut without asking. */
+  autonomous: boolean;
+  /** What feedback taught the agent, oldest first. */
+  lessons: Lesson[];
+  /** Approved edits of its projects, newest first. */
+  edits: ApprovedEdit[];
 }
+
+/** What a new collection starts with besides what create() is given. */
+export const NEW_COLLECTION = { library: [], musicOnlyFromHere: false, autonomous: false, lessons: [], edits: [] } satisfies Partial<SavedCollection>;
 
 export interface CollectionStore {
   /** Every collection that could be read, in the order they were made. */
   load(): SavedCollection[];
-  create(fields: Omit<SavedCollection, "id" | "library" | "musicOnlyFromHere">): SavedCollection;
+  create(fields: Pick<SavedCollection, "kind" | "name" | "parentId" | "icon" | "rules">): SavedCollection;
   save(collection: SavedCollection): void;
   /** Takes it out of the list and deletes its folder, rules included. */
   remove(id: string): void;
   /** Where its RULES.md is; null when it isn't in the list. */
   rulesFile(id: string): string | null;
+  /** The agent's notes on example videos, one Markdown file each in its examples/ folder. */
+  examples(id: string): { name: string; file: string }[];
+  /** Writes or replaces the notes on one example; where they are, or null when the collection is gone. */
+  saveExample(id: string, name: string, text: string): string | null;
+  removeExample(id: string, name: string): void;
 }
 
 export const COLLECTION_FILE = "collection.json";
 export const RULES_FILE = "RULES.md";
+export const EXAMPLES_DIR = "examples";
+
+/** "Reel 12 - launch.mp4" → "reel-12-launch": an example's notes are named after its video. */
+export function exampleName(name: string): string {
+  return collectionSlug(name.replace(/\.[a-z0-9]{2,5}$/i, ""));
+}
 
 // Bump when a file changes shape; a file with another version is left alone rather than misread.
 const VERSION = 1;
@@ -54,6 +74,10 @@ interface CollectionFile {
   icon: CollectionIcon;
   library: CollectionLibraryFolder[];
   musicOnlyFromHere: boolean;
+  /** Missing in files from before the agent learned brands. */
+  autonomous?: boolean;
+  lessons?: Lesson[];
+  edits?: ApprovedEdit[];
 }
 
 /** "Ferret Media" → "ferret-media", safe as a folder name everywhere. */
@@ -176,6 +200,9 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
         rules,
         library: Array.isArray(saved.library) ? saved.library : [],
         musicOnlyFromHere: saved.musicOnlyFromHere === true,
+        autonomous: saved.autonomous === true,
+        lessons: Array.isArray(saved.lessons) ? saved.lessons : [],
+        edits: Array.isArray(saved.edits) ? saved.edits : [],
       };
     } catch (error) {
       unreadable.add(id);
@@ -207,7 +234,7 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
       return registry.collections.flatMap(({ id, folder }) => read(id, folder) ?? []);
     },
     create(fields) {
-      const collection: SavedCollection = { ...fields, id: randomUUID(), library: [], musicOnlyFromHere: false };
+      const collection: SavedCollection = { ...structuredClone(NEW_COLLECTION), ...fields, id: randomUUID() };
       const folder = uniqueFolder(fields.name);
       write(folder, collection);
       registry = { ...registry, collections: [...registry.collections, { id: collection.id, folder }] };
@@ -237,6 +264,36 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
     rulesFile(id) {
       const folder = folderOf(id);
       return folder ? path.join(dirOf(folder), RULES_FILE) : null;
+    },
+    examples(id) {
+      const folder = folderOf(id);
+      if (!folder) return [];
+      const dir = path.join(dirOf(folder), EXAMPLES_DIR);
+      try {
+        return fs
+          .readdirSync(dir)
+          .filter((name) => name.endsWith(".md"))
+          .sort()
+          .map((name) => ({ name: name.slice(0, -3), file: path.join(dir, name) }));
+      } catch {
+        return [];
+      }
+    },
+    saveExample(id, name, text) {
+      const folder = folderOf(id);
+      if (!folder) return null;
+      const file = path.join(dirOf(folder), EXAMPLES_DIR, `${exampleName(name)}.md`);
+      writeFile(file, text);
+      return file;
+    },
+    removeExample(id, name) {
+      const folder = folderOf(id);
+      if (!folder) return;
+      try {
+        fs.rmSync(path.join(dirOf(folder), EXAMPLES_DIR, `${exampleName(name)}.md`), { force: true });
+      } catch (error) {
+        onError(error);
+      }
     },
   };
 }

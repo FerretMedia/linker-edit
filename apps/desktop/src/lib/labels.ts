@@ -1,20 +1,63 @@
 import type { ClipChange, CloudSyncMode, CollectionKind, Provider, ResolveLink } from "#shared/protocol.ts";
 
-// Resolve's own MCP server, and Linker-Edit's, whose tools other than transcribe all work in Resolve.
+// Resolve's own MCP server, and Linker-Edit's, whose tools work in Resolve except the ones named here.
 const RESOLVE_PREFIX = "mcp__resolve__";
 const LINKER_PREFIX = "mcp__linker__";
+const NOT_RESOLVE = new Set(["transcribe", "study_media", "compare_cut", "save_brief", "add_lesson", "save_example"]);
 
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 
 export const isResolveTool = (name: string) =>
-  name.startsWith(RESOLVE_PREFIX) || (name.startsWith(LINKER_PREFIX) && name !== `${LINKER_PREFIX}transcribe`);
+  name.startsWith(RESOLVE_PREFIX) || (name.startsWith(LINKER_PREFIX) && !NOT_RESOLVE.has(name.slice(LINKER_PREFIX.length)));
+
+/** A change to a workspace's or series' brief that an agent proposes; the user accepts or declines it. */
+export type BriefRequest =
+  | { kind: "rules"; for: string; summary: string; was: string; rules: string }
+  | { kind: "lesson"; for: string; feedback: string; rule: string };
+
+/** What an approval of save_brief or add_lesson shows; null for every other tool. */
+export function briefRequest(name: string, input: unknown): BriefRequest | null {
+  const shown = (input ?? {}) as Record<string, unknown>;
+  const text = (key: string) => (typeof shown[key] === "string" ? shown[key] : "");
+  if (name === `${LINKER_PREFIX}save_brief`) return { kind: "rules", for: text("for"), summary: text("summary"), was: text("was"), rules: text("rules") };
+  if (name === `${LINKER_PREFIX}add_lesson`) return { kind: "lesson", for: text("for"), feedback: text("feedback"), rule: text("rule") };
+  return null;
+}
+
+/** The lines of a text change, in order: kept, taken out or added. For showing new rules against the old. */
+export function lineDiff(before: string, after: string): { kind: "same" | "removed" | "added"; text: string }[] {
+  const a = before.trim() ? before.trim().split("\n") : [];
+  const b = after.trim() ? after.trim().split("\n") : [];
+  // The longest run of lines both have, from the end, so walking forward gives the changes in order.
+  const common = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i -= 1) {
+    for (let j = b.length - 1; j >= 0; j -= 1) common[i]![j] = a[i] === b[j] ? common[i + 1]![j + 1]! + 1 : Math.max(common[i + 1]![j]!, common[i]![j + 1]!);
+  }
+  const lines: { kind: "same" | "removed" | "added"; text: string }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      lines.push({ kind: "same", text: a[i]! });
+      i += 1;
+      j += 1;
+    } else if (i < a.length && (j === b.length || common[i + 1]![j]! >= common[i]![j + 1]!)) {
+      lines.push({ kind: "removed", text: a[i]! });
+      i += 1;
+    } else {
+      lines.push({ kind: "added", text: b[j]! });
+      j += 1;
+    }
+  }
+  return lines;
+}
 
 const isScript = (name: string, input: unknown): input is { script: string } =>
   name === `${RESOLVE_PREFIX}run_script` && typeof (input as { script?: unknown } | null)?.script === "string";
 
 /** "mcp__linker__create_timeline" → "create_timeline"; other tools keep their name. */
 export function toolLabel(name: string, _input: unknown): string {
-  return isResolveTool(name) ? name.slice(name.indexOf("__", 5) + 2) : name;
+  return name.startsWith(RESOLVE_PREFIX) || name.startsWith(LINKER_PREFIX) ? name.slice(name.indexOf("__", 5) + 2) : name;
 }
 
 /** The one-line detail shown after a tool's label. */

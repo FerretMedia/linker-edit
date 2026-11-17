@@ -96,9 +96,13 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     host.item(merged);
   }
 
-  function settleAllApprovals(allow: boolean) {
-    for (const entry of approvals.values()) entry.settle(allow);
-    approvals.clear();
+  /** Settles the waiting approvals, or only those that `only` picks. */
+  function settleAllApprovals(allow: boolean, only: (request: ApprovalRequest) => boolean = () => true) {
+    for (const [requestId, entry] of approvals) {
+      if (!only(entry.request)) continue;
+      approvals.delete(requestId);
+      entry.settle(allow);
+    }
   }
 
   /** A new session knows nothing yet: it gets the edit history, and a summary of the chat when one is going. */
@@ -349,6 +353,12 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       activeSink ? activeSink.requestApproval(tool, input) : Promise.resolve(false),
     /** Backs the project up before the running turn's first change; rejects when that fails. */
     backup: (): Promise<void> => activeSink?.backup?.() ?? Promise.reject(new Error("No turn is running.")),
+    /** A line in the chat from Linker-Edit itself, such as an approved edit. */
+    note(text: string) {
+      if (disposed) return;
+      upsert({ id: randomUUID(), kind: "notice", text, tone: "info" });
+      save();
+    },
     rename(next: string) {
       title = next.trim().slice(0, 120) || title;
       host.changed();

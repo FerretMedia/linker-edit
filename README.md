@@ -134,12 +134,14 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - looking at footage: `view_frames`, which moves Resolve's playhead and puts it back, and `find_silences`;
   - `export_timeline`, which only writes a file into the project folder;
   - `set_current_timeline`, which only changes which timeline Resolve shows;
-  - `library_search`, which only looks in your library.
+  - `library_search`, which only looks in your library;
+  - `study_media` and `compare_cut`, which only measure and transcribe video files.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
   - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
   - Editing an AI timeline: `add_clips`, `remove_clips`, `set_clip_properties`, `add_markers`, `remove_markers`, `set_tracks`, `add_title`, `set_color`, `detect_scene_cuts`.
   - The media pool: `import_media`, `library_import`, `organize_media`, `transcribe_in_resolve`.
   - `render_timeline`, which puts Resolve's timeline, page and render settings back afterwards.
+- **Changes to a brief always ask**, with full access too: new rules for a workspace or series (`save_brief`) and a lesson from your feedback (`add_lesson`) steer every later edit, so you accept or decline each. The agent's own notes on an example video (`save_example`) don't ask. See [Teaching it a brand](#teaching-it-a-brand).
 - **Reading the edit history** (`git log`, `git show`, `git diff`, `git status`) runs straight away. Claude's other file edits and commands ask only in Supervised mode; Codex's shell commands and file edits run without a sandbox with full access, and sandboxed to the project's folder in Supervised mode.
 
 The rules are built into the tools, not only into the agent's instructions:
@@ -156,7 +158,7 @@ These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Cod
 
 ## Projects and threads
 
-A **project** is one Resolve project with its own folder: its edit history, the agent's notes and exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
+A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
 
 Resolve has one project open at a time, so Linker-Edit follows it:
 
@@ -212,6 +214,49 @@ Codex has no context meter or compaction here: its SDK doesn't report how full t
 - **Full render** has Resolve render the exact picture as a small MP4, and the player switches to it at the same spot. While it renders, Resolve switches to that timeline and the Deliver page, then puts your timeline, page and render settings back. The agent waits until the render is done, and you can stop it. Only the timeline as it is in Resolve now can be rendered.
 
 Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previous or next cut, F full screen, M mute.
+
+**Give feedback at this moment** starts a message with where the playhead is ("At 0:14 (frame 336) in …"), so the agent knows which spot you mean.
+
+## Teaching it a brand
+
+A **workspace** is a client, brand or channel, and a **series** is one of its formats, such as a weekly vlog or reels. Each has rules the agent follows in every project in it (**Settings → Workspaces & series**). You can write them yourself, or have the agent work them out from videos you've finished. The aim: you give it footage, it makes the first cut, and you only give feedback on the video.
+
+**Set up with AI** on a workspace or series opens a setup thread. It runs on your own Claude or Codex, and it never touches Resolve.
+
+1. Point it at a folder of **finished videos**, and if you have them the **raw footage** some were cut from and the brand's **assets**.
+2. It measures each video with the ffmpeg Linker-Edit comes with: length, aspect ratio, shot lengths, how quiet it gets, loudness, how fast people talk and how it opens. It looks at a contact sheet of its frames and reads the transcript. Measurements are kept in `~/LinkerEdit/cache/study` until a file changes.
+3. With raw footage, it lines up what is said in the finished video with what is said in the raw files. That shows what the editor kept and cut, which take they used, and whether they reordered.
+4. It tells you what it found, with the numbers, and asks only what it can't see: who watches, where the music comes from, where the examples disagree.
+5. It proposes rules for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
+
+Its notes on each example are kept as files next to the rules, in `~/LinkerEdit/collections/<name>/examples`.
+
+**It is laid out like code.** A project is a repository of one video, and it gets its rules from the folders of its series and workspace:
+
+```
+~/LinkerEdit/collections/ferret-media/   the workspace
+  RULES.md                               what is always true for the brand
+  examples/                              the agent's notes on example videos
+~/LinkerEdit/collections/reels/          a series in it
+  RULES.md                               how this kind of video is made
+~/LinkerEdit/projects/Reel 14/           a project in that series: a Git repository
+  PROJECT.md                             this video: brief, footage, decisions, feedback, status
+  resolve/                               its timelines as text, one save per turn
+  AGENTS.md                              written by Linker-Edit: everything above in one file, for the agent
+```
+
+The agent reads the three files from the most general to the most specific, and the later one wins. It keeps `PROJECT.md` itself, so a new thread knows what the video is about, what is in the footage and what you already said. You can read and edit it under **Project file**, next to Preview and History, and each change is saved in the project's edit history. Rules set up with AI use the same headings for every brand. **Must** holds what can be measured, such as length and aspect ratio, and the agent checks its cut against it before it shows you.
+
+**Works on its own** is a switch on a workspace or series. With it on, a new thread in one of its projects asks for the footage folder, and the agent makes the whole first cut without asking questions: it imports and transcribes the footage, builds the cut the way the rules describe, checks its own work, renders it and measures the file against the rules' **Must** lines (length, aspect ratio, loudness, quiet stretches), and ends with a note of what it made, what it left out and what it decided for you. It still only changes `AI - …` timelines, and you still make one the main timeline yourself.
+
+**It learns from your feedback, and you check what it learned.**
+
+- When you give feedback, the agent first says what it understood, then fixes it.
+- Feedback that will hold for the next video too becomes a **lesson**. The agent only proposes one after you've seen the fix, and shows it next to your own words. Decline it if that isn't what you meant.
+- When you press **Use as main timeline**, the agent compares its first version with the one you approved, including what you changed in Resolve yourself, and proposes lessons from the difference.
+- Lessons are listed under the rules in Settings, each with the words it came from, and you can remove any of them. Settings also shows how many rounds of feedback each approved edit took, so you can see whether the rules work.
+
+What it can't do: it sees still frames, not motion, and it can't hear. It knows how loud a video is and where it's quiet, not whether a song fits. So formats driven by speech (talking head, interview, podcast, reels cut from longer talk) work best.
 
 ## Library
 

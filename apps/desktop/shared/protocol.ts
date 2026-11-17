@@ -97,6 +97,11 @@ export interface ProjectSummary extends ProjectSidebarState {
   open: boolean;
   /** Newest first, archived ones included. */
   threads: ThreadSummary[];
+  /**
+   * A workspace's or series' setup threads: the agent studies example videos and writes the brief here. It has no
+   * Resolve project and never gets one.
+   */
+  setup: boolean;
 }
 
 /** A project in the Resolve database that is open now, for adding it to Linker-Edit. */
@@ -474,6 +479,9 @@ export type ClientMessage =
   /** Whether this computer has Resolve (or will); see AppMeta.resolveHere. */
   | { type: "set_resolve_here"; resolveHere: boolean }
   | { type: "load_history" }
+  /** PROJECT.md of the project in view: what the video is, kept by the agent and edited here by the user. */
+  | { type: "load_project_file" }
+  | { type: "save_project_file"; projectId: string; text: string }
   /** Without a timeline id, renders Resolve's current timeline. */
   | { type: "render_preview"; timelineId?: string }
   /** The user is happy with an AI timeline: it takes the main timeline's place, which is kept renamed. */
@@ -536,6 +544,8 @@ export type ServerMessage =
   | { type: "meta"; meta: AppMeta }
   | { type: "item"; threadId: string; item: ChatItem }
   | { type: "history"; projectId: string; entries: HistoryEntry[] }
+  /** A project's PROJECT.md: on request, after a save, and after each turn in the project. file is its path. */
+  | { type: "project_file"; projectId: string; file: string; text: string }
   | { type: "library"; library: ResolveLibrary | { error: string } }
   | { type: "folders"; requestId: number; listing: FolderListing | { error: string } }
   /** The message wasn't sent; it goes back in the composer. */
@@ -667,12 +677,48 @@ export interface CollectionSummary {
   rulesFile: string;
   /** Projects directly in it, not those in its series. */
   projectIds: string[];
+  /** Its projects' agent makes the first cut without asking, and says afterwards what it decided. */
+  autonomous: boolean;
+  /** What feedback taught the agent, oldest first. Each was accepted by the user. */
+  lessons: Lesson[];
+  /** The agent's notes on example videos it studied, kept as files next to the rules. */
+  examples: { name: string; file: string }[];
+  /** The project that holds its setup threads; null until "Set up with AI" was used. */
+  setupProjectId: string | null;
+  /** Approved edits of its projects, newest first, to see whether the brief works. */
+  edits: ApprovedEdit[];
+}
+
+/** A rule the agent learned from the user's feedback, kept with the words it came from so a wrong one is easy to spot. */
+export interface Lesson {
+  id: string;
+  rule: string;
+  /** What the user said, quoted. */
+  feedback: string;
+  /** ISO 8601. */
+  addedAt: string;
+  /** The project it was learned in. */
+  project: string | null;
+}
+
+/** An AI timeline the user made the main one. */
+export interface ApprovedEdit {
+  /** ISO 8601. */
+  at: string;
+  project: string;
+  /** Messages with feedback the user sent before approving; 0 when the first cut was right. */
+  rounds: number;
 }
 
 export type CollectionMessage =
   /** A series may go in a workspace; a workspace goes in nothing. */
   | { type: "create_collection"; kind: CollectionKind; name: string; parentId?: string | null; icon?: CollectionIcon }
-  | { type: "update_collection"; id: string; name?: string; icon?: CollectionIcon; rules?: string; parentId?: string | null }
+  | { type: "update_collection"; id: string; name?: string; icon?: CollectionIcon; rules?: string; parentId?: string | null; autonomous?: boolean }
+  /** Forgets a lesson or the notes on an example. */
+  | { type: "remove_lesson"; id: string; lessonId: string }
+  | { type: "remove_example"; id: string; name: string }
+  /** Opens its setup thread, where the agent studies example videos and writes the brief; made on first use. */
+  | { type: "setup_collection"; id: string }
   /** Refused while projects or series are in it. */
   | { type: "delete_collection"; id: string }
   /** Puts a project in a workspace or series, or in none. */

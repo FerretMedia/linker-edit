@@ -28,6 +28,7 @@ import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
 import { fileSettings } from "./settings.ts";
+import { createStudy } from "./study/study.ts";
 import { findFfmpeg, prepareTools, toolsReady } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
@@ -63,6 +64,12 @@ const appUpdates =
     : undefined;
 if (appUpdates) process.on("message", (message: DesktopToServer) => appUpdates.receive(message));
 
+const transcriber = createTranscriber({
+  dir: config.transcriptsDir,
+  prepare: (onProgress, signal) => prepareTools(config.toolsDir, config.whisperCli, onProgress, signal),
+  ready: () => toolsReady(config.toolsDir, config.whisperCli),
+});
+
 const app = createApp({
   version: VERSION,
   store: fileProjectStore({ root: config.projectsDir, legacyDir: config.workspaceDir }),
@@ -87,10 +94,12 @@ const app = createApp({
   backupProject: replay ? undefined : (dir) => backupProject(resolve, dir),
   applyTimeline: (dir, timelineId) => applyTimeline(resolve, dir, timelineId),
   prepareFolder: prepareWorkspace,
-  transcriber: createTranscriber({
-    dir: config.transcriptsDir,
-    prepare: (onProgress, signal) => prepareTools(config.toolsDir, config.whisperCli, onProgress, signal),
-    ready: () => toolsReady(config.toolsDir, config.whisperCli),
+  transcriber,
+  // Measurements and contact sheets of example videos, next to the library's cache.
+  study: createStudy({
+    dir: path.join(path.dirname(config.libraryCacheDir), "study"),
+    ffmpeg: findFfmpeg,
+    transcribe: (files, language) => transcriber.transcribe(files, language),
   }),
   remote,
   linker,
