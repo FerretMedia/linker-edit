@@ -35,6 +35,37 @@ threadSettled.ts and threadInbox.ts:
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+packages/drp (@linker-edit/drp) builds on the .drp/.drt format mapping in
+davinci-resolve-mcp (https://github.com/samuelgursky/davinci-resolve-mcp),
+resolve-advanced/vendor/drp-format: the layouts of the media pool's <Clip> blobs,
+keyed dictionaries and the timeline clip's <In>. Its test fixtures
+(packages/drp/test/fixtures) are Resolve exports copied from that repository:
+bins-r19.drp is vendor/drp-format/templates/media-clip-r19.drp, compound-r21.drp is
+vendor/drp-format/__tests__/fixtures/compound-nav-r21.drp and nested-r19.drt is
+resolve-advanced/test/fixtures/E127_resolve_nested_export.drt:
+
+  MIT License
+
+  Copyright (c) 2025-2026 DaVinci Resolve MCP Contributors and Bradford Operations LLC
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
 Linker-Edit connects to DaVinci Resolve through the MCP server (ResolveMCP) that
 Blackmagic Design ships with DaVinci Resolve Studio. It is proprietary software of
 Blackmagic Design; Linker-Edit starts the copy installed with Resolve as a separate
