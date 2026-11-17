@@ -6,7 +6,7 @@ import type { TranscriptResult } from "../transcribe/transcriber.ts";
 import type { Transcript } from "../transcribe/whisper.ts";
 import { compareCut } from "./compare.ts";
 import { parseShots, parseSound, parseVideoInfo, sheetLayout, STUDY_VERSION, type Study } from "./measure.ts";
-import { createStudy, speechOf, videoFiles } from "./study.ts";
+import { createStudy, videoFiles } from "./study.ts";
 
 /** A transcript of evenly spoken words; "|" is a two-second pause. */
 function transcript(file: string, text: string): Transcript {
@@ -172,7 +172,7 @@ describe("the study tools", () => {
       aspect: "9:16",
       duration: 30,
       contact_sheet: { image: 1, frames: 24, step_seconds: 1.25 },
-      speech: { words: 7, opens_with: "so today we are testing three lenses" },
+      speech: { words: 7, words_per_minute: 120, first_word_at_seconds: 0, opens_with: "so today we are testing three lenses" },
     });
     // What a cached measurement is checked against stays out of the agent's context.
     expect(result.videos[0]).not.toHaveProperty("modified");
@@ -204,9 +204,5 @@ describe("the study tools", () => {
     expect(compared.kept_share).toBe(1);
     await expect(study.run("compare_cut", { final: path.join(videos, "b.mp4"), raw: [path.join(videos, "inside")] })).rejects.toThrow(/Couldn't transcribe/);
     await expect(study.run("compare_cut", { final: path.join(videos, "a.MOV"), raw: [] })).rejects.toThrow(/raw footage/);
-  });
-
-  it("says how fast someone talks and how a video opens", () => {
-    expect(speechOf(transcript("/v.mp4", "one two three four five six"))).toMatchObject({ words: 6, words_per_minute: 120, first_word_at_seconds: 0 });
   });
 });

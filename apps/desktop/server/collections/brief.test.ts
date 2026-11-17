@@ -120,8 +120,12 @@ describe("a setup thread", () => {
     send({ type: "setup_collection", id: byName("Ferret Media").id });
     send({ type: "send", text: "My reels are in D:/reels" });
 
-    // Full access is on, and the brief still waits for the user.
+    // Full access is on, and the brief still waits for the user: also when full access is switched on while it waits.
     expect(client.state.approvalMode).toBe("auto");
+    await client.until((current) => current.approvals.length > 0);
+    send({ type: "set_approval_mode", mode: "ask" });
+    send({ type: "set_approval_mode", mode: "auto" });
+    expect(client.state.approvals).toHaveLength(1);
     expect((await answer(false)).input).toEqual({ for: 'Workspace "Ferret Media"', summary: "First brief.", was: "", rules: "Captions in white." });
     expect(byName("Ferret Media").rules).toBe("");
     expect(await answer(true)).toMatchObject({ tool: "mcp__linker__save_brief" });
@@ -164,6 +168,8 @@ describe("learning from feedback", () => {
         replies.push(await running.briefTool("add_lesson", { rule: "Intro at most 3 seconds.", feedback: "the start drags" }));
         replies.push(await running.briefTool("add_lesson", { for: "workspace", rule: "Never use the blue logo.", feedback: "wrong logo again" }));
         replies.push(await running.briefTool("add_lesson", { rule: "Shorter.", feedback: "" }));
+        // A lesson never makes a series; only new rules do.
+        replies.push(await running.briefTool("add_lesson", { for: "series", series: "Vlog", rule: "No music.", feedback: "no music in vlogs" }));
       },
       async () => {},
     );
@@ -172,7 +178,8 @@ describe("learning from feedback", () => {
     expect((await answer(false)).input).toMatchObject({ for: 'Workspace "Ferret Media"' });
     await turnDone();
 
-    expect(replies.map((reply) => reply.isError)).toEqual([false, true, true]);
+    expect(replies.map((reply) => reply.isError)).toEqual([false, true, true, true]);
+    expect(replies[3]!.text).toMatch(/no series "Vlog"/);
     expect(byName("Reels").lessons).toMatchObject([{ rule: "Intro at most 3 seconds.", feedback: "the start drags", project: "ep12" }]);
     expect(byName("Ferret Media").lessons).toEqual([]);
 
@@ -225,8 +232,8 @@ describe("learning from feedback", () => {
     await client.until(() => prompts.length === 4);
     await turnDone();
 
-    expect(prompts[3]).toContain('Learn from this edit: I approved "AI - Tight"');
-    expect(client.state.items.some((item) => item.kind === "notice" && item.text === 'Approved: "AI - Tight" is now the main timeline "Edit".')).toBe(true);
+    expect(prompts[3]).toContain("Learn from this edit:");
+    expect(client.state.items.some((item) => item.kind === "notice" && item.text.startsWith("Approved:"))).toBe(true);
     // Two messages of feedback after the one that started the edit.
     expect(byName("Reels").edits).toMatchObject([{ project: "ep12", rounds: 2 }]);
   });

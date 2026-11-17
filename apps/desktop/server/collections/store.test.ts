@@ -50,6 +50,12 @@ describe("fileCollectionStore", () => {
     expect(fs.readFileSync(path.join(dir, "RULES.md"), "utf8")).toBe("Lower thirds in Inter Bold.\n");
     expect(store.rulesFile(series.id)).toBe(path.join(dir, "RULES.md"));
 
+    // A file from before lessons and working alone loads with neither.
+    const file = path.join(dir, "collection.json");
+    const { autonomous: _a, lessons: _l, edits: _e, ...older } = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify(older));
+    expect(open().load()[1]).toEqual(series);
+
     // RULES.md edited in another editor shows on the next start.
     fs.writeFileSync(path.join(dir, "RULES.md"), "End on the logo.");
     expect(open().load()).toEqual([workspace, { ...series, rules: "End on the logo." }]);

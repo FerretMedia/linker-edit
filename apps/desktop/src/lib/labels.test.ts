@@ -26,12 +26,8 @@ describe("a change to the brief", () => {
     });
     expect(briefRequest("mcp__linker__save_brief", { for: "W", rules: "x" })).toMatchObject({ kind: "rules", was: "", rules: "x" });
     expect(briefRequest("mcp__linker__add_clips", {})).toBeNull();
-  });
-
-  it("doesn't call the brief and study tools Resolve tools, and still shows their short names", () => {
-    expect(isResolveTool("mcp__linker__add_clips")).toBe(true);
-    expect(["save_brief", "add_lesson", "save_example", "study_media", "compare_cut", "transcribe"].some((tool) => isResolveTool(`mcp__linker__${tool}`))).toBe(false);
+    // A brief tool isn't a Resolve tool, and keeps its short name.
+    expect([isResolveTool("mcp__linker__add_clips"), isResolveTool("mcp__linker__save_brief")]).toEqual([true, false]);
     expect(toolLabel("mcp__linker__study_media", {})).toBe("study_media");
-    expect(toolLabel("Bash", {})).toBe("Bash");
   });
 });

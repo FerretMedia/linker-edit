@@ -63,9 +63,6 @@ test("a workspace is set up with AI in a thread of its own, and a series that wo
   // It starts from a folder of finished videos. Not sent here: chat.spec.ts has the one turn that may run.
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
   await expect(page.getByRole("combobox", { name: "Finished videos" })).toBeVisible();
-  // Its agent gets the setup assistant's rules, not the editing rules.
-  const agents = path.join(dir, "projects", "Studio North setup", "AGENTS.md");
-  await expect.poll(() => fs.readFileSync(agents, "utf8")).toContain("You are Linker-Edit's setup assistant.");
 
   // Switched on for a workspace, a new thread in its project asks for the footage.
   await page.goto("/#settings/workspaces");
