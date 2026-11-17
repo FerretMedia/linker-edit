@@ -18,6 +18,7 @@ final class ConnectionTests: XCTestCase {
         XCTAssertEqual(HostEndpoint(string: "https://Edit-AB12.linker.cool:443")?.origin, "https://edit-ab12.linker.cool")
 
         XCTAssertNil(HostEndpoint(string: ""))
+        XCTAssertNil(HostEndpoint(string: "my studio"))
         XCTAssertNil(HostEndpoint(string: "ftp://studio"))
         XCTAssertNil(HostEndpoint(string: "https://"))
     }

@@ -30,7 +30,7 @@ final class ScreenshotTests: XCTestCase {
         field.tap()
         field.typeText("not a host at all")
         app.buttons["connect-button"].tap()
-        XCTAssertTrue(app.staticTexts["connect-problem"].waitForExistence(timeout: 5) || app.otherElements["connect-problem"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["connect-problem"].waitForExistence(timeout: 5))
         screenshot("1-connect")
     }
 

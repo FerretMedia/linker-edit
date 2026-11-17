@@ -39,9 +39,12 @@ final class AppModel {
     }
 
     /// How the app was launched: -demo shows the fixed chat, -host <url> connects at once (UI tests),
-    /// -reset forgets recent hosts.
+    /// -reset forgets recent hosts and the typed address.
     static func launch(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppModel {
-        if arguments.contains("-reset") { RecentHosts().all.forEach { RecentHosts().forget($0) } }
+        if arguments.contains("-reset") {
+            RecentHosts().all.forEach { RecentHosts().forget($0) }
+            UserDefaults.standard.removeObject(forKey: "lastTypedHost")
+        }
         if arguments.contains("-demo") {
             let model = AppModel(demo: true)
             model.endpoint = HostEndpoint(string: "https://studio.tail1234.ts.net:8443")

@@ -9,7 +9,8 @@ public struct HostEndpoint: Codable, Hashable, Sendable {
     /// Reads what someone typed: "studio.tail1234.ts.net:8443" gets https://, a path is dropped.
     public init?(string: String) {
         var text = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
+        // URL parsing would take "my studio" and percent-encode it; no host has spaces.
+        guard !text.isEmpty, !text.contains(where: { $0.isWhitespace }) else { return nil }
         if !text.contains("://") { text = "https://\(text)" }
         guard let parsed = URLComponents(string: text),
               let scheme = parsed.scheme?.lowercased(), scheme == "https" || scheme == "http",
