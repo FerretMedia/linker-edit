@@ -1,35 +1,33 @@
-import {
-  BookOpen,
-  Briefcase,
-  Building2,
-  Camera,
-  Clapperboard,
-  Coffee,
-  Dumbbell,
-  Film,
-  Folder,
-  Gamepad2,
-  Globe,
-  GraduationCap,
-  Headphones,
-  Heart,
-  Megaphone,
-  Mic,
-  Music,
-  Newspaper,
-  Palette,
-  Plane,
-  Podcast,
-  Radio,
-  Rocket,
-  Sparkles,
-  Star,
-  Store,
-  Tv,
-  Users,
-  Utensils,
-  Video,
-} from "@lucide/svelte";
+import BookOpen from "@lucide/svelte/icons/book-open";
+import Briefcase from "@lucide/svelte/icons/briefcase";
+import Building2 from "@lucide/svelte/icons/building-complex";
+import Camera from "@lucide/svelte/icons/camera";
+import Clapperboard from "@lucide/svelte/icons/clapperboard";
+import Coffee from "@lucide/svelte/icons/coffee";
+import Dumbbell from "@lucide/svelte/icons/dumbbell";
+import Film from "@lucide/svelte/icons/film";
+import Folder from "@lucide/svelte/icons/folder";
+import Gamepad2 from "@lucide/svelte/icons/gamepad-2";
+import Globe from "@lucide/svelte/icons/globe";
+import GraduationCap from "@lucide/svelte/icons/graduation-cap";
+import Headphones from "@lucide/svelte/icons/headphones";
+import Heart from "@lucide/svelte/icons/heart";
+import Megaphone from "@lucide/svelte/icons/megaphone";
+import Mic from "@lucide/svelte/icons/mic";
+import Music from "@lucide/svelte/icons/eighth-notes";
+import Newspaper from "@lucide/svelte/icons/newspaper";
+import Palette from "@lucide/svelte/icons/palette";
+import Plane from "@lucide/svelte/icons/plane";
+import Podcast from "@lucide/svelte/icons/mic-signal";
+import Radio from "@lucide/svelte/icons/radio";
+import Rocket from "@lucide/svelte/icons/rocket";
+import Sparkles from "@lucide/svelte/icons/sparkles";
+import Star from "@lucide/svelte/icons/star";
+import Store from "@lucide/svelte/icons/store";
+import Tv from "@lucide/svelte/icons/tv";
+import Users from "@lucide/svelte/icons/users";
+import Utensils from "@lucide/svelte/icons/utensils";
+import Video from "@lucide/svelte/icons/video";
 import type { Component } from "svelte";
 import type { CollectionIcon, IconColor } from "#shared/protocol.ts";
 

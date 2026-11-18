@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { CircleAlert, FileText, FolderPlus, History, Library, MonitorPlay, MonitorUp, WifiOff, X } from "@lucide/svelte";
+  import { tick, untrack } from "svelte";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import History from "@lucide/svelte/icons/rotate-ccw-clock";
+  import Library from "@lucide/svelte/icons/library";
+  import MonitorPlay from "@lucide/svelte/icons/monitor-play";
+  import MonitorUp from "@lucide/svelte/icons/monitor-up";
+  import WifiOff from "@lucide/svelte/icons/wifi-off";
+  import X from "@lucide/svelte/icons/x";
   import type { ChatItem, HistoryEntry, Provider } from "#shared/protocol.ts";
   import AddProjectDialog from "#lib/components/AddProjectDialog.svelte";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
@@ -177,6 +186,30 @@
     }
     return result;
   });
+
+  // A long thread opens with its newest rows, and "Show earlier" adds more: drawing a 1,000-item chat at once held
+  // the window for a quarter of a second. The first row shown stays put while the turn adds rows below it.
+  const ROWS_PAGE = 100;
+  let firstRow = $state<{ threadId: string | null; index: number }>({ threadId: null, index: 0 });
+  $effect.pre(() => {
+    const threadId = app?.threadId ?? null;
+    if (untrack(() => firstRow.threadId) !== threadId) {
+      firstRow = { threadId, index: untrack(() => Math.max(0, rows.length - ROWS_PAGE)) };
+    }
+  });
+  const shownFrom = $derived(
+    firstRow.threadId === (app?.threadId ?? null) ? Math.min(firstRow.index, rows.length) : Math.max(0, rows.length - ROWS_PAGE),
+  );
+  const shownRows = $derived(shownFrom > 0 ? rows.slice(shownFrom) : rows);
+
+  async function showEarlier() {
+    if (!scroller) return;
+    // Keeps what's on screen where it is; the earlier rows appear above it.
+    const fromBottom = scroller.scrollHeight - scroller.scrollTop;
+    firstRow = { threadId: app?.threadId ?? null, index: Math.max(0, shownFrom - ROWS_PAGE) };
+    await tick();
+    scroller.scrollTop = scroller.scrollHeight - fromBottom;
+  }
 
   const followKey = $derived.by(() => {
     const last = app?.items.at(-1);
@@ -460,7 +493,17 @@
               </div>
             {/if}
 
-            {#each rows as row (row.kind === "tools" ? row.id : row.item.id)}
+            {#if shownFrom > 0}
+              <button
+                type="button"
+                class="self-center rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onclick={showEarlier}
+              >
+                Show earlier
+              </button>
+            {/if}
+
+            {#each shownRows as row (row.kind === "tools" ? row.id : row.item.id)}
               {#if row.kind === "tools"}
                 <div class="flex flex-col">
                   {#each row.items as tool (tool.id)}

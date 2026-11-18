@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { ArrowUp, ShieldCheck, ShieldOff, Square } from "@lucide/svelte";
+  import ArrowUp from "@lucide/svelte/icons/arrow-up";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import ShieldOff from "@lucide/svelte/icons/shield-off";
+  import Square from "@lucide/svelte/icons/square";
   import type { ApprovalMode, ContextUsage, Provider } from "#shared/protocol.ts";
   import { formatTokens } from "#lib/context.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";

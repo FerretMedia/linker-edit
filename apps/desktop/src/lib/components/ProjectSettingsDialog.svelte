@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Cloud, HardDrive, Server } from "@lucide/svelte";
+  import Cloud from "@lucide/svelte/icons/cloud";
+  import HardDrive from "@lucide/svelte/icons/hard-drive";
+  import Server from "@lucide/svelte/icons/server";
   import type { CollectionSummary, ProjectIcon as Icon, ProjectSummary } from "#shared/protocol.ts";
   import { COLLECTION_LABEL, COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";

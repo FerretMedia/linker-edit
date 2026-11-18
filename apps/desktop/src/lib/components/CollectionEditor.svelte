@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Sparkles, Trash2, X } from "@lucide/svelte";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
+  import Trash2 from "@lucide/svelte/icons/trash";
+  import X from "@lucide/svelte/icons/x";
   import type { CollectionIcon as Icon, CollectionSummary } from "#shared/protocol.ts";
   import { COLLECTION_LABEL } from "#lib/labels.ts";
   import CollectionIcon from "./CollectionIcon.svelte";

@@ -1,6 +1,15 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Check, Clapperboard, CircleAlert, History, LoaderCircle, MessageSquarePlus, MonitorPlay, RefreshCw, Scissors, X } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import Clapperboard from "@lucide/svelte/icons/clapperboard";
+  import CircleAlert from "@lucide/svelte/icons/circle-alert";
+  import History from "@lucide/svelte/icons/rotate-ccw-clock";
+  import LoaderCircle from "@lucide/svelte/icons/loader-circle";
+  import MessageSquarePlus from "@lucide/svelte/icons/message-square-plus";
+  import MonitorPlay from "@lucide/svelte/icons/monitor-play";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Scissors from "@lucide/svelte/icons/scissors";
+  import X from "@lucide/svelte/icons/x";
   import type { PlayableTimeline, PreviewState, ResolveStatus } from "#shared/protocol.ts";
   import PlayerControls from "#lib/components/PlayerControls.svelte";
   import TimelinePlayer from "#lib/components/TimelinePlayer.svelte";

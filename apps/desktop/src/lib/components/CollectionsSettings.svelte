@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus } from "@lucide/svelte";
+  import Plus from "@lucide/svelte/icons/plus";
   import type { AppMeta, ClientMessage, CollectionKind, CollectionSummary } from "#shared/protocol.ts";
   import { COLLECTION_LABEL } from "#lib/labels.ts";
   import CollectionEditor from "./CollectionEditor.svelte";

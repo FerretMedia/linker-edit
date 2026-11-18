@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ImageOff } from "@lucide/svelte";
+  import ImageOff from "@lucide/svelte/icons/image-off";
   import type { PlayableClip, PlayableTimeline } from "#shared/protocol.ts";
   import { clipKey, clipsAhead, clipsAt, lookStyle } from "#lib/player.ts";
 

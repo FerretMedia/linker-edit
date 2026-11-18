@@ -1,7 +1,8 @@
 <script lang="ts">
   // T3 Code's project folder header (apps/web/src/components/sidebar/SidebarProjectFolderHeader.tsx; MIT, see NOTICE),
   // with Linker-Edit's green "open in Resolve" dot.
-  import { ChevronDown, SquarePen } from "@lucide/svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
   import type { ProjectSummary } from "#shared/protocol.ts";
   import { LIBRARY_LABEL } from "#lib/labels.ts";
   import { isUnread, threadStatus, type SidebarThread } from "#lib/sidebar.ts";

@@ -17,4 +17,20 @@ const marked = new Marked({
   },
 });
 
-export const renderMarkdown = (text: string) => marked.parse(text, { async: false });
+// The chat redraws its rows on every new item, so each reply would be parsed again and again: a 1,000-item thread
+// parsed about 230 replies per streamed message. Bounded, since a streaming reply passes through many texts.
+const CACHE_SIZE = 1000;
+const cache = new Map<string, string>();
+
+export function renderMarkdown(text: string): string {
+  let html = cache.get(text);
+  if (html === undefined) {
+    html = marked.parse(text, { async: false });
+    if (cache.size >= CACHE_SIZE) cache.delete(cache.keys().next().value!);
+  } else {
+    // Most recently used last, so the oldest goes first.
+    cache.delete(text);
+  }
+  cache.set(text, html);
+  return html;
+}

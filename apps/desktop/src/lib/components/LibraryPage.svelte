@@ -1,23 +1,21 @@
 <script lang="ts">
-  import {
-    ArrowLeft,
-    AudioWaveform,
-    Film,
-    Folder,
-    FolderOpen,
-    Globe,
-    Image,
-    Music,
-    Palette,
-    Pause,
-    Pencil,
-    Play,
-    Plus,
-    RefreshCw,
-    Search,
-    Star,
-    Trash2,
-  } from "@lucide/svelte";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import AudioWaveform from "@lucide/svelte/icons/audio-waveform";
+  import Film from "@lucide/svelte/icons/film";
+  import Folder from "@lucide/svelte/icons/folder";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import Globe from "@lucide/svelte/icons/globe";
+  import Image from "@lucide/svelte/icons/image";
+  import Music from "@lucide/svelte/icons/eighth-notes";
+  import Palette from "@lucide/svelte/icons/palette";
+  import Pause from "@lucide/svelte/icons/pause";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Play from "@lucide/svelte/icons/play";
+  import Plus from "@lucide/svelte/icons/plus";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Search from "@lucide/svelte/icons/search";
+  import Star from "@lucide/svelte/icons/star";
+  import Trash2 from "@lucide/svelte/icons/trash";
   import { onDestroy } from "svelte";
   import {
     LIBRARY_KINDS,

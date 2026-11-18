@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Check, ChevronDown } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import type { Provider } from "#shared/protocol.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";
   import ClaudeIcon from "./ClaudeIcon.svelte";

@@ -1,6 +1,6 @@
 <script lang="ts">
   // T3 Code's ProjectFavicon and ProjectMonogram (MIT, see NOTICE), without favicons read from the project folder.
-  import { FolderCode } from "@lucide/svelte";
+  import FolderCode from "@lucide/svelte/icons/folder-code";
   import type { ProjectIcon, ProjectIconColor } from "#shared/protocol.ts";
   import { deriveProjectIdentity } from "#shared/project-icon.ts";
   import { iconByName, loadLucide } from "#lib/lucideIcons.ts";

@@ -1,6 +1,6 @@
 <script lang="ts">
   // T3 Code's shelf header (CollapsibleSectionHeader and SidebarSectionHeader; MIT, see NOTICE).
-  import { ChevronDown } from "@lucide/svelte";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
 
   let { label, count, expanded, onToggle, class: className = "" }: { label: string; count: number; expanded: boolean; onToggle: () => void; class?: string } =
     $props();
