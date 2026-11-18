@@ -15,8 +15,10 @@ building the server. `crates/app` calls [`run`](src/lib.rs).
 |---|---|
 | `src/lib.rs` | `run(link)`: single instance, assets, the window, quit on close |
 | `src/workspace.rs` | The root view: sidebar, chat column with its header, one side panel |
-| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel` |
+| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter` |
 | `src/state.rs` | `AppState` and the `Link` to the server |
+| `src/transport.rs` | The `/ws` client: a `Link` to a server in another process |
+| `src/labels.rs`, `src/context.rs`, `src/markdown.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts` |
 | `src/theme.rs` | `app.css`'s tokens, light and dark; text sizes and radii |
 | `src/icons.rs` | The embedded Lucide icons and logos, and the asset source |
 | `src/components.rs` | Small shared elements (logo, header button, placeholder) |
@@ -43,9 +45,17 @@ server ──LinkEvent──▶ AppState (Entity) ──notify──▶ views re
 - The server owns the state. `AppState` holds only what the server sent; a view never changes
   it to "predict" an answer. A rule enforced only in the window isn't enforced.
 - `Link::pair()` makes the two ends. `run` takes the window's end; the server (or a test) holds
-  `ServerEnd`. Over `/ws` to another computer, a socket task feeds the same channels.
-- `ServerMessage` and `ClientMessage` in `state.rs` are stand-ins until `crates/protocol` has the
-  `/ws` types: replace them with a re-export and fill in `AppState::apply`.
+  `ServerEnd` and sends `LinkEvent::Connected`, then `Message(ServerMessage::Snapshot)`.
+- `transport::connect(url, Auth)` is the other way to get a `Link`: a WebSocket to a server's
+  `/ws` on its own thread (tokio), reconnecting every second like the browser. `Auth::Local` for
+  a server on this computer (no token: it lets in a loopback Host with no Origin);
+  `Auth::Bearer(session)` for a Linker Connect session, ended with `LinkEvent::SignedOut` on a 401.
+- `AppState` holds `app: Option<protocol::AppState>` (the snapshot with its patches applied),
+  `connected`, the history, project file, library and library view panels ask for, and toasts.
+  It derives what +page.svelte does: `project()`, `thread()`, `collection()`, `chat_title()`,
+  `rendering()`, `can_send(draft)`, `start_blocked()`, `resolve_busy()`, `history_entries()`,
+  `project_file_in_view()`. `browse_folders(path)` answers the folder picker. A message the
+  server refused comes as `AppEvent::Refused` (subscribe to it).
 - State that is only the window's business (which panel is open, a draft, a scroll position, a
   search query) lives in the view that shows it, like the Svelte components' `$state`.
 
@@ -69,7 +79,8 @@ server ──LinkEvent──▶ AppState (Entity) ──notify──▶ views re
   `.text_sm()` sets only the size). The root is `text-sm` in the system font.
 - Radii: `.rounded(theme.radius.md)`; gpui's `rounded_sm()` is 2px, app.css's is 4px.
   `rounded_full()` is fine.
-- Spacing: gpui's `px_2`, `gap_1p5`, `h_8`… are Tailwind's (0.25rem steps), so copy them.
+- Spacing: gpui's `px_2`, `gap_1p5`, `h_8`… are Tailwind's (0.25rem steps), so copy them. The rem is
+  16px as in the browser (`theme.rs` sets gpui-component's font size, which its Root makes the rem).
 - Light or dark follows the OS; `LINKER_EDIT_THEME=light|dark` forces one. gpui-component's
   own theme is pointed at our tokens, so its controls match.
 
@@ -105,3 +116,10 @@ To look at it: `cargo run -p linker-edit` with `LINKER_EDIT_CONFIG` pointing at 
 own (it also names the single-instance lock, so your copy doesn't hand over to someone
 else's), and `LINKER_EDIT_THEME` to pick light or dark. A visual change gets before/after
 screenshots.
+
+Until crates/server runs in the binary, `LINKER_EDIT_SERVER_URL=http://127.0.0.1:<port>` (dev only)
+opens the window on a server already running, such as the TypeScript one started with its own
+`LINKER_EDIT_CONFIG` (a `port`, temp folders, `"resolveMcp": ""` to keep Resolve out, and a
+`settings.json` beside it with `"resolveHere": false` so it doesn't download the speech engine)
+and `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl` to replay a recorded turn
+instead of calling Claude. `LINKER_EDIT_SERVER_TOKEN` sends a Linker Connect session as Bearer.

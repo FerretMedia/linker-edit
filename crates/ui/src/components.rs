@@ -56,6 +56,9 @@ pub struct HeaderButton {
     icon: IconName,
     label: SharedString,
     pressed: bool,
+    /// A small dot after the label, such as Preview's while Resolve renders.
+    dot: bool,
+    tooltip: Option<SharedString>,
     on_click: Option<OnClick>,
 }
 
@@ -66,8 +69,20 @@ impl HeaderButton {
             icon,
             label: label.into(),
             pressed: false,
+            dot: false,
+            tooltip: None,
             on_click: None,
         }
+    }
+
+    pub fn dot(mut self, dot: bool) -> Self {
+        self.dot = dot;
+        self
+    }
+
+    pub fn tooltip(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(text.into());
+        self
     }
 
     pub fn pressed(mut self, pressed: bool) -> Self {
@@ -107,6 +122,14 @@ impl RenderOnce for HeaderButton {
             })
             .child(Icon::new(self.icon).size(px(14.)))
             .child(self.label)
+            .when(self.dot, |this| {
+                this.child(div().size_1p5().rounded_full().bg(theme.primary))
+            })
+            .when_some(self.tooltip, |this, text| {
+                this.tooltip(move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+                })
+            })
             .when_some(self.on_click, |this, f| this.on_click(f))
             .test_support()
     }

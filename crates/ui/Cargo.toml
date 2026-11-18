@@ -17,11 +17,25 @@ license.workspace = true
 #   and look at the window on Windows. Licenses: all Apache-2.0, icons ISC (see NOTICE).
 [dependencies]
 gpui-kit = "=0.10.0"
+linker-edit-protocol.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+# Tool inputs keep the agent's key order when shown, as JSON.stringify does (the workspace's preserve_order).
+serde_json.workspace = true
 # The link to the server is a pair of channels; GPUI awaits them on its own executor.
 futures = "0.3"
 # Single instance: a local socket (named pipe on Windows) the first copy listens on.
 interprocess = "2"
+# Only to turn the agent's soft line breaks into hard ones and images into their alt text before
+# gpui-component's markdown view draws it, as marked does with `breaks: true` (see markdown.rs).
+pulldown-cmark = { version = "0.13", default-features = false }
+# The `/ws` client for another computer's server (transport.rs): its own thread with a small tokio
+# runtime, feeding the same channels as `Link::pair()`. wss for Linker Connect goes through rustls
+# with the OS's roots; ring is installed as the provider explicitly, so it works whichever other
+# provider (reqwest's aws-lc-rs) the binary also links.
+tokio = { workspace = true }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [target.'cfg(windows)'.dependencies]
 # Lets the first copy's window come to the front when a second copy hands over.
