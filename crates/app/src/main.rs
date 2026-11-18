@@ -14,10 +14,10 @@ fn main() -> anyhow::Result<()> {
     // `Authorization: Bearer`; without it the server must be on this computer.
     if let Ok(url) = std::env::var("LINKER_EDIT_SERVER_URL") {
         let auth = std::env::var("LINKER_EDIT_SERVER_TOKEN").map_or(Auth::Local, Auth::Bearer);
-        return linker_edit_ui::run(transport::connect(&url, auth)?);
+        return linker_edit_ui::run(transport::connect(&url, auth)?, Some(url));
     }
     // Otherwise the window gets a link nobody answers; it shows "Connecting…" and waits. The
     // server's end stays alive so the window doesn't see the link close.
     let (link, _server_end) = linker_edit_ui::Link::pair();
-    linker_edit_ui::run(link)
+    linker_edit_ui::run(link, None)
 }

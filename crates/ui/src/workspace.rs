@@ -4,9 +4,9 @@
 //! from [`AppState`].
 
 use gpui::{
-    AnyElement, AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, prelude::FluentBuilder, px,
+    AnyElement, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
+    IntoElement, KeyDownEvent, ModifiersChangedEvent, ParentElement, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Icon;
@@ -16,26 +16,46 @@ use crate::components::HeaderButton;
 use crate::icons::IconName;
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme, root_text};
-use crate::views::{Chat, ChatEvent, Panel, SidePanel, Sidebar};
+use crate::views::add_project::{AddProjectDialog, DialogClosed};
+use crate::views::project_settings::ProjectSettingsDialog;
+use crate::views::{Chat, ChatEvent, Panel, SidePanel, Sidebar, SidebarEvent};
 use crate::window::{WindowControls, no_drag, title_bar};
+
+/// A dialog over the window (+page.svelte's `dialog`).
+pub enum OpenDialog {
+    AddProject(Entity<AddProjectDialog>),
+    ProjectSettings(Entity<ProjectSettingsDialog>),
+}
 
 pub struct Workspace {
     state: Entity<AppState>,
     sidebar: Entity<Sidebar>,
     chat: Entity<Chat>,
     panel: Option<Panel>,
+    dialog: Option<(OpenDialog, Subscription)>,
+    /// Holds the focus when nothing else does, so the sidebar's shortcuts work.
+    focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl Workspace {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let chat = cx.new(|cx| Chat::new(state.clone(), window, cx));
+        let sidebar = cx.new(|cx| Sidebar::new(state.clone(), window, cx));
         let subscriptions = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
-            // The add-project dialog (AddProjectDialog.svelte) opens here once it is ported.
-            cx.subscribe(&chat, |_, _, event: &ChatEvent, _| match event {
-                ChatEvent::AddProject => {}
-            }),
+            cx.subscribe_in(
+                &chat,
+                window,
+                |this, _, event: &ChatEvent, window, cx| match event {
+                    ChatEvent::AddProject => this.add_project(window, cx),
+                },
+            ),
+            cx.subscribe_in(
+                &sidebar,
+                window,
+                |this, _, event: &SidebarEvent, window, cx| this.sidebar_event(event, window, cx),
+            ),
             // The user may have switched projects in Resolve meanwhile.
             cx.observe_window_activation(window, |this, window, cx| {
                 let state = this.state.read(cx);
@@ -44,13 +64,90 @@ impl Workspace {
                 }
             }),
         ];
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
         Workspace {
-            sidebar: cx.new(|cx| Sidebar::new(state.clone(), cx)),
+            sidebar,
             chat,
             state,
             panel: None,
+            dialog: None,
+            focus,
             _subscriptions: subscriptions,
         }
+    }
+
+    pub fn sidebar(&self) -> &Entity<Sidebar> {
+        &self.sidebar
+    }
+
+    pub fn dialog(&self) -> Option<&OpenDialog> {
+        self.dialog.as_ref().map(|(dialog, _)| dialog)
+    }
+
+    fn sidebar_event(&mut self, event: &SidebarEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            SidebarEvent::NewThread(project_id) => {
+                self.state.read(cx).send(ClientMessage::NewThread {
+                    project_id: project_id.clone(),
+                });
+                self.chat.update(cx, |chat, cx| {
+                    chat.composer()
+                        .update(cx, |composer, cx| composer.focus(window, cx))
+                });
+            }
+            SidebarEvent::AddProject => self.add_project(window, cx),
+            SidebarEvent::ProjectSettings(project_id) => {
+                let state = self.state.clone();
+                let project_id = project_id.clone();
+                let dialog = cx.new(|cx| ProjectSettingsDialog::new(state, project_id, window, cx));
+                let subscription =
+                    cx.subscribe_in(&dialog, window, |this, _, _: &DialogClosed, window, cx| {
+                        this.close_dialog(window, cx)
+                    });
+                self.dialog = Some((OpenDialog::ProjectSettings(dialog), subscription));
+                cx.notify();
+            }
+            // The settings page (SettingsPage.svelte) opens here: at its general section, or at
+            // remote access for the computer menu's "Remote access…".
+            SidebarEvent::Settings | SidebarEvent::RemoteAccess => {}
+        }
+    }
+
+    /// AddProjectDialog.svelte.
+    pub fn add_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let dialog = cx.new(|cx| AddProjectDialog::new(state, window, cx));
+        let subscription =
+            cx.subscribe_in(&dialog, window, |this, _, _: &DialogClosed, window, cx| {
+                this.close_dialog(window, cx)
+            });
+        self.dialog = Some((OpenDialog::AddProject(dialog), subscription));
+        cx.notify();
+    }
+
+    fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dialog = None;
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// The sidebar's shortcuts (T3 Code's), except while a dialog is open.
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some() {
+            return;
+        }
+        if self
+            .sidebar
+            .update(cx, |sidebar, cx| sidebar.on_key_down(event, window, cx))
+        {
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_modifiers_changed(&mut self, event: &ModifiersChangedEvent, cx: &mut Context<Self>) {
+        self.sidebar
+            .update(cx, |sidebar, cx| sidebar.on_modifiers_changed(event, cx));
     }
 
     pub fn panel(&self) -> Option<Panel> {
@@ -250,8 +347,17 @@ impl Render for Workspace {
             })
             .child(self.chat.clone());
 
+        let dialog = self.dialog.as_ref().map(|(dialog, _)| match dialog {
+            OpenDialog::AddProject(dialog) => dialog.clone().into_any_element(),
+            OpenDialog::ProjectSettings(dialog) => dialog.clone().into_any_element(),
+        });
         root_text(div(), &theme)
             .id("workspace")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event, window, cx| this.on_key_down(event, window, cx)))
+            .on_modifiers_changed(
+                cx.listener(|this, event, _, cx| this.on_modifiers_changed(event, cx)),
+            )
             .relative()
             .flex()
             .flex_row()
@@ -268,6 +374,7 @@ impl Render for Workspace {
                     }),
                 ))
             })
+            .children(dialog)
             .child(WindowControls)
             .children(toasts)
             .test_support()

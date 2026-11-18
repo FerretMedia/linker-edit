@@ -29,6 +29,8 @@ interprocess = "2"
 # Only to turn the agent's soft line breaks into hard ones and images into their alt text before
 # gpui-component's markdown view draws it, as marked does with `breaks: true` (see markdown.rs).
 pulldown-cmark = { version = "0.13", default-features = false }
+# The sidebar's search folds accents away, as sidebar.ts does with NFKD.
+unicode-normalization = "0.1"
 # The `/ws` client for another computer's server (transport.rs): its own thread with a small tokio
 # runtime, feeding the same channels as `Link::pair()`. wss for Linker Connect goes through rustls
 # with the OS's roots; ring is installed as the provider explicitly, so it works whichever other
@@ -36,6 +38,10 @@ pulldown-cmark = { version = "0.13", default-features = false }
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The computer menu asks this computer's server for the user's other computers, and a Linker
+# Connect computer for a session (computer_picker.rs): a few requests, blocking, off the UI thread.
+reqwest = { workspace = true, features = ["blocking"] }
+serde = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 # Lets the first copy's window come to the front when a second copy hands over.

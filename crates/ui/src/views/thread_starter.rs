@@ -2,8 +2,8 @@
 //! question: a setup thread's example videos, or the footage of a video it edits on its own. It
 //! writes the first message for the user, as +page.svelte's `start` does.
 //!
-//! The folders are typed paths on the server's computer. FolderPicker.svelte's listing of the
-//! folders as you type is the add-project dialog's too, and comes with it.
+//! The folders are paths on the server's computer, picked with the folder picker, which lists
+//! them as you type while its field has the focus.
 
 use gpui::{
     AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -11,12 +11,14 @@ use gpui::{
     px,
 };
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::component::tooltip::Tooltip;
 use linker_edit_protocol::ClientMessage;
 
+use crate::browse_path::trim_separators;
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme};
+use crate::views::folder_picker::{FolderPicker, FolderPickerEvent};
 
 /// Which starter, for which workspace or series.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,7 +33,7 @@ struct Field {
     label: &'static str,
     hint: &'static str,
     required: bool,
-    input: Entity<InputState>,
+    picker: Entity<FolderPicker>,
 }
 
 pub struct ThreadStarter {
@@ -71,13 +73,15 @@ impl ThreadStarter {
         let fields = specs
             .iter()
             .map(|(label, hint, required)| {
-                let input = cx.new(|cx| InputState::new(window, cx));
-                subscriptions.push(cx.subscribe(&input, |_, _, _: &InputEvent, cx| cx.notify()));
+                let state = state.clone();
+                let picker = cx.new(|cx| FolderPicker::new(state, *label, true, window, cx));
+                subscriptions
+                    .push(cx.subscribe(&picker, |_, _, _: &FolderPickerEvent, cx| cx.notify()));
                 Field {
                     label,
                     hint,
                     required: *required,
-                    input,
+                    picker,
                 }
             })
             .collect();
@@ -108,14 +112,14 @@ impl ThreadStarter {
     fn folders(&self, cx: &gpui::App) -> Vec<String> {
         self.fields
             .iter()
-            .map(|field| trim_separators(&field.input.read(cx).value()))
+            .map(|field| trim_separators(&field.picker.read(cx).value(cx)))
             .collect()
     }
 
     fn missing(&self, cx: &gpui::App) -> bool {
         self.fields
             .iter()
-            .any(|field| field.required && field.input.read(cx).value().trim().is_empty())
+            .any(|field| field.required && field.picker.read(cx).value(cx).trim().is_empty())
     }
 
     /// The first message, from the folders picked and the notes.
@@ -199,7 +203,7 @@ impl Render for ThreadStarter {
                         .child(field.label)
                         .when(!field.required, |this| this.child(optional(&theme))),
                 )
-                .child(Input::new(&field.input))
+                .child(field.picker.clone())
                 .child(
                     div()
                         .text_token(TextSize::Xs)
@@ -310,36 +314,5 @@ impl Render for ThreadStarter {
                     ),
             )
             .test_support()
-    }
-}
-
-/// Without trailing separators, except for a root such as C:\ or /, which needs one
-/// (browsePath.ts's trimSeparators).
-pub fn trim_separators(value: &str) -> String {
-    let trimmed = value.trim();
-    let stripped = trimmed.trim_end_matches(['\\', '/']);
-    if stripped.is_empty() {
-        return trimmed.chars().next().map(String::from).unwrap_or_default();
-    }
-    let bytes = stripped.as_bytes();
-    if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-        return format!("{stripped}\\");
-    }
-    stripped.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // browsePath.test.ts
-    #[test]
-    fn trims_trailing_separators_but_keeps_a_root() {
-        assert_eq!(trim_separators("C:\\Users\\jarno\\"), "C:\\Users\\jarno");
-        assert_eq!(trim_separators("C:\\"), "C:\\");
-        assert_eq!(trim_separators("C:"), "C:\\");
-        assert_eq!(trim_separators("/"), "/");
-        assert_eq!(trim_separators(" /media/ "), "/media");
-        assert_eq!(trim_separators(""), "");
     }
 }
