@@ -1,16 +1,16 @@
 // Linker-Edit's Resolve scripts, run in this computer's Python against a stand-in Resolve
-// (fixtures/DaVinciResolveScript.py), the way Resolve's run_script runs them.
+// (crates/server/src/resolve/fixtures/DaVinciResolveScript.py), the way Resolve's run_script runs them.
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readResolveSnapshot } from "../history/history.ts";
-import { ResolveError } from "./connection.ts";
-import { hasPython, pythonConnection } from "./testing.ts";
+import { ResolveError, SCRIPTS_DIR } from "./connection.ts";
+import { FAKE_RESOLVE_MODULE, hasPython, pythonConnection } from "./testing.ts";
 import { NODE_TOOLS } from "./run.ts";
 import { RESOLVE_TOOLS } from "./tools.ts";
 
-const FAKE = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "DaVinciResolveScript.py"), "utf8");
+const FAKE = FAKE_RESOLVE_MODULE;
 
 const clip = (start: number, end: number, id: string, media = "m1") => ({ id, name: `${media}.mov`, start, end, source_start: 100, source_end: 100 + end - start, media });
 
@@ -54,7 +54,7 @@ const refusal = (promise: Promise<unknown>) =>
 // The agent's run_script is held to the same rule by server/policy.ts.
 describe("Blackmagic Cloud", () => {
   it("is never used by a Resolve script", () => {
-    const dir = path.join(import.meta.dirname, "scripts");
+    const dir = SCRIPTS_DIR;
     for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".py"))) {
       expect(fs.readFileSync(path.join(dir, file), "utf8"), file).not.toMatch(/Cloud\w*Project|CLOUD_/);
     }
@@ -64,7 +64,7 @@ describe("Blackmagic Cloud", () => {
 describe.skipIf(!hasPython)("Resolve scripts", () => {
   it("has a script or a Node handler for every tool", () => {
     for (const tool of RESOLVE_TOOLS) {
-      const script = fs.existsSync(path.join(import.meta.dirname, "scripts", `tool_${tool.name}.py`));
+      const script = fs.existsSync(path.join(SCRIPTS_DIR, `tool_${tool.name}.py`));
       expect(script || NODE_TOOLS.has(tool.name), tool.name).toBe(true);
     }
   });

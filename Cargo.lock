@@ -4344,13 +4344,19 @@ name = "linker-edit-server"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "chrono",
  "getrandom 0.3.4",
+ "indexmap",
  "linker-edit-protocol",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 

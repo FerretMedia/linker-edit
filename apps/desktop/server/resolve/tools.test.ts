@@ -1,5 +1,5 @@
 // Linker-Edit's Resolve tools end to end: the Node side, Resolve's side as real Python against a stand-in
-// Resolve (fixtures/DaVinciResolveScript.py), and ffmpeg on generated media.
+// Resolve (crates/server/src/resolve/fixtures/DaVinciResolveScript.py), and ffmpeg on generated media.
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -9,9 +9,9 @@ import { findFfmpeg } from "../transcribe/tools.ts";
 import { ResolveError } from "./connection.ts";
 import { parseSilences } from "./media.ts";
 import { runResolveTool, type ToolContext } from "./run.ts";
-import { hasPython, pythonConnection } from "./testing.ts";
+import { FAKE_RESOLVE_MODULE, hasPython, pythonConnection } from "./testing.ts";
 
-const FAKE = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "DaVinciResolveScript.py"), "utf8");
+const FAKE = FAKE_RESOLVE_MODULE;
 
 const STATE = {
   project: {

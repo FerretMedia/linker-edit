@@ -317,7 +317,7 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 
 ## Testing
 
-- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`apps/desktop/server/resolve/scripts`) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
+- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`crates/server/src/resolve/scripts`; `cargo test -p linker-edit-server` runs them too) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
 - `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.

@@ -46,8 +46,11 @@ for (const built of ["build/index.html", "dist/desktop.js", "dist/linker-edit.js
 console.log(`Staging Linker-Edit ${releaseName(pkg.version)} in ${STAGE}`);
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.rmSync(OUT, { recursive: true, force: true });
-const files = ["build", "dist", "desktop/preload.cjs", ...fs.globSync("server/resolve/scripts/*.py", { cwd: ROOT })];
+const files = ["build", "dist", "desktop/preload.cjs"];
 for (const file of files) fs.cpSync(path.join(ROOT, file), path.join(STAGE, file), { recursive: true });
+// The Resolve scripts live with the Rust server; the app reads its copy in resolve-scripts/.
+const scripts = path.join(REPO, "crates", "server", "src", "resolve", "scripts");
+for (const file of fs.globSync("*.py", { cwd: scripts })) fs.cpSync(path.join(scripts, file), path.join(STAGE, "resolve-scripts", file));
 for (const file of ["NOTICE", "LICENSE"]) fs.copyFileSync(path.join(REPO, file), path.join(STAGE, file));
 
 const { electron: _, ...dependencies } = pkg.dependencies;
