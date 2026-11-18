@@ -547,6 +547,8 @@ export type ServerMessage =
   | LibraryServerMessage
   | { type: "snapshot"; state: AppState }
   | { type: "meta"; meta: AppMeta }
+  /** Only the meta fields that changed, for clients that asked for patches (/ws?meta=patch). */
+  | { type: "meta_patch"; meta: Partial<AppMeta> }
   | { type: "item"; threadId: string; item: ChatItem }
   | { type: "history"; projectId: string; entries: HistoryEntry[] }
   /** A project's PROJECT.md: on request, after a save, and after each turn in the project. file is its path. */

@@ -464,7 +464,10 @@ export function createServer(
         if (sockets.size === 0) bySession.delete(session);
       });
     }
-    const client = { send: (data: string) => socket.send(data) };
+    const client = {
+      send: (data: string) => socket.send(data),
+      metaPatches: new URL(req.url ?? "/", "http://localhost").searchParams.get("meta") === "patch",
+    };
     const disconnect = app.connect(client);
     socket.on("message", (data) => {
       try {

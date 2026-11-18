@@ -33,7 +33,7 @@ class ServerConnection {
 
   connect() {
     if (this.#socket && this.#socket.readyState !== WebSocket.CLOSED) return;
-    const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?meta=patch`);
     this.#socket = socket;
     socket.onopen = () => (this.connected = true);
     socket.onclose = () => {

@@ -121,6 +121,8 @@ const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Code
 
 export interface Client {
   send(data: string): void;
+  /** It applies "meta_patch" messages. The iPad app and pages of older releases don't, so they get whole metas. */
+  metaPatches?: boolean;
 }
 
 export type App = ReturnType<typeof createApp>;
@@ -386,11 +388,25 @@ export function createApp(options: AppOptions) {
     return refusal ? { message: refusal, canOpen: !!project.saved.link && !!options.resolveProjects } : null;
   }
 
-  function metaFor(threadId: string | null): AppMeta {
+  /** The parts of the meta that are the same for every client, worked out once per broadcast. */
+  function sharedMeta() {
+    return {
+      projects: summaries(),
+      appUpdate: options.appUpdates?.status() ?? null,
+      transcription: options.transcriber?.status() ?? { state: "idle" },
+      remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
+      connect: options.connect?.status() ?? NO_CONNECT,
+      computer: os.hostname(),
+      linker: options.linker?.status() ?? { state: "signed_out", problem: null },
+      collections: collections.summaries(),
+    } satisfies Partial<AppMeta>;
+  }
+
+  function metaFor(threadId: string | null, shared = sharedMeta()): AppMeta {
     const entry = threadId ? threads.get(threadId) : undefined;
     const project = entry ? projects.get(entry.projectId) : undefined;
     return {
-      projects: summaries(),
+      projects: shared.projects,
       threadId: entry ? threadId : null,
       projectId: entry?.projectId ?? null,
       provider: entry?.thread.provider ?? lastProvider,
@@ -402,20 +418,20 @@ export function createApp(options: AppOptions) {
       resolveHere,
       version: options.version,
       update,
-      appUpdate: options.appUpdates?.status() ?? null,
+      appUpdate: shared.appUpdate,
       workspaceDir: project?.saved.dir ?? null,
       preview: previewProject === (entry?.projectId ?? null) ? preview : { state: "idle" },
       context: entry?.thread.context ?? null,
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
       opening,
       applying,
-      transcription: options.transcriber?.status() ?? { state: "idle" },
-      remote: options.remote?.status() ?? { state: "unavailable", hint: "Remote access isn't available in this build." },
-      connect: options.connect?.status() ?? NO_CONNECT,
-      computer: os.hostname(),
+      transcription: shared.transcription,
+      remote: shared.remote,
+      connect: shared.connect,
+      computer: shared.computer,
       setup: options.setup ?? null,
-      linker: options.linker?.status() ?? { state: "signed_out", problem: null },
-      collections: collections.summaries(),
+      linker: shared.linker,
+      collections: shared.collections,
     };
   }
 
@@ -423,8 +439,42 @@ export function createApp(options: AppOptions) {
     client.send(JSON.stringify(message));
   }
 
+  // Each client's meta as last sent, field by field as JSON: a meta goes out only when something in it changed,
+  // and a client that takes patches gets only the fields that did. The project list is most of a meta's size,
+  // and a turn changes the rest (busy, context, approvals) many times without touching it.
+  const sentMeta = new Map<Client, Map<string, string>>();
+
+  /** The meta's fields as JSON; a value shared by several clients' metas is serialized once. */
+  function metaFields(meta: AppMeta, cache: Map<unknown, string>): Map<string, string> {
+    const fields = new Map<string, string>();
+    for (const [key, value] of Object.entries(meta)) {
+      if (value === undefined) continue;
+      let json = typeof value === "object" && value !== null ? cache.get(value) : undefined;
+      if (json === undefined) {
+        json = JSON.stringify(value);
+        if (typeof value === "object" && value !== null) cache.set(value, json);
+      }
+      fields.set(key, json);
+    }
+    return fields;
+  }
+
+  const jsonObject = (fields: Iterable<[string, string]>) => `{${[...fields].map(([key, json]) => `${JSON.stringify(key)}:${json}`).join(",")}}`;
+
   function sendMeta() {
-    for (const [client, view] of clients) send(client, { type: "meta", meta: metaFor(view.threadId) });
+    if (clients.size === 0) return;
+    const shared = sharedMeta();
+    const cache = new Map<unknown, string>();
+    for (const [client, view] of clients) {
+      const fields = metaFields(metaFor(view.threadId, shared), cache);
+      const last = sentMeta.get(client);
+      const changed = [...fields].filter(([key, json]) => last?.get(key) !== json);
+      if (last && changed.length === 0) continue;
+      sentMeta.set(client, fields);
+      // The iPad app and pages of older releases replace their whole meta with each one.
+      if (last && client.metaPatches) client.send(`{"type":"meta_patch","meta":${jsonObject(changed)}}`);
+      else client.send(`{"type":"meta","meta":${jsonObject(fields)}}`);
+    }
   }
   options.transcriber?.onStatus(sendMeta);
   options.remote?.onStatus(sendMeta);
@@ -436,7 +486,9 @@ export function createApp(options: AppOptions) {
     const view = clients.get(client);
     if (!view) return;
     const items = view.threadId ? (threads.get(view.threadId)?.thread.items ?? []) : [];
-    send(client, { type: "snapshot", state: { ...metaFor(view.threadId), items } });
+    const fields = metaFields(metaFor(view.threadId), new Map());
+    sentMeta.set(client, fields);
+    client.send(`{"type":"snapshot","state":${jsonObject([...fields, ["items", JSON.stringify(items)]])}}`);
   }
 
   function sendItem(threadId: string, item: ChatItem) {
@@ -1244,6 +1296,7 @@ export function createApp(options: AppOptions) {
       sendSnapshot(client);
       return () => {
         clients.delete(client);
+        sentMeta.delete(client);
         libraryViews.delete(client);
       };
     },
