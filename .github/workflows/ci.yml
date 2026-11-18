@@ -15,40 +15,46 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-jobs:
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
+env:
+  CARGO_TERM_COLOR: always
+  # No incremental build in CI: it only makes the caches bigger.
+  CARGO_INCREMENTAL: 0
+  # What the GPUI window (gpui-pre 0.3.12: X11, Wayland, fonts, Vulkan) and the sound (cpal: ALSA) build against.
+  LINUX_LIBS: libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libvulkan1
 
-  # Windows too: it's where most Resolve users are, and where path handling breaks.
-  test:
-    name: Test (${{ matrix.os }})
+jobs:
+  # Windows too: it's where most Resolve users are, and where path handling breaks. macOS builds the window on Metal.
+  rust:
+    name: Rust (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
+      # The media tests use the ffmpeg npm puts in node_modules (ffmpeg-static), and the Svelte build is served.
       - run: npm ci
-      - run: npm test
+      - run: npm run build
+      - name: Install the window's and sound's Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && echo "$LINUX_LIBS" | xargs sudo apt-get install -y --no-install-recommends
+      # rust-toolchain.toml picks the toolchain; rustup installs it on first use.
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
 
-  e2e:
-    name: E2E
+  # The browser UI: its types (protocol.ts included), its unit tests and the release scripts'.
+  web:
+    name: Svelte UI
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -58,6 +64,26 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - uses: Swatinem/rust-cache@v2
+      # apps/desktop/shared/protocol.ts is generated from crates/protocol; this fails when it's stale.
+      - run: cargo test -p linker-edit-protocol --test typescript --locked
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install the window's and sound's Linux libraries
+        run: sudo apt-get update && echo "$LINUX_LIBS" | xargs sudo apt-get install -y --no-install-recommends
+      - uses: Swatinem/rust-cache@v2
       - name: Resolve Playwright version
         id: playwright
         run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
@@ -68,6 +94,7 @@ jobs:
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       # Downloads Chromium only on a cache miss; the system libraries it needs always install.
       - run: npx playwright install --with-deps chromium
+      # Playwright builds the UI and the Rust binary, then drives it.
       - run: npm run test:e2e
       - name: Upload the Playwright report
         if: failure()
@@ -79,11 +106,12 @@ jobs:
             apps/desktop/test-results/
           retention-days: 7
 
-  # Installs the npm package the way users get it and starts it, so a broken bundle or a missing file never ships.
+  # Builds the npm packages as the release does, installs them the way users get them and starts them, so a
+  # broken launcher or a missing program never ships.
   package:
     name: Package
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -91,72 +119,97 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Install the window's and sound's Linux libraries
+        run: sudo apt-get update && echo "$LINUX_LIBS" | xargs sudo apt-get install -y --no-install-recommends
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
       - run: npm run build
-      # The npm package is the desktop workspace; the tarball lands here, at the root.
-      - run: npm pack -w apps/desktop
-      - name: Install and start the package
+      - run: cargo build --release --locked -p linker-edit
+      # The binary with claude, codex and ffmpeg next to it, then @linker-edit/linux-x64 and the linker-edit launcher.
+      - run: node scripts/package.ts app && node scripts/package.ts npm && node scripts/package.ts launcher
+        working-directory: apps/desktop
+      - name: Install and start the packages
         run: |
           app="$RUNNER_TEMP/app"
           mkdir -p "$app"
           # No Resolve here: the app starts anyway, and its status says Resolve Studio is missing.
           cat > "$RUNNER_TEMP/config.json" <<EOF
-          { "port": 4390, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects" }
+          { "port": 4390, "resolveMcp": "", "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "toolsDir": "$RUNNER_TEMP/tools" }
           EOF
+          echo '{ "resolveHere": false }' > "$RUNNER_TEMP/settings.json"
           cd "$app"
           npm init -y > /dev/null
-          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/linker-edit-*.tgz
+          # The other platforms' packages aren't on npm for a checkout's 0.0.0; npm skips optional ones it can't get.
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE"/release/npm/linker-edit-0*.tgz "$GITHUB_WORKSPACE"/release/npm/linker-edit-linux-x64-*.tgz
           npx linker-edit --version
-          # Agents start the "linker" MCP server from the package's own bundle.
-          tools=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node node_modules/linker-edit/dist/linker-mcp.js)
+          # The programs it runs are there, and npm kept them executable.
+          for program in linker-edit claude ffmpeg codex/bin/codex; do
+            test -x "node_modules/@linker-edit/linux-x64/bin/$program"
+          done
+          # Agents start the "linker" MCP server with the app's own binary.
+          tools=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | npx linker-edit mcp)
           echo "$tools" | grep -q '"transcribe"'
           echo "$tools" | grep -q '"create_timeline"'
-          # The Resolve scripts ship in the package, where the server reads them.
-          test -f node_modules/linker-edit/resolve-scripts/tool_add_clips.py
-          # No display here for the app window, so it uses the browser path.
-          LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" npx linker-edit --browser > "$RUNNER_TEMP/server.log" 2>&1 &
+          LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" npx linker-edit serve > "$RUNNER_TEMP/server.log" 2>&1 &
           server=$!
           curl --silent --fail --retry 30 --retry-delay 1 --retry-all-errors http://127.0.0.1:4390/ | grep -q "<html" || { cat "$RUNNER_TEMP/server.log"; exit 1; }
           kill "$server"
           cat "$RUNNER_TEMP/server.log"
 
-  # Builds the Linux desktop app the way releases do and starts it, so a missing file or a helper process
-  # that can't run inside the app is caught before a release. Release builds the installers for every platform.
+  # Packs the Linux desktop app with Velopack the way releases do and starts it, then tries an update from a feed
+  # on the runner. Release builds the installers for every platform.
   desktop:
     name: Desktop app
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      # The same vpk as the velopack crate in crates/app.
+      - run: dotnet tool install -g vpk --version 1.2.161
       - run: npm ci
+      - name: Install the window's and sound's Linux libraries, a display, FUSE for the AppImage and a software GPU
+        run: sudo apt-get update && echo "$LINUX_LIBS xvfb libfuse2t64 mesa-vulkan-drivers libegl1 libgl1-mesa-dri" | xargs sudo apt-get install -y --no-install-recommends
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      # vpk wants a release version; this one is made the way the release workflow makes it.
+      - name: Stamp a version
+        working-directory: apps/desktop
+        run: node scripts/stamp-version.ts "$(node scripts/release-version.ts | sed -n 's/^version=//p')"
       - run: npm run build
-      - run: node scripts/build-desktop.ts --dir
+      - run: cargo build --release --locked -p linker-edit
+      - run: node scripts/package.ts app && node scripts/package.ts installer
         working-directory: apps/desktop
       - name: Start the app
-        working-directory: apps/desktop
         run: |
-          app=release/linux-unpacked/linker-edit
-          cat > "$RUNNER_TEMP/config.json" <<EOF
-          { "port": 4391, "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects" }
+          appimage=release/velopack/Linker-Edit-linux-x64.AppImage
+          mkdir -p "$RUNNER_TEMP/data"
+          cat > "$RUNNER_TEMP/data/linker-edit.config.json" <<EOF
+          { "port": 4391, "resolveMcp": "", "workspaceDir": "$RUNNER_TEMP/workspace", "projectsDir": "$RUNNER_TEMP/projects", "toolsDir": "$RUNNER_TEMP/tools" }
           EOF
-          # Agents start the "linker" MCP server with the app's own binary, run as Node.
-          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ELECTRON_RUN_AS_NODE=1 "$app" release/linux-unpacked/resources/app/dist/linker-mcp.js | grep -q '"create_timeline"'
-          test -f release/linux-unpacked/resources/app/resolve-scripts/tool_add_clips.py
-          # No setuid sandbox helper in an unpacked build, and no display without xvfb.
-          LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" xvfb-run -a "$app" --no-sandbox > "$RUNNER_TEMP/app.log" 2>&1 &
+          echo '{ "resolveHere": false }' > "$RUNNER_TEMP/data/settings.json"
+          # Agents start the "linker" MCP server with the app's own binary, which the AppImage carries.
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | release/app-linux-x64/linker-edit mcp | grep -q '"create_timeline"'
+          LINKER_EDIT_CONFIG="$RUNNER_TEMP/data/linker-edit.config.json" setsid xvfb-run -a "$appimage" > "$RUNNER_TEMP/app.log" 2>&1 &
+          app=$!
           curl --silent --fail --retry 60 --retry-delay 1 --retry-all-errors http://127.0.0.1:4391/ | grep -q "<html" || {
-            cat "$RUNNER_TEMP/app.log" ~/.config/Linker-Edit/logs/server.log
+            cat "$RUNNER_TEMP/app.log" "$RUNNER_TEMP/data/logs/linker-edit.log"
             exit 1
           }
-          cat ~/.config/Linker-Edit/logs/server.log
-          # The app lets one copy run at a time; the update test starts its own. Stopping xvfb-run leaves the app.
-          pkill -f release/linux-unpacked || true
-          for _ in $(seq 15); do pgrep -f release/linux-unpacked > /dev/null || break; sleep 1; done
-          pkill -9 -f release/linux-unpacked || true
-      # Downloads an update from a feed on the runner, restarts to install it, and checks the app stopped its server.
+          cat "$RUNNER_TEMP/data/logs/linker-edit.log"
+          # One copy runs per data folder, and the update test starts its own: stop this one, xvfb and all.
+          kill -- -"$app" || true
+          for _ in $(seq 15); do pgrep -f "$appimage" > /dev/null || break; sleep 1; done
+          pkill -9 -f "$appimage" || true
+      # Downloads an update from a feed on the runner, restarts into it, and checks the newer version came up.
       - name: Try updates
         working-directory: apps/desktop
         run: xvfb-run -a node scripts/update-smoke.ts
@@ -166,7 +219,7 @@ jobs:
   check:
     name: Check
     if: ${{ always() }}
-    needs: [typecheck, test, e2e, package, desktop]
+    needs: [rust, web, e2e, package, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

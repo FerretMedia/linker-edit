@@ -11,16 +11,25 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # What the GPUI window (gpui-pre 0.3.12) and the sound (cpal) build against on Linux; as in ci.yml.
+  LINUX_LIBS: libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libvulkan1
+
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  # Picks the version from today's date and the time. Nothing is tagged until every installer has built.
+  # Picks the version from today's date and the time, and writes the notes. Nothing is tagged until every build is done.
   version:
     name: Version
     needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      # GitHub's generate-notes asks for it; this job writes nothing.
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
       name: ${{ steps.version.outputs.name }}
@@ -37,10 +46,21 @@ jobs:
       - name: Pick the version
         id: version
         run: node apps/desktop/scripts/release-version.ts >> "$GITHUB_OUTPUT"
+      # The merged pull requests since the last release, which the installed apps show as what's new.
+      - name: Write the notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$NAME" -f target_commitish="$GITHUB_SHA" --jq .body > "$RUNNER_TEMP/notes.md"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes.md
+          retention-days: 7
 
-  # Each installer is built on its own platform: the agents' programs are installed per platform and architecture.
-  desktop:
-    name: Desktop (${{ matrix.name }})
+  # Each platform is built on its own: the binary, and the agents' programs and ffmpeg next to it, are per platform.
+  build:
+    name: Build (${{ matrix.name }})
     needs: version
     strategy:
       fail-fast: true
@@ -48,18 +68,21 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
-            artifact: windows-x64
+            target: win32-x64
           - name: macOS Apple silicon
             os: macos-latest
-            artifact: macos-arm64
+            target: darwin-arm64
           - name: macOS Intel
             os: macos-15-intel
-            artifact: macos-x64
+            target: darwin-x64
           - name: Linux x64
             os: ubuntu-latest
-            artifact: linux-x64
+            target: linux-x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
         with:
@@ -68,40 +91,90 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      # The same vpk as the velopack crate in crates/app.
+      - run: dotnet tool install -g vpk --version 1.2.161
+      - name: Install the window's and sound's Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && echo "$LINUX_LIBS" | xargs sudo apt-get install -y --no-install-recommends
       - run: npm ci
-      # The app is the apps/desktop workspace; only its package.json carries the version.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      # The Cargo workspace's version is the app's (CARGO_PKG_VERSION); the checkout keeps 0.0.0.
       - name: Stamp the version
-        run: npm version "${{ needs.version.outputs.version }}" --no-git-tag-version --no-workspaces-update -w apps/desktop
+        working-directory: apps/desktop
+        run: node scripts/stamp-version.ts "${{ needs.version.outputs.version }}"
+      # The Svelte UI, which the release binary carries inside it.
       - run: npm run build
+      - run: cargo build --release --locked -p linker-edit
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+          path: ${{ runner.temp }}
+      - name: Lay out the app
+        working-directory: apps/desktop
+        run: node scripts/package.ts app --target ${{ matrix.target }}
+      # Optional. Without the secrets, Windows builds are unsigned and Mac builds are signed ad hoc; see RELEASING.md.
       - name: Build the installer
         working-directory: apps/desktop
-        run: node scripts/build-desktop.ts
         env:
-          # Optional. Unset, Windows builds are unsigned and Mac builds are signed ad hoc; see RELEASING.md.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          signing=()
+          if [ -n "$CSC_LINK" ] && [ "$RUNNER_OS" = "Windows" ]; then
+            echo "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/certificate.pfx"
+            signing=(--signParams "/f \"$(cygpath -w "$RUNNER_TEMP/certificate.pfx")\" /p \"$CSC_KEY_PASSWORD\" /fd sha256 /tr http://timestamp.digicert.com /td sha256")
+          elif [ -n "$CSC_LINK" ] && [ "$RUNNER_OS" = "macOS" ]; then
+            keychain="$RUNNER_TEMP/signing.keychain-db"
+            security create-keychain -p "" "$keychain"
+            security set-keychain-settings "$keychain"
+            security unlock-keychain -p "" "$keychain"
+            echo "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+            security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain" > /dev/null
+            # The keychain goes first in the search list, before the ones already there.
+            # shellcheck disable=SC2046
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            identity() { security find-identity -v -p codesigning "$keychain" | grep -o "\"$1: [^\"]*\"" | head -1 | tr -d '"'; }
+            signing=(--keychain "$keychain" --signAppIdentity "$(identity "Developer ID Application")")
+            installer=$(security find-identity -v "$keychain" | grep -o '"Developer ID Installer: [^"]*"' | head -1 | tr -d '"')
+            if [ -n "$installer" ]; then signing+=(--signInstallIdentity "$installer"); fi
+            if [ -n "$APPLE_ID" ]; then
+              xcrun notarytool store-credentials linker-edit --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --keychain "$keychain"
+              signing+=(--notaryProfile linker-edit)
+            fi
+          fi
+          node scripts/package.ts installer --target ${{ matrix.target }} --notes "$RUNNER_TEMP/notes.md" -- "${signing[@]}"
+      # @linker-edit/<platform>, the npm package with this build in it.
+      - name: Pack the npm package
+        working-directory: apps/desktop
+        run: node scripts/package.ts npm --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.artifact }}
-          path: |
-            apps/desktop/release/*.exe
-            apps/desktop/release/*.dmg
-            apps/desktop/release/*.zip
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.blockmap
-            apps/desktop/release/latest*.yml
+          name: velopack-${{ matrix.target }}
+          path: release/velopack/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.target }}
+          path: release/npm/*.tgz
           if-no-files-found: error
           retention-days: 7
 
-  # Nothing is published until every installer has built.
+  # Nothing is published until every platform has built.
   publish:
     name: Publish
-    needs: [version, desktop]
+    needs: [version, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: write
       # npm trusted publishing and provenance.
@@ -116,15 +189,29 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: npm
           registry-url: https://registry.npmjs.org
-      - run: npm ci
       - uses: actions/download-artifact@v4
         with:
-          pattern: desktop-*
-          path: ${{ runner.temp }}/desktop
-      - name: Gather the installers
-        run: node apps/desktop/scripts/release-assets.ts "$RUNNER_TEMP/desktop" "$RUNNER_TEMP/assets"
+          pattern: velopack-*
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npm-*
+          path: ${{ runner.temp }}/npm
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+          path: ${{ runner.temp }}
+      - name: Stamp the version
+        working-directory: apps/desktop
+        run: node scripts/stamp-version.ts "$VERSION"
+      # For the Electron apps from before Velopack: Mac apps link to the new version, Linux AppImages update to it.
+      - name: Point the Electron apps at this release
+        working-directory: apps/desktop
+        run: node scripts/package.ts bridge "$RUNNER_TEMP/assets"
+      - run: ls -l "$RUNNER_TEMP/assets"
       # A day has one release: releasing again that day replaces it, tag and all.
       - name: Replace today's earlier release
         env:
@@ -134,21 +221,22 @@ jobs:
             gh release delete "v$NAME" --cleanup-tag --yes
           fi
           git push origin --delete "v$NAME" 2> /dev/null || true
-      # The installed apps update from this release's latest*.yml files.
+      # Installed apps update from this release's releases.<channel>.json and packages.
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "v$NAME" "$RUNNER_TEMP"/assets/* --target "$GITHUB_SHA" --title "Linker-Edit $NAME" --generate-notes
-      # npm refuses provenance from a private repository, so the package waits until the repo is public.
-      - name: Stamp the version
-        if: ${{ !github.event.repository.private }}
-        run: npm version "$VERSION" --no-git-tag-version --no-workspaces-update -w apps/desktop
-      - if: ${{ !github.event.repository.private }}
-        run: npm run build
-      # Publishes the apps/desktop workspace as the linker-edit package; its prepack copies README, LICENSE and NOTICE in.
+        run: gh release create "v$NAME" "$RUNNER_TEMP"/assets/* --target "$GITHUB_SHA" --title "Linker-Edit $NAME" --notes-file "$RUNNER_TEMP/notes.md"
+      # npm refuses provenance from a private repository, so the packages wait until the repo is public. The platform
+      # packages go first: the launcher depends on them.
       - name: Publish to npm
         if: ${{ !github.event.repository.private }}
-        run: npm publish --provenance --access public -w apps/desktop
+        working-directory: apps/desktop
+        run: |
+          node scripts/package.ts launcher
+          for package in "$RUNNER_TEMP"/npm/*.tgz; do
+            npm publish "$package" --provenance --access public
+          done
+          npm publish "$GITHUB_WORKSPACE"/release/npm/linker-edit-"$VERSION".tgz --provenance --access public
         env:
           # Only needed until trusted publishing is set up on npmjs.com; see RELEASING.md.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
