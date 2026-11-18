@@ -35,7 +35,7 @@ use crate::media::player::{Player, Program, encode_component};
 use crate::media::timeline::{PreviewTarget, nearest_cut};
 use crate::state::{AppState, ServerAddress};
 use crate::theme::{TextSize, TextStyled, Theme};
-use crate::window::{no_drag, title_bar};
+use crate::views::panel::{Panel, close_button, panel_frame, panel_header};
 
 /// What the panel asks of the workspace.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -547,39 +547,11 @@ impl Render for PreviewPanel {
         let playing = self.player.playing();
         let duration = self.player.duration();
 
-        let header = title_bar("preview-panel-header", px(16.), false, true, window)
-            .gap_2()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                Icon::new(IconName::MonitorPlay)
-                    .size(px(16.))
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                div()
-                    .text_token(TextSize::Sm)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Preview"),
-            )
-            .child(
-                no_drag().ml_auto().child(
-                    div()
-                        .id("close-panel")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size_7()
-                        .rounded(theme.radius.md)
-                        .text_color(theme.muted_foreground)
-                        .cursor_pointer()
-                        .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
-                        .tooltip(tooltip("Close preview"))
-                        .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)))
-                        .child(Icon::new(IconName::X).size(px(16.)))
-                        .test_support(),
-                ),
-            );
+        let header = panel_header(Panel::Preview, "Preview", window, &theme).child(close_button(
+            "Close preview",
+            &theme,
+            cx.listener(|this, _, window, cx| this.close(window, cx)),
+        ));
 
         let link = |id: &'static str, label: &'static str| {
             div()
@@ -1180,16 +1152,7 @@ impl Render for PreviewPanel {
                 strong,
             ));
 
-        div()
-            .id("preview-panel")
-            .flex()
-            .flex_col()
-            .flex_shrink_0()
-            .w(px(512.))
-            .h_full()
-            .border_l_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
+        panel_frame(Panel::Preview, &theme)
             .child(header)
             .child(
                 div()

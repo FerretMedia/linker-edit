@@ -1,6 +1,6 @@
-//! Dialog.svelte and the small controls the dialogs share: Segmented.svelte, Switch.svelte, the
-//! buttons (`h-8 rounded-md bg-primary px-3 text-sm`, the outlined one, the text link) and the
-//! text field (`h-8 w-full rounded-md border bg-transparent px-2.5 text-sm focus:border-primary`).
+//! Dialog.svelte and what the dialogs share: their buttons (the pages' at `text-sm`) and the text
+//! field (`h-8 w-full rounded-md border bg-transparent px-2.5 text-sm focus:border-primary`).
+//! Switch.svelte and Segmented.svelte are [`settings_parts`]'s.
 //!
 //! The dialog is modal like a `<dialog>` opened with showModal(): a black/40 backdrop over the
 //! window, a 30rem card in the middle; Escape and a click on the backdrop close it.
@@ -11,11 +11,11 @@ use gpui::{
     Stateful, StatefulInteractiveElement, Styled, Window, div, hsla, prelude::FluentBuilder, px,
 };
 use gpui_kit::TestSupportExt;
-use gpui_kit::component::Icon;
 use gpui_kit::component::input::{Input, InputState};
 
 use crate::icons::IconName;
 use crate::theme::{TextSize, TextStyled, Theme};
+use crate::views::settings_parts::{self, disable, icon_button};
 
 pub type Handler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -111,7 +111,7 @@ impl RenderOnce for Dialog {
                                     .child(self.title),
                             )
                             .child(
-                                icon_button("dialog-close", IconName::X, theme)
+                                icon_button("dialog-close", IconName::X, px(16.), theme)
                                     .ml_auto()
                                     .on_click(move |_, window, cx| on_button(window, cx)),
                             ),
@@ -132,24 +132,8 @@ impl RenderOnce for Dialog {
     }
 }
 
-/// The header's close button and others like it: `size-7 rounded-md text-muted-foreground hover:bg-accent`.
-pub fn icon_button(id: impl Into<ElementId>, icon: IconName, theme: &Theme) -> Stateful<Div> {
-    let (accent, foreground) = (theme.accent, theme.foreground);
-    div()
-        .id(id)
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .justify_center()
-        .size_7()
-        .rounded(theme.radius.md)
-        .text_color(theme.muted_foreground)
-        .cursor_pointer()
-        .hover(move |style| style.bg(accent).text_color(foreground))
-        .child(Icon::new(icon).size(px(16.)))
-}
-
-/// `h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground`, at half opacity when disabled.
+/// `h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground`, at half opacity when disabled:
+/// the pages' primary button at the dialogs' text size.
 pub fn primary_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -157,27 +141,10 @@ pub fn primary_button(
     theme: &Theme,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_shrink_0()
-        .items_center()
+    disable(settings_parts::primary_button(id, theme), disabled)
         .justify_center()
-        .h_8()
-        .px_3()
-        .rounded(theme.radius.md)
-        .bg(theme.primary)
-        .text_color(theme.primary_foreground)
         .text_token(TextSize::Sm)
-        .map(|this| {
-            if disabled {
-                this.opacity(0.5)
-            } else {
-                this.cursor_pointer()
-                    .hover(|style| style.opacity(0.9))
-                    .on_click(on_click)
-            }
-        })
+        .when(!disabled, |this| this.on_click(on_click))
         .child(label.into())
 }
 
@@ -188,39 +155,9 @@ pub fn outline_button(
     theme: &Theme,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    let accent = theme.accent;
-    div()
-        .id(id)
-        .flex()
-        .flex_shrink_0()
-        .items_center()
+    settings_parts::outline_button(id, theme)
         .justify_center()
-        .gap_1p5()
-        .h_8()
-        .px_3()
-        .rounded(theme.radius.md)
-        .border_1()
-        .border_color(theme.border)
         .text_token(TextSize::Sm)
-        .cursor_pointer()
-        .hover(move |style| style.bg(accent))
-        .on_click(on_click)
-        .child(label.into())
-}
-
-/// A small link-like button: `text-2xs text-primary hover:underline`.
-pub fn text_button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    color: gpui::Hsla,
-    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .text_token(TextSize::X2s)
-        .text_color(color)
-        .cursor_pointer()
-        .hover(|style| style.underline())
         .on_click(on_click)
         .child(label.into())
 }
@@ -255,88 +192,6 @@ pub fn bare_input(input: &Entity<InputState>, size: TextSize) -> Input {
     .py_0()
     .text_size(size.size())
     .line_height(size.line_height())
-}
-
-/// Segmented.svelte: a small choice of a few options, all in view.
-pub fn segmented<T: Copy + PartialEq + 'static>(
-    id: &'static str,
-    options: &[(T, &'static str)],
-    value: T,
-    theme: &Theme,
-    on_change: impl Fn(T, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    let on_change = std::rc::Rc::new(on_change);
-    div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .flex_none()
-        .self_start()
-        .rounded(theme.radius.lg)
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.muted)
-        .p_0p5()
-        .children(options.iter().enumerate().map(|(index, (option, label))| {
-            let selected = *option == value;
-            let option = *option;
-            let on_change = on_change.clone();
-            let foreground = theme.foreground;
-            div()
-                .id((id, index))
-                .flex()
-                .items_center()
-                .h_7()
-                .px_3()
-                .rounded(theme.radius.md)
-                .text_token(TextSize::Xs)
-                .cursor_pointer()
-                .map(|this| {
-                    if selected {
-                        this.bg(theme.card)
-                            .text_color(theme.foreground)
-                            .shadow_sm()
-                            .border_1()
-                            .border_color(theme.border)
-                    } else {
-                        this.text_color(theme.muted_foreground)
-                            .hover(move |style| style.text_color(foreground))
-                            .on_click(move |_, window, cx| on_change(option, window, cx))
-                    }
-                })
-                .child(*label)
-                .test_support()
-        }))
-}
-
-/// Switch.svelte: `h-5 w-9 rounded-full`, primary when on, with a white knob.
-pub fn switch(
-    id: impl Into<ElementId>,
-    checked: bool,
-    theme: &Theme,
-    on_change: impl Fn(bool, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .relative()
-        .flex()
-        .flex_shrink_0()
-        .items_center()
-        .h_5()
-        .w_9()
-        .rounded_full()
-        .bg(if checked { theme.primary } else { theme.input })
-        .cursor_pointer()
-        .on_click(move |_, window, cx| on_change(!checked, window, cx))
-        .child(
-            div()
-                .absolute()
-                .left(if checked { px(18.) } else { px(2.) })
-                .size_4()
-                .rounded_full()
-                .bg(gpui::white())
-                .shadow_sm(),
-        )
 }
 
 /// A muted caption: `text-xs text-muted-foreground`.

@@ -23,8 +23,8 @@ use crate::labels::{day_label, split_change};
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme};
 use crate::views::clip_strip::{CHANGES, ClipStrip, change_color, change_name};
+use crate::views::panel::{Panel, close_button, panel_frame, panel_header};
 use crate::views::settings_parts::ring;
-use crate::window::{no_drag, title_bar};
 
 pub enum HistoryEvent {
     Close,
@@ -425,23 +425,8 @@ impl Render for HistoryPanel {
         let entries: Option<Vec<HistoryEntry>> =
             self.state.read(cx).history_entries().map(<[_]>::to_vec);
         let count = entries.as_ref().map_or(0, Vec::len);
-        let (accent, foreground) = (theme.accent, theme.foreground);
 
-        let header = title_bar("history-panel-header", px(16.), false, true, window)
-            .gap_2()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                Icon::new(IconName::History)
-                    .size(px(16.))
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                div()
-                    .text_token(TextSize::Sm)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Edit history"),
-            )
+        let header = panel_header(Panel::History, "Edit history", window, &theme)
             .when(count > 0, |this| {
                 this.child(
                     div()
@@ -457,24 +442,11 @@ impl Render for HistoryPanel {
                         .test_support(),
                 )
             })
-            .child(
-                no_drag().ml_auto().child(
-                    div()
-                        .id("close-panel")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size_7()
-                        .rounded(theme.radius.md)
-                        .text_color(theme.muted_foreground)
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(accent).text_color(foreground))
-                        .tooltip(|window, cx| Tooltip::new("Close history").build(window, cx))
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(HistoryEvent::Close)))
-                        .child(Icon::new(IconName::X).size(px(16.)))
-                        .test_support(),
-                ),
-            );
+            .child(close_button(
+                "Close history",
+                &theme,
+                cx.listener(|_, _, _, cx| cx.emit(HistoryEvent::Close)),
+            ));
 
         let legend = (count > 0).then(|| {
             div()
@@ -562,16 +534,7 @@ impl Render for HistoryPanel {
             }
         };
 
-        div()
-            .id("history-panel")
-            .flex()
-            .flex_col()
-            .flex_shrink_0()
-            .w(px(384.))
-            .h_full()
-            .border_l_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
+        panel_frame(Panel::History, &theme)
             .child(header)
             .children(legend)
             .child(

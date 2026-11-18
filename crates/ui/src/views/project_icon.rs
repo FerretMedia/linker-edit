@@ -24,7 +24,8 @@ use crate::project_icon_colors::{
     POPULAR_PROJECT_ICONS, PROJECT_EMOJIS, PROJECT_ICON_COLOR_OPTIONS, color, swatch,
 };
 use crate::theme::{TextSize, TextStyled, Theme};
-use crate::views::dialog::{Dialog, caption, field, outline_button, primary_button, segmented};
+use crate::views::dialog::{Dialog, caption, field, outline_button, primary_button};
+use crate::views::settings_parts::Segmented;
 
 /// Older Lucide names the picker offers, under their names in gpui-kit's newer catalog.
 const ALIASES: [(&str, &str); 2] = [("globe-2", "earth"), ("layers-3", "layers")];
@@ -143,6 +144,12 @@ enum Mode {
     Emoji,
     Monogram,
 }
+
+const MODES: [(Mode, &str); 3] = [
+    (Mode::Lucide, "Icons"),
+    (Mode::Emoji, "Emoji"),
+    (Mode::Monogram, "Monogram"),
+];
 
 pub enum IconPickerEvent {
     Selected(Icon_),
@@ -331,25 +338,25 @@ impl Render for IconPicker {
                 .text_token(TextSize::Sm)
                 .mt(px(-4.)),
         )
-        .child(segmented(
-            "icon-type",
-            &[
-                (Mode::Lucide, "Icons"),
-                (Mode::Emoji, "Emoji"),
-                (Mode::Monogram, "Monogram"),
-            ],
-            self.mode,
-            &theme,
-            {
-                let entity = entity.clone();
-                move |mode, _, cx| {
-                    entity.update(cx, |this, cx| {
-                        this.mode = mode;
-                        cx.notify()
-                    })
-                }
-            },
-        ));
+        .child(
+            div().flex().child(Segmented::new(
+                "icon-type",
+                MODES.map(|(_, label)| label),
+                MODES
+                    .iter()
+                    .position(|(mode, _)| *mode == self.mode)
+                    .unwrap_or(0),
+                {
+                    let entity = entity.clone();
+                    move |index, _, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.mode = MODES[index].0;
+                            cx.notify()
+                        })
+                    }
+                },
+            )),
+        );
 
         if self.mode != Mode::Emoji {
             let swatches = PROJECT_ICON_COLOR_OPTIONS.iter().map(|option| {

@@ -2,9 +2,8 @@
 //! Svelte UI; the comment names it, so the two stay comparable.
 
 use gpui::{
-    App, ClickEvent, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div,
-    prelude::FluentBuilder, px, rgb,
+    App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, Pixels, RenderOnce,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, rgb,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Icon;
@@ -133,18 +132,4 @@ impl RenderOnce for HeaderButton {
             .when_some(self.on_click, |this, f| this.on_click(f))
             .test_support()
     }
-}
-
-/// A placeholder block for what a later view fills in: its name, muted, centered.
-pub fn placeholder(label: impl Into<SharedString>, cx: &App) -> impl IntoElement {
-    let theme = Theme::of(cx);
-    div()
-        .flex()
-        .flex_1()
-        .items_center()
-        .justify_center()
-        .text_token(TextSize::Xs)
-        .text_color(theme.muted_foreground.opacity(0.7))
-        .font_weight(FontWeight::NORMAL)
-        .child(label.into())
 }

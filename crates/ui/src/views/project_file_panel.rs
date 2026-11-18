@@ -6,21 +6,19 @@
 //! one per project, as `{#key app.projectId}` does.
 
 use gpui::{
-    AppContext, Context, Entity, EventEmitter, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, prelude::FluentBuilder, px, relative,
+    AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement, KeyDownEvent,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window, div,
+    prelude::FluentBuilder, relative,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
-use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{Icon, Sizable, Size};
+use gpui_kit::component::{Sizable, Size};
 use linker_edit_protocol::ClientMessage;
 
-use crate::icons::IconName;
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme};
+use crate::views::panel::{Panel, close_button, panel_frame, panel_header};
 use crate::views::settings_parts::{disable, outline_button, primary_button};
-use crate::window::{no_drag, title_bar};
 
 pub enum ProjectFileEvent {
     Close,
@@ -152,44 +150,15 @@ impl ProjectFilePanel {
 impl Render for ProjectFilePanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::of(cx).clone();
-        let (accent, foreground) = (theme.accent, theme.foreground);
         let file = self.state.read(cx).project_file_in_view().cloned();
         let changed = self.changed(cx);
         let overtaken = self.overtaken(cx);
 
-        let header = title_bar("file-panel-header", px(16.), false, true, window)
-            .gap_2()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                Icon::new(IconName::FileText)
-                    .size(px(16.))
-                    .text_color(theme.muted_foreground),
-            )
-            .child(
-                div()
-                    .text_token(TextSize::Sm)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Project file"),
-            )
-            .child(
-                no_drag().ml_auto().child(
-                    div()
-                        .id("close-panel")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size_7()
-                        .rounded(theme.radius.md)
-                        .text_color(theme.muted_foreground)
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(accent).text_color(foreground))
-                        .tooltip(|window, cx| Tooltip::new("Close project file").build(window, cx))
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(ProjectFileEvent::Close)))
-                        .child(Icon::new(IconName::X).size(px(16.)))
-                        .test_support(),
-                ),
-            );
+        let header = panel_header(Panel::File, "Project file", window, &theme).child(close_button(
+            "Close project file",
+            &theme,
+            cx.listener(|_, _, _, cx| cx.emit(ProjectFileEvent::Close)),
+        ));
 
         let body = match file {
             None => div()
@@ -294,16 +263,7 @@ impl Render for ProjectFilePanel {
                 .into_any_element(),
         };
 
-        div()
-            .id("file-panel")
-            .flex()
-            .flex_col()
-            .flex_shrink_0()
-            .w(px(384.))
-            .h_full()
-            .border_l_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
+        panel_frame(Panel::File, &theme)
             .child(header)
             .child(body)
             .test_support()

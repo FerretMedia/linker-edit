@@ -1,7 +1,7 @@
 //! The settings and library pages and the history and project file panels, as the window opens
 //! them: what they send the server, and what they show of what it sends back.
 
-use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
+use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, WindowOptions};
 use gpui_kit::test::TestWindowExt;
 use linker_edit_protocol::{
     self as protocol, AppUpdate, ApprovalMode, ClientMessage, ClipChange, CollectionIcon,
@@ -14,8 +14,9 @@ use linker_edit_protocol::{
 };
 
 use crate::media::timeline::PreviewTarget;
-use crate::state::LinkEvent;
-use crate::workspace::tests::{Server, open_workspace, render};
+use crate::state::{AppState, Link, LinkEvent};
+use crate::views::collections_settings::CollectionEditor;
+use crate::workspace::tests::{Do, Server, open_workspace, render, steps};
 use crate::workspace::{Page, Workspace};
 
 fn snapshot() -> protocol::AppState {
@@ -381,6 +382,104 @@ fn a_workspace_is_made_picked_and_deleted_after_asking(cx: &mut TestAppContext) 
     assert!(!shown(cx, window, "collection-editor"));
 }
 
+#[gpui::test]
+fn the_collection_editor_saves_its_name_switch_and_rules(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (link, end) = Link::pair();
+    let mut server = Server::new(end);
+    let state = cx.update(|cx| AppState::new(link, cx));
+    let mut snapshot = snapshot();
+    snapshot.meta.collections = vec![CollectionSummary {
+        id: "ferret".into(),
+        kind: CollectionKind::Workspace,
+        name: "Ferret Media".into(),
+        parent_id: None,
+        icon: CollectionIcon::Lucide {
+            name: "mic".into(),
+            color: IconColor::Amber,
+        },
+        rules: "No swearing.".into(),
+        rules_file: "RULES.md".into(),
+        project_ids: vec![],
+        autonomous: false,
+        lessons: vec![],
+        examples: vec![],
+        setup_project_id: None,
+        edits: vec![],
+    }];
+    server.send(LinkEvent::Connected);
+    server.message(ServerMessage::Snapshot {
+        state: Box::new(snapshot),
+    });
+    cx.run_until_parked();
+    // The settings page makes it for a collection that is there.
+    let window = cx.update(|cx| {
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            crate::theme::Theme::init(window, cx);
+            cx.new(|cx| CollectionEditor::new(state, "ferret".into(), window, cx))
+        })
+        .unwrap()
+        .0
+    });
+    steps(
+        cx,
+        window,
+        &[
+            Do::Click("collection-name"),
+            Do::Press("end"),
+            Do::Input(" Group"),
+            Do::Press("enter"),
+            Do::Click("autonomous"),
+            Do::Click("change-icon"),
+            Do::Click("color-teal"),
+            Do::Click("collection-rules"),
+            Do::Press("ctrl-end"),
+            Do::Input(" End on the logo."),
+            Do::Press("ctrl-s"),
+        ],
+    );
+    let update = |edit: fn(&mut CollectionMessage)| {
+        let mut message = CollectionMessage::UpdateCollection {
+            id: "ferret".into(),
+            name: None,
+            icon: None,
+            rules: None,
+            parent_id: None,
+            autonomous: None,
+        };
+        edit(&mut message);
+        ClientMessage::Collection(message)
+    };
+    assert_eq!(
+        server.received(),
+        [
+            update(
+                |m| if let CollectionMessage::UpdateCollection { name, .. } = m {
+                    *name = Some("Ferret Media Group".into())
+                }
+            ),
+            update(
+                |m| if let CollectionMessage::UpdateCollection { autonomous, .. } = m {
+                    *autonomous = Some(true)
+                }
+            ),
+            update(
+                |m| if let CollectionMessage::UpdateCollection { icon, .. } = m {
+                    *icon = Some(CollectionIcon::Lucide {
+                        name: "mic".into(),
+                        color: IconColor::Teal,
+                    })
+                }
+            ),
+            update(
+                |m| if let CollectionMessage::UpdateCollection { rules, .. } = m {
+                    *rules = Some("No swearing. End on the logo.".into())
+                }
+            ),
+        ]
+    );
+}
+
 fn history() -> Vec<HistoryEntry> {
     vec![HistoryEntry {
         commit: "36d2983".into(),
@@ -578,7 +677,7 @@ fn the_library_asks_for_its_library_and_changes_folders_and_files(cx: &mut TestA
             if query.starred == Some(true)
     ));
 
-    // Playing goes to the player; with none yet, it stops at once.
+    // Playing goes to the sound card; with no server to play from, it stops at once.
     click(cx, window, &format!("play-{key}"));
     let playing = workspace.read_with(cx, |workspace, cx| match workspace.page() {
         Some(Page::Library(page)) => page.read(cx).playing().map(String::from),
@@ -602,7 +701,7 @@ fn the_library_asks_for_its_library_and_changes_folders_and_files(cx: &mut TestA
 
     // Adding one: Add only once the path is a folder on the server's computer.
     click(cx, window, "add-folder");
-    assert!(shown(cx, window, "dialog"));
+    assert!(shown(cx, window, "library-folder-dialog"));
     cx.simulate_input(window, "D:\\Sfx\\");
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(200));
@@ -611,7 +710,8 @@ fn the_library_asks_for_its_library_and_changes_folders_and_files(cx: &mut TestA
     let Some(ClientMessage::BrowseFolders { request_id, path }) = asked.last().cloned() else {
         panic!("the path is checked: {asked:?}");
     };
-    assert_eq!(path, "D:\\Sfx");
+    // The folder picker lists the folder typed, which is how it knows it is one.
+    assert_eq!(path, "D:\\Sfx\\");
     server.message(ServerMessage::Folders {
         request_id,
         listing: OrError::Ok(FolderListing {
@@ -637,7 +737,7 @@ fn the_library_asks_for_its_library_and_changes_folders_and_files(cx: &mut TestA
             }
         )]
     );
-    assert!(!shown(cx, window, "dialog"));
+    assert!(!shown(cx, window, "library-folder-dialog"));
 
     // Leaving the page stops the server sending it.
     click(cx, window, "back");

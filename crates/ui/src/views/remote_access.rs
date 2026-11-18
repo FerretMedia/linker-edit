@@ -3,7 +3,7 @@
 
 use gpui::{
     App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder,
+    RenderOnce, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use gpui_kit::TestSupportExt;
 use linker_edit_protocol::{ClientMessage, RemoteAccess};
@@ -119,6 +119,7 @@ impl RenderOnce for RemoteAccessSettings {
                                         } else {
                                             IconName::Copy
                                         },
+                                        px(14.),
                                         &theme,
                                     )
                                     .tooltip(|window, cx| {

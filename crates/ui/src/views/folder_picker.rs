@@ -119,6 +119,13 @@ impl FolderPicker {
         self.input.update(cx, |input, cx| input.focus(window, cx));
     }
 
+    /// Starts the field at `path` (a folder being edited), without moving the cursor into it.
+    pub fn set_path(&mut self, path: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.input
+            .update(cx, |input, cx| input.set_value(path, window, cx));
+        self.changed(cx);
+    }
+
     pub fn value(&self, cx: &gpui::App) -> String {
         self.input.read(cx).value().to_string()
     }

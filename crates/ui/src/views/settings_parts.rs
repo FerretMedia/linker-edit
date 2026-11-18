@@ -115,8 +115,13 @@ pub fn ghost_button(id: impl Into<ElementId>, theme: &Theme) -> Stateful<Div> {
 }
 
 /// `flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent
-/// hover:text-foreground`, with a 14px icon.
-pub fn icon_button(id: impl Into<ElementId>, icon: IconName, theme: &Theme) -> Stateful<Div> {
+/// hover:text-foreground`, with an icon of `size` (14px in the pages, 16px to close a dialog).
+pub fn icon_button(
+    id: impl Into<ElementId>,
+    icon: IconName,
+    size: gpui::Pixels,
+    theme: &Theme,
+) -> Stateful<Div> {
     let (accent, foreground) = (theme.accent, theme.foreground);
     div()
         .id(id)
@@ -129,7 +134,7 @@ pub fn icon_button(id: impl Into<ElementId>, icon: IconName, theme: &Theme) -> S
         .text_color(theme.muted_foreground)
         .cursor_pointer()
         .hover(move |style| style.bg(accent).text_color(foreground))
-        .child(Icon::new(icon).size(px(14.)))
+        .child(Icon::new(icon).size(size))
 }
 
 /// Takes the look and the clicks away from a button that can't be used now (`disabled`).

@@ -324,7 +324,7 @@ impl Workspace {
                 }
             }
             let _ = this.update(cx, |this, _| this.sound = None);
-            let _ = page.update(cx, |page, cx| page.stopped(cx));
+            page.update(cx, |page, cx| page.stopped(cx));
         });
         self.sound = Some((sound, watch));
     }
@@ -761,6 +761,13 @@ pub(crate) mod tests {
     }
 
     impl Server {
+        pub(crate) fn new(end: crate::state::ServerEnd) -> Server {
+            Server {
+                events: end.events,
+                commands: end.commands,
+            }
+        }
+
         pub(crate) fn send(&self, event: LinkEvent) {
             self.events.unbounded_send(event).unwrap();
         }
@@ -806,14 +813,7 @@ pub(crate) mod tests {
             .0
         });
         let workspace = root.borrow_mut().take().unwrap();
-        (
-            window,
-            workspace,
-            Server {
-                events: server.events,
-                commands: server.commands,
-            },
-        )
+        (window, workspace, Server::new(server))
     }
 
     /// Connected, with crates/protocol's snapshot of an empty thread.
@@ -838,6 +838,32 @@ pub(crate) mod tests {
             f(window, cx)
         })
         .unwrap()
+    }
+
+    /// One interaction, each in its own frame, so what it opens is drawn before the next.
+    #[derive(Clone, Copy)]
+    pub(crate) enum Do {
+        Click(&'static str),
+        ClickAt(&'static str, usize),
+        RightClick(&'static str),
+        DoubleClick(&'static str),
+        Hover(&'static str),
+        Press(&'static str),
+        Input(&'static str),
+    }
+
+    pub(crate) fn steps(cx: &mut TestAppContext, window: AnyWindowHandle, steps: &[Do]) {
+        for step in steps {
+            render(cx, window, |window, cx| match *step {
+                Do::Click(id) => window.click(id, cx),
+                Do::ClickAt(id, index) => window.click((id, index), cx),
+                Do::RightClick(id) => window.right_click(id, cx),
+                Do::DoubleClick(id) => window.double_click(id, cx),
+                Do::Hover(id) => window.hover(id, cx),
+                Do::Press(key) => window.press(key, cx),
+                Do::Input(text) => window.input(text, cx),
+            });
+        }
     }
 
     #[gpui::test]

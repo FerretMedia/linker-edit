@@ -1,16 +1,16 @@
 //! The side panels, one at a time, opened from the chat header like T3 Code's diff panel:
 //! Preview (PreviewPanel.svelte, 32rem), History (HistoryPanel.svelte, 24rem) and the
 //! project file (ProjectFilePanel.svelte, 24rem). Each has a 52px header that is part of the
-//! title bar and a close button. Placeholder bodies until their views are ported.
+//! title bar and a close button: the frame and header here, the bodies in their own views.
 
 use gpui::{
-    App, ClickEvent, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    App, ClickEvent, Div, FontWeight, InteractiveElement, ParentElement, Pixels, SharedString,
+    Stateful, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Icon;
+use gpui_kit::component::tooltip::Tooltip;
 
-use crate::components::{OnClick, placeholder};
 use crate::icons::IconName;
 use crate::theme::{TextSize, TextStyled, Theme};
 use crate::window::{no_drag, title_bar};
@@ -58,70 +58,68 @@ impl Panel {
     }
 }
 
-/// The open panel: `aside.flex w-[…] shrink-0 flex-col border-l bg-sidebar`.
-#[derive(IntoElement)]
-pub struct SidePanel {
+/// The panel's frame: `aside.flex w-[…] shrink-0 flex-col border-l bg-sidebar`, with the panel's
+/// id ("history-panel").
+pub fn panel_frame(panel: Panel, theme: &Theme) -> Stateful<Div> {
+    div()
+        .id(SharedString::from(format!("{}-panel", panel.id())))
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .w(panel.width())
+        .h_full()
+        .border_l_1()
+        .border_color(theme.border)
+        .bg(theme.sidebar)
+}
+
+/// The panel's 52px header, part of the title bar: its icon and `title`. The caller adds what
+/// else it shows, then [`close_button`].
+pub fn panel_header(
     panel: Panel,
-    on_close: OnClick,
+    title: &'static str,
+    window: &mut Window,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id = SharedString::from(format!("{}-panel-header", panel.id()));
+    title_bar(id, px(16.), false, true, window)
+        .gap_2()
+        .border_b_1()
+        .border_color(theme.border)
+        .child(
+            Icon::new(panel.icon())
+                .size(px(16.))
+                .text_color(theme.muted_foreground),
+        )
+        .child(
+            div()
+                .text_token(TextSize::Sm)
+                .font_weight(FontWeight::MEDIUM)
+                .child(title),
+        )
 }
 
-impl SidePanel {
-    pub fn new(
-        panel: Panel,
-        on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        SidePanel {
-            panel,
-            on_close: Box::new(on_close),
-        }
-    }
-}
-
-impl RenderOnce for SidePanel {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let theme = Theme::of(cx).clone();
-        let id = SharedString::from(format!("{}-panel-header", self.panel.id()));
-        let header = title_bar(id, px(16.), false, true, window)
-            .gap_2()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_token(TextSize::Sm)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(self.panel.label()),
-            )
-            .child(
-                no_drag().child(
-                    div()
-                        .id("close-panel")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size_7()
-                        .rounded(theme.radius.md)
-                        .text_color(theme.muted_foreground)
-                        .hover(|style| style.bg(theme.accent).text_color(theme.foreground))
-                        .on_click(self.on_close)
-                        .child(Icon::new(IconName::X).size(px(16.)))
-                        .test_support(),
-                ),
-            );
+/// The header's close button, at its right end.
+pub fn close_button(
+    tip: &'static str,
+    theme: &Theme,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let (accent, foreground) = (theme.accent, theme.foreground);
+    no_drag().ml_auto().child(
         div()
-            .id(SharedString::from(format!("{}-panel", self.panel.id())))
+            .id("close-panel")
             .flex()
-            .flex_col()
-            .flex_shrink_0()
-            .w(self.panel.width())
-            .h_full()
-            .border_l_1()
-            .border_color(theme.border)
-            .bg(theme.sidebar)
-            .child(header)
-            .child(placeholder(format!("{} goes here", self.panel.label()), cx))
-            .test_support()
-    }
+            .items_center()
+            .justify_center()
+            .size_7()
+            .rounded(theme.radius.md)
+            .text_color(theme.muted_foreground)
+            .cursor_pointer()
+            .hover(move |style| style.bg(accent).text_color(foreground))
+            .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+            .on_click(on_click)
+            .child(Icon::new(IconName::X).size(px(16.)))
+            .test_support(),
+    )
 }

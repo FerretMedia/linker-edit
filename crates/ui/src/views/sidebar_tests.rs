@@ -4,11 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use gpui::{
-    AnyWindowHandle, AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions,
-    point, px, size,
-};
+use gpui::{AnyWindowHandle, AppContext, Entity, TestAppContext, WindowOptions, px};
 use gpui_kit::test::TestWindowExt;
 use linker_edit_protocol::{
     ClientMessage, CollectionIcon, CollectionKind, CollectionMessage, CollectionSummary,
@@ -19,46 +15,24 @@ use linker_edit_protocol::{
 
 use crate::sidebar::{iso, now_ms};
 use crate::state::{AppState, Auth, Link, LinkEvent, ServerAddress, ServerEnd};
-use crate::views::collections_settings::CollectionEditor;
 use crate::views::computer_picker::{ComputerPicker, Connect, Http};
+use crate::workspace::tests::{Do, Server, open_workspace, render, steps};
 use crate::workspace::{OpenDialog, Workspace};
 
-struct Server {
-    events: UnboundedSender<LinkEvent>,
-    commands: UnboundedReceiver<ClientMessage>,
-}
-
-impl Server {
-    fn new(end: ServerEnd) -> Self {
-        Server {
-            events: end.events,
-            commands: end.commands,
-        }
-    }
-
-    fn message(&self, message: ServerMessage) {
-        self.events
-            .unbounded_send(LinkEvent::Message(message))
-            .unwrap();
-    }
-
-    /// What the window sent since last asked.
-    fn received(&mut self) -> Vec<ClientMessage> {
-        std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
-    }
-
-    fn sidebar_messages(&mut self) -> Vec<ClientMessage> {
-        self.received()
-            .into_iter()
-            .filter(|message| {
-                !matches!(
-                    message,
-                    ClientMessage::Sidebar(SidebarClientMessage::MarkRead { read: true, .. })
-                        | ClientMessage::RefreshResolve
-                )
-            })
-            .collect()
-    }
+/// What the window sent, without what it sends by itself as it draws (marking the open thread
+/// read, asking Resolve's state).
+fn sidebar_messages(server: &mut Server) -> Vec<ClientMessage> {
+    server
+        .received()
+        .into_iter()
+        .filter(|message| {
+            !matches!(
+                message,
+                ClientMessage::Sidebar(SidebarClientMessage::MarkRead { read: true, .. })
+                    | ClientMessage::RefreshResolve
+            )
+        })
+        .collect()
 }
 
 fn ago(minutes: i64) -> Option<String> {
@@ -124,74 +98,13 @@ fn snapshot() -> linker_edit_protocol::AppState {
 }
 
 fn open(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Workspace>, Server) {
-    cx.update(gpui_kit::init);
-    let (link, end) = Link::pair();
-    let root = Rc::new(RefCell::new(None));
-    let kept = root.clone();
-    let window = cx.update(|cx| {
-        let state = AppState::new(link, cx);
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds {
-                origin: point(px(0.), px(0.)),
-                size: size(px(1320.), px(860.)),
-            })),
-            ..crate::window::options(cx)
-        };
-        gpui_kit::open_window(options, cx, |window, cx| {
-            let workspace = crate::new_workspace(state, window, cx);
-            *kept.borrow_mut() = Some(workspace.clone());
-            workspace
-        })
-        .unwrap()
-        .0
-    });
-    let server = Server::new(end);
-    server.events.unbounded_send(LinkEvent::Connected).unwrap();
+    let (window, workspace, server) = open_workspace(cx);
+    server.send(LinkEvent::Connected);
     server.message(ServerMessage::Snapshot {
         state: Box::new(snapshot()),
     });
     cx.run_until_parked();
-    let workspace = root.borrow_mut().take().unwrap();
     (window, workspace, server)
-}
-
-fn render<R>(
-    cx: &mut TestAppContext,
-    window: AnyWindowHandle,
-    f: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R,
-) -> R {
-    cx.run_until_parked();
-    cx.update_window(window, |_, window, cx| {
-        window.render_frame(cx);
-        f(window, cx)
-    })
-    .unwrap()
-}
-
-/// One interaction, each in its own frame, so what it opens is drawn before the next.
-#[derive(Clone, Copy)]
-enum Do {
-    Click(&'static str),
-    ClickAt(&'static str, usize),
-    RightClick(&'static str),
-    DoubleClick(&'static str),
-    Hover(&'static str),
-    Press(&'static str),
-    Input(&'static str),
-}
-
-fn steps(cx: &mut TestAppContext, window: AnyWindowHandle, steps: &[Do]) {
-    for step in steps {
-        render(cx, window, |window, cx| match *step {
-            Do::Click(id) => window.click(id, cx),
-            Do::ClickAt(id, index) => window.click((id, index), cx),
-            Do::RightClick(id) => window.right_click(id, cx),
-            Do::DoubleClick(id) => window.double_click(id, cx),
-            Do::Hover(id) => window.hover(id, cx),
-            Do::Press(key) => window.press(key, cx),
-            Do::Input(text) => window.input(text, cx),
-        });
-    }
 }
 
 #[gpui::test]
@@ -251,7 +164,7 @@ fn a_rows_buttons_settle_snooze_and_open_it(cx: &mut TestAppContext) {
     render(cx, window, |window, cx| {
         window.click(gpui::SharedString::from(format!("menu-{preset}")), cx)
     });
-    let sent = server.sidebar_messages();
+    let sent = sidebar_messages(&mut server);
     assert_eq!(
         sent[0],
         ClientMessage::SelectThread {
@@ -281,7 +194,7 @@ fn settling_the_open_thread_opens_the_next_one(cx: &mut TestAppContext) {
         &[Do::Hover("thread-rough"), Do::Click("settle-rough")],
     );
     assert_eq!(
-        server.sidebar_messages(),
+        sidebar_messages(&mut server),
         [
             ClientMessage::SelectThread {
                 thread_id: "captions".into()
@@ -325,7 +238,7 @@ fn the_thread_menu_pins_copies_archives_and_deletes(cx: &mut TestAppContext) {
     cx.simulate_prompt_answer("OK");
     cx.run_until_parked();
     assert_eq!(
-        server.sidebar_messages(),
+        sidebar_messages(&mut server),
         [
             ClientMessage::Sidebar(SidebarClientMessage::PinThread {
                 thread_id: "captions".into(),
@@ -349,7 +262,7 @@ fn the_thread_menu_pins_copies_archives_and_deletes(cx: &mut TestAppContext) {
     render(cx, window, |window, _| {
         assert!(window.try_find("context-menu").is_none())
     });
-    assert!(server.sidebar_messages().is_empty());
+    assert!(sidebar_messages(&mut server).is_empty());
 }
 
 #[gpui::test]
@@ -377,7 +290,7 @@ fn the_project_menu_pins_archives_and_opens_its_settings(cx: &mut TestAppContext
         },
     };
     assert_eq!(
-        server.sidebar_messages(),
+        sidebar_messages(&mut server),
         [change(Some(true), None), change(None, Some(true))]
     );
     assert!(workspace.read_with(cx, |workspace, _| matches!(
@@ -407,7 +320,7 @@ fn renames_a_thread_in_place(cx: &mut TestAppContext) {
     render(cx, window, |window, _| {
         assert!(window.try_find("rename-thread").is_none())
     });
-    let sent = server.sidebar_messages();
+    let sent = sidebar_messages(&mut server);
     assert!(sent.contains(&ClientMessage::RenameThread {
         thread_id: "captions".into(),
         title: "Subtitles".into()
@@ -426,8 +339,7 @@ fn renames_a_thread_in_place(cx: &mut TestAppContext) {
         assert!(window.try_find("rename-thread").is_none())
     });
     assert!(
-        !server
-            .sidebar_messages()
+        !sidebar_messages(&mut server)
             .iter()
             .any(|m| matches!(m, ClientMessage::RenameThread { .. }))
     );
@@ -448,7 +360,7 @@ fn searches_threads_and_opens_one_from_the_keyboard(cx: &mut TestAppContext) {
         assert!(window.try_find("project-folder-promo").is_some())
     });
     assert_eq!(
-        server.sidebar_messages(),
+        sidebar_messages(&mut server),
         [ClientMessage::SelectThread {
             thread_id: "pinned".into()
         }]
@@ -478,7 +390,7 @@ fn keyboard_shortcuts_jump_settle_pin_and_start_threads(cx: &mut TestAppContext)
         ],
     );
     assert_eq!(
-        server.sidebar_messages(),
+        sidebar_messages(&mut server),
         [
             // The second listed thread; the next after the open one.
             ClientMessage::SelectThread {
@@ -625,7 +537,7 @@ fn project_settings_save_the_name_icon_and_workspace(cx: &mut TestAppContext) {
             Do::Input("Wedding Jan & Kim"),
             // An emoji from the icon picker.
             Do::Click("choose-project-icon"),
-            Do::ClickAt("icon-type", 1),
+            Do::Click("icon-type-1"),
             Do::ClickAt("emoji", 2),
             Do::Click("icon-save"),
             Do::Click("project-collection"),
@@ -633,7 +545,7 @@ fn project_settings_save_the_name_icon_and_workspace(cx: &mut TestAppContext) {
             Do::Click("save-project"),
         ],
     );
-    let sent = server.sidebar_messages();
+    let sent = sidebar_messages(&mut server);
     assert_eq!(
         sent,
         [
@@ -669,7 +581,7 @@ fn project_settings_save_the_name_icon_and_workspace(cx: &mut TestAppContext) {
     cx.simulate_prompt_answer("OK");
     cx.run_until_parked();
     assert_eq!(
-        server.sidebar_messages(),
+        sidebar_messages(&mut server),
         [ClientMessage::RemoveProject {
             project_id: "wedding".into()
         }]
@@ -774,7 +686,7 @@ fn opens_another_computer_and_comes_back(cx: &mut TestAppContext) {
         .0
     });
     let picker: Entity<ComputerPicker> = picker_cell.borrow_mut().take().unwrap();
-    home.events.unbounded_send(LinkEvent::Connected).unwrap();
+    home.send(LinkEvent::Connected);
     home.message(ServerMessage::Snapshot {
         state: Box::new(snapshot()),
     });
@@ -793,7 +705,7 @@ fn opens_another_computer_and_comes_back(cx: &mut TestAppContext) {
     assert!(picker.read_with(cx, |picker, _| !picker.is_open()));
     // The laptop answers; the picker shows it, "remote".
     let laptop = Server::new(links.borrow_mut().remove(0).2);
-    laptop.events.unbounded_send(LinkEvent::Connected).unwrap();
+    laptop.send(LinkEvent::Connected);
     laptop.message(ServerMessage::Snapshot {
         state: Box::new(snapshot()),
     });
@@ -816,108 +728,10 @@ fn opens_another_computer_and_comes_back(cx: &mut TestAppContext) {
 
     // Signed out there: back home, saying why.
     let studio = Server::new(links.borrow_mut().remove(0).2);
-    studio.events.unbounded_send(LinkEvent::SignedOut).unwrap();
+    studio.send(LinkEvent::SignedOut);
     cx.run_until_parked();
     assert!(cx.has_pending_prompt());
     cx.simulate_prompt_answer("OK");
     assert_eq!(links.borrow().last().unwrap().0, "http://127.0.0.1:4317");
     assert_eq!(links.borrow().last().unwrap().1, Auth::Local);
-}
-
-#[gpui::test]
-fn the_collection_editor_saves_its_name_switch_and_rules(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let (link, end) = Link::pair();
-    let mut server = Server::new(end);
-    let state = cx.update(|cx| AppState::new(link, cx));
-    let mut snapshot = snapshot();
-    snapshot.meta.collections = vec![CollectionSummary {
-        id: "ferret".into(),
-        kind: CollectionKind::Workspace,
-        name: "Ferret Media".into(),
-        parent_id: None,
-        icon: CollectionIcon::Lucide {
-            name: "mic".into(),
-            color: IconColor::Amber,
-        },
-        rules: "No swearing.".into(),
-        rules_file: "RULES.md".into(),
-        project_ids: vec![],
-        autonomous: false,
-        lessons: vec![],
-        examples: vec![],
-        setup_project_id: None,
-        edits: vec![],
-    }];
-    server.events.unbounded_send(LinkEvent::Connected).unwrap();
-    server.message(ServerMessage::Snapshot {
-        state: Box::new(snapshot),
-    });
-    cx.run_until_parked();
-    // The settings page makes it for a collection that is there.
-    let window = cx.update(|cx| {
-        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
-            crate::theme::Theme::init(window, cx);
-            cx.new(|cx| CollectionEditor::new(state, "ferret".into(), window, cx))
-        })
-        .unwrap()
-        .0
-    });
-    steps(
-        cx,
-        window,
-        &[
-            Do::Click("collection-name"),
-            Do::Press("end"),
-            Do::Input(" Group"),
-            Do::Press("enter"),
-            Do::Click("autonomous"),
-            Do::Click("change-icon"),
-            Do::Click("color-teal"),
-            Do::Click("collection-rules"),
-            Do::Press("ctrl-end"),
-            Do::Input(" End on the logo."),
-            Do::Press("ctrl-s"),
-        ],
-    );
-    let update = |edit: fn(&mut CollectionMessage)| {
-        let mut message = CollectionMessage::UpdateCollection {
-            id: "ferret".into(),
-            name: None,
-            icon: None,
-            rules: None,
-            parent_id: None,
-            autonomous: None,
-        };
-        edit(&mut message);
-        ClientMessage::Collection(message)
-    };
-    assert_eq!(
-        server.received(),
-        [
-            update(
-                |m| if let CollectionMessage::UpdateCollection { name, .. } = m {
-                    *name = Some("Ferret Media Group".into())
-                }
-            ),
-            update(
-                |m| if let CollectionMessage::UpdateCollection { autonomous, .. } = m {
-                    *autonomous = Some(true)
-                }
-            ),
-            update(
-                |m| if let CollectionMessage::UpdateCollection { icon, .. } = m {
-                    *icon = Some(CollectionIcon::Lucide {
-                        name: "mic".into(),
-                        color: IconColor::Teal,
-                    })
-                }
-            ),
-            update(
-                |m| if let CollectionMessage::UpdateCollection { rules, .. } = m {
-                    *rules = Some("No swearing. End on the logo.".into())
-                }
-            ),
-        ]
-    );
 }

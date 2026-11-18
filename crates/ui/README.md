@@ -13,24 +13,28 @@ building the server. `crates/app` calls [`run`](src/lib.rs).
 
 | File | What |
 |---|---|
-| `src/lib.rs` | `run(link)`: single instance, assets, the window, quit on close |
-| `src/workspace.rs` | The root view: sidebar, chat column with its header, one side panel |
-| `src/views/` | One file per region of `+page.svelte`: `sidebar` (with `sidebar_rows`, `sidebar_footer`, `computer_picker`, `context_menu`), `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter`; the dialogs: `dialog` (the frame and small controls), `add_project`, `folder_picker`, `project_settings`, `project_icon` (with the icon picker), `collection_icon`, `collection_editor` |
-| `src/state.rs` | `AppState` and the `Link` to the server |
-| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter`; the preview: `preview_panel`, `timeline_player`, `player_controls` |
-| `src/media/` | Video and sound for the preview: `timeline` (port of `player.ts`), `ffmpeg` (finding and running it), `video` (frames), `audio` (cpal, the mixer and clock), `player` (the engine both preview views use) |
-| `src/state.rs` | `AppState` and the `Link` to the server (with its HTTP address, `ServerHttp`) |
+| `src/lib.rs` | `run(link)`: single instance, assets, the HTTP client, the window, quit on close |
+| `src/workspace.rs` | The root view and its routing: sidebar, chat column with its header, one side panel; or the settings or library page in their place; a dialog over it; the window's keys |
+| `src/state.rs` | `AppState`, the `Link` to the server and the `ServerAddress` it answers HTTP at |
 | `src/transport.rs` | The `/ws` client: a `Link` to a server in another process |
-| `src/labels.rs`, `src/context.rs`, `src/markdown.rs`, `src/sidebar.rs`, `src/browse_path.rs`, `src/project_icon_colors.rs`, `src/collection_icons.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts`, `sidebar.ts`, `browsePath.ts`, `projectIconColors.ts`, `collectionIcons.ts` |
-| `src/views/` (pages) | `settings_page` (with `remote_access`, `linker_connect`, `collections_settings`, `settings_parts`: SettingsGroup/Row, Switch, Segmented, the pages' frame), `library_page` + `library_folder_dialog`, `history_panel` + `clip_strip`, `project_file_panel`, `app_update_card` (for the sidebar footer) |
-| `src/labels.rs`, `src/context.rs`, `src/markdown.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts` |
-| `src/settings.rs`, `src/library.rs`, `src/collection_icons.rs` | Ports of `settings.ts`, `library.ts`, `collectionIcons.ts` (with CollectionIcon.svelte) |
-| `src/http.rs` | The HTTP client GPUI's `img` fetches the server's pictures with (/library, /media) |
+| `src/http.rs` | The one HTTP client (reqwest): pictures for GPUI's `img`, and blocking requests off the UI thread |
+| `src/media/` | Video and sound: `timeline` (port of `player.ts`), `ffmpeg` (finding and running it), `video` (frames), `audio` (cpal, the mixer and clock), `player` (the engine both preview views use), `sound` (one file on its own: the library's ▶) |
+| `src/labels.rs`, `context.rs`, `markdown.rs`, `sidebar.rs`, `browse_path.rs`, `project_icon_colors.rs`, `collection_icons.rs`, `settings.rs`, `library.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts`, `sidebar.ts`, `browsePath.ts`, `projectIconColors.ts`, `collectionIcons.ts` (with CollectionIcon.svelte), `settings.ts` (with `resolve_status_line`), `library.ts` |
 | `src/theme.rs` | `app.css`'s tokens, light and dark; text sizes and radii |
 | `src/icons.rs` | The embedded Lucide icons and logos, and the asset source |
-| `src/components.rs` | Small shared elements (logo, header button, placeholder) |
+| `src/components.rs` | Small shared elements (logo, header button) |
 | `src/window.rs` | Window options, title-bar headers, the window buttons |
 | `src/single_instance.rs` | A second launch brings the first window forward |
+
+`src/views/`, one file per Svelte component (or a few that belong together):
+
+| Region | Files |
+|---|---|
+| Sidebar | `sidebar` (with `sidebar_rows`, `sidebar_footer`: transcription, `app_update_card`, the Linker account, Settings, Resolve's status), `computer_picker`, `context_menu` |
+| Chat | `chat`, `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter` |
+| Side panels | `panel` (which panels, their frame and header), `preview_panel` (with `timeline_player`, `player_controls`), `history_panel` (with `clip_strip`), `project_file_panel` |
+| Pages | `settings_page` (with `remote_access`, `linker_connect`, `collections_settings`: the collection editor and icon picker), `library_page`; `settings_parts`: SettingsGroup/Row, Switch, Segmented, the pages' frame and buttons, `confirm()` |
+| Dialogs | `dialog` (the frame, its buttons and text field), `add_project`, `folder_picker`, `project_settings`, `project_icon` (with the icon picker), `library_folder_dialog`, `choice_select` |
 
 ## GPUI
 
@@ -57,6 +61,15 @@ server ──LinkEvent──▶ AppState (Entity) ──notify──▶ views re
   `/ws` on its own thread (tokio), reconnecting every second like the browser. `Auth::Local` for
   a server on this computer (no token: it lets in a loopback Host with no Origin);
   `Auth::Bearer(session)` for a Linker Connect session, ended with `LinkEvent::SignedOut` on a 401.
+- `Link::server` is where that server answers HTTP: a `ServerAddress` (`base`, such as
+  `http://127.0.0.1:4317`, and its `Auth`). `transport::connect` fills it in; a server in this
+  process gives it with `link.with_server(ServerAddress::new(url, Auth::Local)?)`. Pictures,
+  media, the preview's timeline, sign-in links and the computer menu go through it; without
+  one (tests) nothing is fetched. `AppState::home` is the server the window opened on,
+  `AppState::server` the one it is on now; the computer menu moves between them with
+  `AppState::relink(link)`, and `away()` says it's on another computer. `on_this_computer()`
+  (a loopback server) decides where the system's folder dialog makes sense. `http.rs` sends the
+  session only to the current server's own address.
 - `AppState` holds `app: Option<protocol::AppState>` (the snapshot with its patches applied),
   `connected`, the history, project file, library and library view panels ask for, and toasts.
   It derives what +page.svelte does: `project()`, `thread()`, `collection()`, `chat_title()`,
@@ -65,6 +78,11 @@ server ──LinkEvent──▶ AppState (Entity) ──notify──▶ views re
   server refused comes as `AppEvent::Refused` (subscribe to it).
 - State that is only the window's business (which panel is open, a draft, a scroll position, a
   search query) lives in the view that shows it, like the Svelte components' `$state`.
+- The workspace routes: `open_settings(section)` (the sidebar's gear, Ctrl+, and the computer
+  menu's "Remote access…" all come here through `SidebarEvent::Settings`), `open_library(tab)`,
+  `close_page`, `toggle_panel`, `open_preview(target)` (History's Play), `add_project`. Each page,
+  side panel and dialog is a view made when it opens and dropped, with its subscription, when it
+  closes, as the Svelte components unmount; the preview stops its video first.
 
 ## Adding a view
 
@@ -114,17 +132,20 @@ GPUI has no `<video>`, so `src/media` plays it: one ffmpeg process per clip on s
 coming up within 3 s) decodes frames at the stage's size, with the clip's look applied, as raw
 BGRA on a pipe; each becomes a GPUI image. Another ffmpeg per audio clip decodes PCM for the
 mixer, which the sound card (cpal) pulls; what it has played is the clock the pictures follow.
-Media comes from the server over HTTP (`/media/<id>`, `/preview/<file>`), so it works for
-another computer's server too. ffmpeg is found next to the binary, on PATH, or in a checkout's
+Media comes from the server over HTTP (`/media/<id>`, `/preview/<file>`, `/library/…`), with
+the `ServerAddress`'s session, so it works for another computer's server too. The library
+page's ▶ plays one file through `media::sound` on the same mixer and sound card. ffmpeg is found next to the binary, on PATH, or in a checkout's
 `node_modules/ffmpeg-static`; packaging puts it next to the binary. Linux builds need ALSA's
 headers (`libasound2-dev`) for cpal.
 
 ## Testing
 
 `#[gpui::test]` gives a `TestAppContext`; `gpui_kit::test::TestWindowExt` finds elements by id
-and clicks them. See `workspace.rs`'s tests: open the window as `run` does with a `Link` the
-test drives, send `LinkEvent`s, `cx.run_until_parked()`, `window.render_frame(cx)`, then
-`window.find("id")` / `window.click("id", cx)`.
+and clicks them. `workspace::tests` has the helpers every flow test uses: `open_workspace` (the
+window as `run` opens it, on a link the test drives), `Server` (the link's other end: `send`,
+`message`, `received`), `render`, and `steps(&[Do::Click(…), Do::Press(…), Do::Input(…)])`, one
+frame per step. Flows live in `workspace.rs` (the chat), `views/sidebar_tests.rs` (the sidebar
+and its dialogs) and `pages_tests.rs` (pages, panels, the collection editor).
 
 ```
 cargo test -p linker-edit-ui
