@@ -610,8 +610,9 @@ impl Sidebar {
                             .child(
                                 div()
                                     .font_family(theme.mono_font_family)
-                                    .child("npx linker-edit@latest."),
-                            ),
+                                    .child("npx linker-edit@latest"),
+                            )
+                            .child(div().ml(px(-4.)).child(".")),
                     )
                     .test_support()
                     .into_any_element(),

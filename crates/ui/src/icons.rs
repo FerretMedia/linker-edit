@@ -206,7 +206,8 @@ fn logo_svg(path: &str) -> Option<&'static [u8]> {
     })
 }
 
-/// Our SVGs first, then gpui-kit's default icons, which its own components draw.
+/// Our SVGs first, then gpui-kit's Lucide catalog: the icons its own components draw, and any
+/// Lucide icon a project can have (project icons are picked from all of Lucide, as in T3 Code).
 pub struct Assets;
 
 impl gpui::AssetSource for Assets {
@@ -214,7 +215,7 @@ impl gpui::AssetSource for Assets {
         if let Some(bytes) = icon_svg(path).or_else(|| logo_svg(path)) {
             return Ok(Some(Cow::Borrowed(bytes)));
         }
-        gpui_kit::assets::Assets.load(path)
+        gpui_kit::assets::AllAssets.load(path)
     }
 
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
@@ -224,7 +225,7 @@ impl gpui::AssetSource for Assets {
             .filter(|p| p.starts_with(path))
             .map(SharedString::from)
             .collect();
-        paths.extend(gpui_kit::assets::Assets.list(path)?);
+        paths.extend(gpui_kit::assets::AllAssets.list(path)?);
         Ok(paths)
     }
 }

@@ -15,10 +15,10 @@ building the server. `crates/app` calls [`run`](src/lib.rs).
 |---|---|
 | `src/lib.rs` | `run(link)`: single instance, assets, the window, quit on close |
 | `src/workspace.rs` | The root view: sidebar, chat column with its header, one side panel |
-| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter` |
+| `src/views/` | One file per region of `+page.svelte`: `sidebar` (with `sidebar_rows`, `sidebar_footer`, `computer_picker`, `context_menu`), `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter`; the dialogs: `dialog` (the frame and small controls), `add_project`, `folder_picker`, `project_settings`, `project_icon` (with the icon picker), `collection_icon`, `collection_editor` |
 | `src/state.rs` | `AppState` and the `Link` to the server |
 | `src/transport.rs` | The `/ws` client: a `Link` to a server in another process |
-| `src/labels.rs`, `src/context.rs`, `src/markdown.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts` |
+| `src/labels.rs`, `src/context.rs`, `src/markdown.rs`, `src/sidebar.rs`, `src/browse_path.rs`, `src/project_icon_colors.rs`, `src/collection_icons.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts`, `sidebar.ts`, `browsePath.ts`, `projectIconColors.ts`, `collectionIcons.ts` |
 | `src/theme.rs` | `app.css`'s tokens, light and dark; text sizes and radii |
 | `src/icons.rs` | The embedded Lucide icons and logos, and the asset source |
 | `src/components.rs` | Small shared elements (logo, header button, placeholder) |
@@ -88,8 +88,9 @@ server ──LinkEvent──▶ AppState (Entity) ──notify──▶ views re
 
 `Icon::new(IconName::History).size(px(14.)).text_color(theme.muted_foreground)` (gpui-component's
 `Icon`; it takes our `IconName` and `Logo`). Only the icons the Svelte UI imports are
-embedded; to add one, see the top of `icons.rs`. Icons are one-color masks; multi-color marks
-are stacked layers (`components::LinkerLogo`).
+embedded as `IconName`s; to add one, see the top of `icons.rs`. Project icons can be any Lucide
+icon, as in T3 Code: those come from gpui-kit's full Lucide catalog (`views/project_icon.rs`).
+Icons are one-color masks; multi-color marks are stacked layers (`components::LinkerLogo`).
 
 ## The title bar
 
