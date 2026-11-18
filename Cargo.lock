@@ -4344,14 +4344,26 @@ name = "linker-edit-server"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "gethostname",
  "getrandom 0.3.4",
+ "http",
  "linker-edit-protocol",
+ "percent-encoding",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]

@@ -8,12 +8,25 @@ license.workspace = true
 [dependencies]
 linker-edit-protocol.workspace = true
 anyhow.workspace = true
+async-trait = "0.1"
+base64 = "0.22"
+chrono.workspace = true
+futures = "0.3"
+gethostname = "1"
+http = "1"
+percent-encoding = "2"
+regex = "1"
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
 getrandom = "0.3"
+url = "2"
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
