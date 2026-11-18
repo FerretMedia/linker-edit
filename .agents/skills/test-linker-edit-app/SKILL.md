@@ -5,9 +5,10 @@ description: Run Linker-Edit from a worktree and check a change in a real browse
 
 # Test Linker-Edit in a browser
 
-Paths are from the repository root; the app is in `apps/desktop`. Read the root
-`AGENTS.md`'s "five ways to hurt yourself" first: the developer's Resolve,
-`~/LinkerEdit`, and their dev server on 5317 and 4317 are off limits.
+Paths are from the repository root: the Rust app is in `crates/`, the browser
+UI in `apps/desktop`. Read the root `AGENTS.md`'s "five ways to hurt yourself"
+first: the developer's Resolve, `~/LinkerEdit`, and their dev server on 5317
+and 4317 are off limits.
 
 ## Start the app
 
@@ -36,20 +37,20 @@ out (an empty `resolveMcp` reads as "no Resolve on this computer", like CI):
 { "resolveHere": false }
 ```
 
-Then build and start the server from `apps/desktop` in the background, keeping
-its PID:
+Then build the UI and start the Rust server in the background, keeping its PID
+(a debug build reads the UI from `apps/desktop/build`):
 
 ```sh
-cd apps/desktop
 npm run build
-LINKER_EDIT_CONFIG=<tmp>/le-agent/linker-edit.config.json \
-LINKER_EDIT_REPLAY=../../crates/server/tests/fixtures/claude-turn.jsonl \
-node server/index.ts
+cargo build -p linker-edit
+LINKER_EDIT_CONFIG=<tmp>/le-agent/linker-edit.config.json LINKER_EDIT_REPLAY=crates/server/tests/fixtures/claude-turn.jsonl target/debug/linker-edit serve
 ```
 
 Open `http://127.0.0.1:4380`. With `LINKER_EDIT_REPLAY`, a sent message plays a
 recorded Claude turn: free, and it never reaches Resolve. Rebuild after each
-change to `src/`; restart the server after a change to `server/`.
+change to `apps/desktop/src`; restart the server after a change to `crates/`.
+The GPUI window is the same binary without `serve`, with the same variables;
+see `crates/ui/README.md`.
 
 To work with real Resolve data or a real agent, ask the developer first and use
 a scratch Resolve project they name.

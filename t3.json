@@ -1,11 +1,11 @@
 {
   "$schema": "https://t3.codes/schema/t3.json",
-  "iconPath": "apps/desktop/desktop/resources/icon.svg",
+  "iconPath": "crates/app/icons/icon.svg",
   "defaultThreadEnvMode": "worktree",
   "scripts": [
     {
       "name": "Setup worktree",
-      "command": "npm ci",
+      "command": "npm ci && cargo fetch",
       "icon": "configure",
       "runOnWorktreeCreate": true,
       "async": false
@@ -18,12 +18,12 @@
     },
     {
       "name": "Check",
-      "command": "npm run typecheck",
+      "command": "npm run typecheck && cargo clippy --workspace --all-targets -- -D warnings",
       "icon": "lint"
     },
     {
       "name": "Test",
-      "command": "npm test",
+      "command": "npm test && cargo test --workspace",
       "icon": "test"
     }
   ]
