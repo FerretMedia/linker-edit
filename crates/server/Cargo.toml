@@ -9,11 +9,20 @@ license.workspace = true
 linker-edit-protocol.workspace = true
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# float_roundtrip: caches compare file times read back from JSON (mtimeMs) with the file's, to the last bit.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 tokio.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
 getrandom = "0.3"
+async-trait = "0.1"
+chrono.workspace = true
+regex = "1"
+sha2.workspace = true
+tempfile.workspace = true
+tokio-util = "0.7"
+unicode-normalization = "0.1"
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

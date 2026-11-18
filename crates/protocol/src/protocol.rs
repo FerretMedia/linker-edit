@@ -154,6 +154,11 @@ pub struct LocalLink {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub folder: Option<Vec<String>>,
+    /// The project's own library folders, read with the server's library::folders::project_folders. Not in
+    /// protocol.ts: the TypeScript server kept them on this object as an extra key, and local.json still does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub library: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
