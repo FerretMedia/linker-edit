@@ -18,7 +18,10 @@ building the server. `crates/app` calls [`run`](src/lib.rs).
 | `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter` |
 | `src/state.rs` | `AppState` and the `Link` to the server |
 | `src/transport.rs` | The `/ws` client: a `Link` to a server in another process |
+| `src/views/` (pages) | `settings_page` (with `remote_access`, `linker_connect`, `collections_settings`, `settings_parts`: SettingsGroup/Row, Switch, Segmented, the pages' frame), `library_page` + `library_folder_dialog`, `history_panel` + `clip_strip`, `project_file_panel`, `app_update_card` (for the sidebar footer) |
 | `src/labels.rs`, `src/context.rs`, `src/markdown.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts` |
+| `src/settings.rs`, `src/library.rs`, `src/collection_icons.rs` | Ports of `settings.ts`, `library.ts`, `collectionIcons.ts` (with CollectionIcon.svelte) |
+| `src/http.rs` | The HTTP client GPUI's `img` fetches the server's pictures with (/library, /media) |
 | `src/theme.rs` | `app.css`'s tokens, light and dark; text sizes and radii |
 | `src/icons.rs` | The embedded Lucide icons and logos, and the asset source |
 | `src/components.rs` | Small shared elements (logo, header button, placeholder) |

@@ -43,6 +43,46 @@ pub enum LinkEvent {
 pub struct Link {
     pub events: UnboundedReceiver<LinkEvent>,
     pub commands: UnboundedSender<ClientMessage>,
+    /// Where the server answers HTTP (pictures, sign-in pages); None until a server is known.
+    pub server: Option<ServerAddress>,
+}
+
+/// A server's http(s) address, and the Linker Connect session it takes as Bearer, if any.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerAddress {
+    pub url: String,
+    pub bearer: Option<String>,
+}
+
+impl ServerAddress {
+    /// `path` (starting with /) on this server.
+    pub fn url_for(&self, path: &str) -> String {
+        format!("{}{path}", self.url.trim_end_matches('/'))
+    }
+
+    /// The scheme, host and port, like `location.origin`.
+    pub fn origin(&self) -> &str {
+        origin(&self.url)
+    }
+
+    /// Whether it is this computer's own server (a loopback address), as the browser checks
+    /// `location.hostname`.
+    pub fn is_local(&self) -> bool {
+        let host = self.origin().split("://").nth(1).unwrap_or_default();
+        let host = match host.strip_prefix('[') {
+            Some(rest) => rest.split(']').next().unwrap_or_default(),
+            None => host.split(':').next().unwrap_or_default(),
+        };
+        matches!(host, "localhost" | "127.0.0.1" | "::1")
+    }
+}
+
+/// `https://edit-1.linker.cool/x` → `https://edit-1.linker.cool`.
+pub fn origin(url: &str) -> &str {
+    let start = url.find("://").map_or(0, |index| index + 3);
+    url[start..]
+        .find('/')
+        .map_or(url, |end| &url[..start + end])
 }
 
 /// The server's end of the same link.
@@ -60,6 +100,7 @@ impl Link {
             Link {
                 events: events_rx,
                 commands: commands_tx,
+                server: None,
             },
             ServerEnd {
                 events: events_tx,
@@ -102,6 +143,8 @@ pub enum AppEvent {
 }
 
 pub struct AppState {
+    /// Where the server answers HTTP; None for one nobody knows the address of (tests).
+    pub server: Option<ServerAddress>,
     /// Whether the link is up; the chat shows "Reconnecting…" while it isn't.
     pub connected: bool,
     /// Whether it was ever up, so the first wait reads "Connecting…", not "Lost connection".
@@ -133,8 +176,10 @@ impl AppState {
         let Link {
             mut events,
             commands,
+            server,
         } = link;
         let state = cx.new(|_| AppState {
+            server,
             connected: false,
             ever_connected: false,
             signed_out: false,
@@ -397,6 +442,17 @@ impl AppState {
     pub fn project_file_in_view(&self) -> Option<&ProjectFile> {
         let file = self.project_file.as_ref()?;
         (Some(file.project_id.as_str()) == self.project_id()).then_some(file)
+    }
+
+    /// A path on the server as a full address, for pictures and pages it serves.
+    pub fn server_url(&self, path: &str) -> Option<String> {
+        Some(self.server.as_ref()?.url_for(path))
+    }
+
+    /// Whether the server runs on this computer, as the browser asks of `location.hostname`. A
+    /// server in this process (no address yet) is.
+    pub fn on_this_computer(&self) -> bool {
+        self.server.as_ref().is_none_or(ServerAddress::is_local)
     }
 
     pub fn project_id(&self) -> Option<&str> {

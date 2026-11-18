@@ -276,7 +276,12 @@ impl Theme {
             .detach();
     }
 
-    /// Picks light, dark or the OS's; what the Settings page will call.
+    /// What the Settings page's Theme choice shows.
+    pub fn choice(cx: &App) -> Choice {
+        cx.global::<Current>().choice
+    }
+
+    /// Picks light, dark or the OS's; what the Settings page calls.
     pub fn choose(choice: Choice, window: &mut Window, cx: &mut App) {
         set(choice, window.appearance(), cx);
     }

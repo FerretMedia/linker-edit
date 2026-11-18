@@ -4,8 +4,8 @@
 //! Placeholder content until the protocol's projects arrive.
 
 use gpui::{
-    Context, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    Context, Entity, EventEmitter, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Render, StatefulInteractiveElement, Styled, Window, div, px,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Icon;
@@ -21,6 +21,13 @@ pub const SIDEBAR_WIDTH: gpui::Pixels = px(256.);
 pub struct Sidebar {
     state: Entity<AppState>,
 }
+
+pub enum SidebarEvent {
+    /// Opens the settings page at a section (Settings, or Remote access from the computer menu).
+    Settings(crate::settings::SettingsSection),
+}
+
+impl EventEmitter<SidebarEvent> for Sidebar {}
 
 impl Sidebar {
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
@@ -180,7 +187,16 @@ impl Render for Sidebar {
             .px(inset)
             .pt_1()
             .pb(inset)
-            .child(icon_button("settings", IconName::Settings).size_8())
+            .child(
+                icon_button("settings", IconName::Settings)
+                    .size_8()
+                    .on_click(cx.listener(|_, _, _, cx| {
+                        cx.emit(SidebarEvent::Settings(
+                            crate::settings::SettingsSection::General,
+                        ))
+                    }))
+                    .test_support(),
+            )
             .child(
                 div()
                     .id("resolve-status")

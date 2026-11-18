@@ -41,6 +41,8 @@ macro_rules! icons {
     };
 }
 
+// PlayFilled and StarFilled are Lucide's with `fill-current`; PlusBold and XBold with ClipStrip's
+// heavier strokes (3 and 2.5).
 icons! {
     AlarmClock => "alarm-clock",
     AlarmClockOff => "alarm-clock-off",
@@ -117,7 +119,9 @@ icons! {
     PinOff => "pin-off",
     Plane => "plane",
     Play => "play",
+    PlayFilled => "play-filled",
     Plus => "plus",
+    PlusBold => "plus-bold",
     Podcast => "podcast",
     Radio => "radio",
     RefreshCw => "refresh-cw",
@@ -139,6 +143,7 @@ icons! {
     SquarePen => "square-pen",
     SquareTerminal => "square-terminal",
     Star => "star",
+    StarFilled => "star-filled",
     Store => "store",
     Trash => "trash",
     Trash2 => "trash-2",
@@ -153,6 +158,7 @@ icons! {
     WifiOff => "wifi-off",
     Wrench => "wrench",
     X => "x",
+    XBold => "x-bold",
 }
 
 impl IconNamed for IconName {

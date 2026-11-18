@@ -36,6 +36,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Fetches the server's pictures (library thumbnails, history clip tiles) for GPUI's `img` (http.rs).
+reqwest.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # Lets the first copy's window come to the front when a second copy hands over.

@@ -22,7 +22,7 @@ use tokio_tungstenite::tungstenite::{
     self, Message, client::IntoClientRequest, http::HeaderValue, http::StatusCode,
 };
 
-use crate::state::{ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
+use crate::state::{ClientMessage, Link, LinkEvent, ServerAddress, ServerEnd, ServerMessage};
 
 /// How long to wait before connecting again, as connection.svelte.ts's `setTimeout(…, 1000)`.
 const RECONNECT: Duration = Duration::from_secs(1);
@@ -58,7 +58,14 @@ pub fn ws_url(server: &str) -> anyhow::Result<String> {
 /// A link to the server at `server` (its http(s) address), connecting in the background.
 pub fn connect(server: &str, auth: Auth) -> anyhow::Result<Link> {
     let url = ws_url(server)?;
-    let (link, end) = Link::pair();
+    let (mut link, end) = Link::pair();
+    link.server = Some(ServerAddress {
+        url: server.trim().trim_end_matches('/').to_string(),
+        bearer: match &auth {
+            Auth::Local => None,
+            Auth::Bearer(session) => Some(session.clone()),
+        },
+    });
     std::thread::Builder::new()
         .name("linker-edit-ws".into())
         .spawn(move || {
@@ -231,6 +238,7 @@ mod tests {
         let Link {
             mut events,
             commands,
+            ..
         } = link;
         let mut seen = Vec::new();
         while let Some(event) = events.next().await {

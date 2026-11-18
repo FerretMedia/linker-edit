@@ -4,11 +4,17 @@
 // gpui-kit re-exports GPUI; GPUI's macros expand to `gpui::…`, so it goes by that name too.
 extern crate gpui_kit as gpui;
 
+pub mod collection_icons;
 pub mod components;
 pub mod context;
+mod http;
 pub mod icons;
 pub mod labels;
+pub mod library;
 pub mod markdown;
+#[cfg(test)]
+mod pages_tests;
+pub mod settings;
 mod single_instance;
 pub mod state;
 pub mod theme;
@@ -35,6 +41,14 @@ pub fn run(link: Link) -> anyhow::Result<()> {
         .with_assets(icons::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            let bearer = link
+                .server
+                .as_ref()
+                .and_then(|server| server.bearer.clone());
+            match http::Client::new(bearer) {
+                Ok(client) => cx.set_http_client(client),
+                Err(error) => eprintln!("No pictures from the server: {error}"),
+            }
             let state = AppState::new(link, cx);
             let (window, _) = gpui_kit::open_window(window::options(cx), cx, |window, cx| {
                 new_workspace(state, window, cx)
@@ -60,5 +74,6 @@ pub fn new_workspace(
     cx: &mut gpui::App,
 ) -> Entity<Workspace> {
     theme::Theme::init(window, cx);
+    workspace::bind_keys(cx);
     cx.new(|cx| Workspace::new(state, window, cx))
 }

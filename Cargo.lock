@@ -4371,6 +4371,7 @@ dependencies = [
  "interprocess",
  "linker-edit-protocol",
  "pulldown-cmark",
+ "reqwest",
  "rustls",
  "serde_json",
  "tokio",
