@@ -1012,3 +1012,8 @@ pub fn default_probe() -> Arc<dyn Probe> {
 #[cfg(test)]
 #[path = "http/tests.rs"]
 mod tests;
+
+// The iPad app's fixtures, recorded from a real session over /ws with RECORD_IPAD_FIXTURES=1.
+#[cfg(test)]
+#[path = "http/ipad_fixtures.rs"]
+mod ipad_fixtures;

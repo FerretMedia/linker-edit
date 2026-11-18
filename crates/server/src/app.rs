@@ -2219,9 +2219,7 @@ impl Locked<'_> {
         }
         let message = ServerMessage::ProjectFile {
             project_id: project_id.to_string(),
-            file: saved
-                .dir
-                .join(PROJECT_NOTES_FILE)
+            file: js::join(&saved.dir, PROJECT_NOTES_FILE)
                 .to_string_lossy()
                 .into_owned(),
             text: read_project_file(&saved.dir),

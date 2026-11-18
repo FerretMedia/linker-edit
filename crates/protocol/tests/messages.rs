@@ -1,7 +1,8 @@
-// Every message on /ws, decoded from the JSON the TypeScript server and UI send and written back the same.
+// Every message on /ws, decoded from the JSON the server and UI send and written back the same.
 //
-// fixtures/ipad was recorded from the TypeScript server over /ws (apps/desktop/scripts/ipad-fixtures.test.ts on the
-// iPad branch); the iPad app decodes the same files. The other fixtures are written from the TypeScript tests.
+// The iPad app's fixtures (apps/ipad/Packages/LinkerEditKit/Tests/Fixtures) are recorded from the server over /ws by
+// crates/server's ipad_fixtures; the iPad app decodes the same files. The other fixtures were written from the
+// TypeScript tests.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -32,15 +33,20 @@ fn round_trip<T: Serialize + DeserializeOwned>(json: &Value) -> T {
     decoded
 }
 
+fn ipad_fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/ipad/Packages/LinkerEditKit/Tests/Fixtures")
+}
+
 fn tag(message: &Value) -> String {
     message["type"].as_str().unwrap().to_string()
 }
 
 #[test]
-fn reads_and_writes_what_the_typescript_server_sent_the_ipad() {
+fn reads_and_writes_what_the_server_sent_the_ipad() {
     let mut count = 0;
     for side in ["client", "server"] {
-        for entry in fs::read_dir(fixtures().join("ipad").join(side)).unwrap() {
+        for entry in fs::read_dir(ipad_fixtures().join(side)).unwrap() {
             let json = read(&entry.unwrap().path());
             match side {
                 "client" => drop(round_trip::<ClientMessage>(&json)),
@@ -110,7 +116,7 @@ fn reads_and_writes_every_client_message() {
 #[test]
 fn reads_and_writes_every_server_message() {
     let mut seen = BTreeSet::new();
-    let ipad = fs::read_dir(fixtures().join("ipad/server"))
+    let ipad = fs::read_dir(ipad_fixtures().join("server"))
         .unwrap()
         .map(|entry| read(&entry.unwrap().path()));
     let messages = read(&fixtures().join("server.json"));

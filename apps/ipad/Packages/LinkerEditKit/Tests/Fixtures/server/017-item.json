@@ -2,8 +2,8 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "t2",
     "kind": "tool",
+    "id": "t2",
     "name": "mcp__linker__create_timeline",
     "input": {
       "name": "AI - Cut",

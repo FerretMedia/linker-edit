@@ -2,8 +2,8 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "a1",
     "kind": "assistant",
-    "text": "Looking at the timeline first."
+    "id": "a1",
+    "text": "Looking at"
   }
 }

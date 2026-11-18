@@ -227,8 +227,9 @@ mod tests {
             let mut socket = tokio_tungstenite::accept_hdr_async(stream, check)
                 .await
                 .unwrap();
-            let snapshot =
-                include_str!("../../protocol/tests/fixtures/ipad/server/001-snapshot.json");
+            let snapshot = include_str!(
+                "../../../apps/ipad/Packages/LinkerEditKit/Tests/Fixtures/server/001-snapshot.json"
+            );
             socket.send(Message::text(snapshot)).await.unwrap();
             if let Some(Ok(Message::Text(text))) = socket.next().await {
                 received.push(text.to_string());

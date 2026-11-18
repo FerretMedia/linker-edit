@@ -1,4 +1,6 @@
 // Messages exchanged between the local server and the browser UI over /ws.
+// The iPad app (apps/ipad) reads them too: after a change, run
+// RECORD_IPAD_FIXTURES=1 cargo test -p linker-edit-server ipad_fixtures and push, so its CI decodes the new messages.
 //
 // Generated from crates/protocol: don't edit it here. Change the Rust types, then run
 // `UPDATE_PROTOCOL_TS=1 cargo test -p linker-edit-protocol` to write this file again.

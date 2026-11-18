@@ -2,8 +2,8 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "t1",
     "kind": "tool",
+    "id": "t1",
     "name": "mcp__linker__list_timelines",
     "input": {},
     "status": "done",

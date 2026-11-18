@@ -1055,12 +1055,12 @@ pub(crate) mod tests {
 
     #[gpui::test]
     fn a_recorded_session_renders_its_rows(cx: &mut TestAppContext) {
-        // The iPad app's recording of the TS server's /ws: a supervised turn with tool calls, an
+        // The iPad app's recording of the server's /ws: a supervised turn with tool calls, an
         // approval, a notice and a reply.
         let (window, mut server) = open(cx);
         server.send(LinkEvent::Connected);
         let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../protocol/tests/fixtures/ipad/server");
+            .join("../../apps/ipad/Packages/LinkerEditKit/Tests/Fixtures/server");
         let mut files: Vec<_> = std::fs::read_dir(&fixtures)
             .unwrap()
             .map(|entry| entry.unwrap().path())

@@ -2,8 +2,8 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "00000000-0000-4000-8000-000000000001",
     "kind": "user",
+    "id": "00000000-0000-4000-8000-000000000001",
     "text": "Cut the silences"
   }
 }

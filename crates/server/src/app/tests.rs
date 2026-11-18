@@ -1420,6 +1420,20 @@ mod projects {
     use super::*;
 
     #[tokio::test]
+    async fn names_project_md_with_the_systems_separators_as_node_did() {
+        let h = setup().start();
+        h.send(json!({ "type": "load_project_file" }));
+        let file = h.client.files.lock().unwrap().last().cloned().unwrap().1;
+        // The workspace project is in "/work"; on Windows that is \work, as Node's path.join wrote it.
+        let expected = if cfg!(windows) {
+            "\\work\\PROJECT.md"
+        } else {
+            "/work/PROJECT.md"
+        };
+        assert_eq!(file, expected);
+    }
+
+    #[tokio::test]
     async fn shows_a_preview_only_in_its_own_projects_threads() {
         let h = setup()
             .store(store_of(vec![

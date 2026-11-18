@@ -31,6 +31,7 @@ A Cargo workspace and an npm workspace; run `npm` from the root.
 - `crates/protocol`: everything on `/ws` and `/api`
 - `crates/drp`: .drp/.drt files
 - `apps/desktop`: the Svelte UI (`src/`), e2e, release scripts (`scripts/`)
+- `apps/ipad`: the SwiftUI iPad app; no Swift here: `ipad.yml` CI checks pushes
 - `npm/linker-edit`: the npm launcher; `docs/` plans
 
 - **The server owns the state.** The UI renders what arrives over `/ws` and
@@ -44,8 +45,7 @@ A Cargo workspace and an npm workspace; run `npm` from the root.
   timeline not named `AI - …`, delete media, switch projects) is refused by the
   tools and the hook in both approval modes. The README's "How approvals work"
   is the contract; keep the two in step.
-- **Pull requests go to `main`.** Only `.github/workflows/release.yml`, run by
-  hand, ships; see `RELEASING.md`.
+- **Only `release.yml`, run by hand, ships;** see `RELEASING.md`.
 
 ## The five ways to hurt yourself
 
@@ -143,9 +143,8 @@ applied:
   they can see changes it. When a documented decision changes, rewrite the
   text; don't add a second account.
 - A reason only one spot needs is a short comment there.
-- This file is loaded into every agent's context, so `agent-context-budget.yml`
-  fails a PR that grows it. Cut first; the `agent-context-increase` label
-  accepts growth on purpose.
+- Every agent loads this file, so `agent-context-budget.yml` fails a PR that
+  grows it: cut first; the `agent-context-increase` label accepts growth.
 
 ## Svelte
 

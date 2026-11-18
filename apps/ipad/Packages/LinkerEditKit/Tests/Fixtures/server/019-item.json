@@ -2,8 +2,8 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "a1",
     "kind": "assistant",
-    "text": "Looking at"
+    "id": "a2",
+    "text": "Done: **AI - Cut** has the 12 long pauses taken out."
   }
 }

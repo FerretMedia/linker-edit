@@ -558,11 +558,11 @@ pub(crate) mod tests {
     use gpui::TestAppContext;
     use linker_edit_protocol::{AppMeta, Blocked, ToolStatus};
 
-    /// A server state as the TS server sends it with one project and an empty thread
-    /// (crates/protocol's fixture), for tests to change.
+    /// A server state as the server sends it with two projects and an empty thread
+    /// (the iPad app's fixture), for tests to change.
     pub fn snapshot() -> protocol::AppState {
         let mut state: protocol::AppState = serde_json::from_str(include_str!(
-            "../../protocol/tests/fixtures/ipad/server/001-snapshot.json"
+            "../../../apps/ipad/Packages/LinkerEditKit/Tests/Fixtures/server/001-snapshot.json"
         ))
         .map(|message: ServerMessage| match message {
             ServerMessage::Snapshot { state } => *state,

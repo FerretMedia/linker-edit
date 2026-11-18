@@ -123,6 +123,7 @@ A Cargo workspace (`crates/`) and an npm workspace (`apps/desktop`) side by side
 - `crates/protocol`: everything on `/ws` and `/api`; `apps/desktop/shared/protocol.ts` is generated from it.
 - `crates/drp`: reads and patches DaVinci Resolve `.drp` project and `.drt` timeline files without Resolve. See [its README](crates/drp/README.md).
 - `apps/desktop`: the browser UI (SvelteKit), which the server carries inside it for browsers and your other computers, its e2e tests, and the scripts that package releases.
+- `apps/ipad`: the native iPad app (SwiftUI), a remote for the desktop app on your edit computer. It isn't released yet; see [its README](apps/ipad/README.md). It builds only on macOS, so pull requests that change it are built and tested on GitHub's Mac runners.
 - `npm/linker-edit`: the npm package `npx linker-edit` runs; it starts the program from the platform's own package.
 - `docs/`: plans.
 
@@ -330,6 +331,7 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 - `LINKER_EDIT_REPLAY=crates/server/tests/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
 - `xvfb-run -a node apps/desktop/scripts/update-smoke.ts` on Linux, after a release build laid out with `node apps/desktop/scripts/package.ts app`: packs the app as an older and a newer release, and checks that the older one downloads the newer one, restarts into it and comes back on the newer version.
+- `RECORD_IPAD_FIXTURES=1 cargo test -p linker-edit-server ipad_fixtures`: records what the server sends over `/ws` into the iPad app's test fixtures. Run it after changing `crates/protocol`; the iPad CI then checks the Swift models still read every message.
 - `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing

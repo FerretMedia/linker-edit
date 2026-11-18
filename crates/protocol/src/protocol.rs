@@ -3,6 +3,7 @@
 // apps/desktop/shared/protocol.ts is generated from these types (see typescript.rs), so the Svelte UI, the iPad
 // app and this crate speak the same JSON. `field?: T` in TypeScript is an Option that's left out when None;
 // `field: T | null` is an Option that's always sent, as null when None.
+// Record the iPad's fixtures again after a change: RECORD_IPAD_FIXTURES=1 cargo test -p linker-edit-server ipad_fixtures
 
 use std::collections::BTreeMap;
 
@@ -168,12 +169,12 @@ pub struct ThreadSummary {
     pub title: String,
     /// ISO 8601.
     pub updated_at: String,
+    #[serde(flatten)]
+    pub sidebar: ThreadSidebarState,
     pub archived: bool,
     pub busy: bool,
     /// An approval is waiting for the user.
     pub waiting: bool,
-    #[serde(flatten)]
-    pub sidebar: ThreadSidebarState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -188,13 +189,13 @@ pub struct ProjectSummary {
     pub local: LocalLink,
     /// Its Resolve project is the one open in Resolve now.
     pub open: bool,
+    #[serde(flatten)]
+    pub sidebar: ProjectSidebarState,
     /// Newest first, archived ones included.
     pub threads: Vec<ThreadSummary>,
     /// A workspace's or series' setup threads: the agent studies example videos and writes the brief here. It has no
     /// Resolve project and never gets one.
     pub setup: bool,
-    #[serde(flatten)]
-    pub sidebar: ProjectSidebarState,
 }
 
 /// A project in the Resolve database that is open now, for adding it to Linker-Edit.
