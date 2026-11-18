@@ -291,6 +291,7 @@ def scriptapp(name): return Resolve()
         LocalLink {
             database: Some(db("PostgreSQL", "Team", Some("10.0.0.5"))),
             folder: None,
+            library: None,
         }
     }
 
@@ -339,6 +340,7 @@ def scriptapp(name): return Resolve()
         let local = LocalLink {
             database: None,
             folder: Some(vec!["Old".into()]),
+            library: None,
         };
         assert_eq!(
             fake.projects

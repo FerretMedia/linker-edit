@@ -88,6 +88,7 @@ pub fn link_from_open(open: &OpenProject) -> Linked {
         local: LocalLink {
             database: open.database.clone(),
             folder: None,
+            library: None,
         },
     }
 }
@@ -155,6 +156,7 @@ mod tests {
         let local = |database: Option<ResolveDatabase>| LocalLink {
             database,
             folder: None,
+            library: None,
         };
         use ResolveLinkKind::{Cloud, Local};
         let cases = [

@@ -1,0 +1,219 @@
+{
+ "log": "whisper_vad: vad_segment_info: orig_start: 1.41, orig_end: 3.58, vad_start: 0.00, vad_end: 2.17\nwhisper_vad: vad_segment_info: orig_start: 6.79, orig_end: 8.73, vad_start: 2.37, vad_end: 4.31\nwhisper_vad: vad_segment_info: orig_start: 9.76, orig_end: 10.43, vad_start: 4.51, vad_end: 5.18\nwhisper_vad: vad_segment_info: orig_start: 12.03, orig_end: 12.70, vad_start: 5.38, vad_end: 6.05",
+ "json": {
+  "result": {
+   "language": "nl"
+  },
+  "transcription": [
+   {
+    "offsets": {
+     "from": 1410,
+     "to": 3170
+    },
+    "text": " Aha, dat is dus mijn camera.",
+    "tokens": [
+     {
+      "text": "[_BEG_]",
+      "offsets": {
+       "from": 0,
+       "to": 0
+      }
+     },
+     {
+      "text": " Aha",
+      "offsets": {
+       "from": 20,
+       "to": 200
+      }
+     },
+     {
+      "text": ",",
+      "offsets": {
+       "from": 200,
+       "to": 330
+      }
+     },
+     {
+      "text": " dat",
+      "offsets": {
+       "from": 330,
+       "to": 530
+      }
+     },
+     {
+      "text": " is",
+      "offsets": {
+       "from": 530,
+       "to": 660
+      }
+     },
+     {
+      "text": " dus",
+      "offsets": {
+       "from": 660,
+       "to": 860
+      }
+     },
+     {
+      "text": " mijn",
+      "offsets": {
+       "from": 860,
+       "to": 1120
+      }
+     },
+     {
+      "text": " camera",
+      "offsets": {
+       "from": 1130,
+       "to": 1530
+      }
+     },
+     {
+      "text": ".",
+      "offsets": {
+       "from": 1530,
+       "to": 1760
+      }
+     },
+     {
+      "text": "[_TT_88]",
+      "offsets": {
+       "from": 1760,
+       "to": 1760
+      }
+     }
+    ]
+   },
+   {
+    "offsets": {
+     "from": 5820,
+     "to": 8480
+    },
+    "text": " Oké, anyway, maar check even Tito.",
+    "tokens": [
+     {
+      "text": " Ok",
+      "offsets": {
+       "from": 2340,
+       "to": 2340
+      }
+     },
+     {
+      "text": "é",
+      "offsets": {
+       "from": 2340,
+       "to": 2340
+      }
+     },
+     {
+      "text": ",",
+      "offsets": {
+       "from": 2340,
+       "to": 2340
+      }
+     },
+     {
+      "text": " anyway",
+      "offsets": {
+       "from": 2360,
+       "to": 2750
+      }
+     },
+     {
+      "text": ",",
+      "offsets": {
+       "from": 2750,
+       "to": 2930
+      }
+     },
+     {
+      "text": " maar",
+      "offsets": {
+       "from": 2930,
+       "to": 3160
+      }
+     },
+     {
+      "text": " check",
+      "offsets": {
+       "from": 3160,
+       "to": 3430
+      }
+     },
+     {
+      "text": " even",
+      "offsets": {
+       "from": 3440,
+       "to": 3610
+      }
+     },
+     {
+      "text": " T",
+      "offsets": {
+       "from": 3710,
+       "to": 3710
+      }
+     },
+     {
+      "text": "ito",
+      "offsets": {
+       "from": 3710,
+       "to": 3870
+      }
+     },
+     {
+      "text": ".",
+      "offsets": {
+       "from": 3870,
+       "to": 4050
+      }
+     },
+     {
+      "text": "[_TT_203]",
+      "offsets": {
+       "from": 4060,
+       "to": 4060
+      }
+     }
+    ]
+   },
+   {
+    "offsets": {
+     "from": 9770,
+     "to": 10170
+    },
+    "text": " Hell ja.",
+    "tokens": [
+     {
+      "text": " Hell",
+      "offsets": {
+       "from": 4520,
+       "to": 4520
+      }
+     },
+     {
+      "text": " ja",
+      "offsets": {
+       "from": 4540,
+       "to": 4630
+      }
+     },
+     {
+      "text": ".",
+      "offsets": {
+       "from": 4630,
+       "to": 4920
+      }
+     },
+     {
+      "text": "[_TT_246]",
+      "offsets": {
+       "from": 4920,
+       "to": 4920
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

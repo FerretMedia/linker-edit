@@ -9,8 +9,7 @@ license.workspace = true
 linker-edit-protocol.workspace = true
 anyhow.workspace = true
 serde.workspace = true
-# preserve_order: objects keep their keys in order, like JavaScript's, so the JSON scripts and agents get is the same.
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
@@ -20,6 +19,7 @@ chrono.workspace = true
 icu_collator = "2.4"
 indexmap = { version = "2", features = ["serde"] }
 regex = "1"
+sha2.workspace = true
 # Fresh folders for view_frames, as fs.mkdtemp.
 tempfile.workspace = true
 thiserror.workspace = true

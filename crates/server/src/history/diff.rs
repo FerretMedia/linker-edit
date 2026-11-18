@@ -15,7 +15,7 @@ pub fn format_duration(frames: f64, fps: f64) -> String {
     } else {
         fps
     };
-    let seconds = js::round(frames / fps).max(0.0) as u64;
+    let seconds = js::math_round(frames / fps).max(0.0) as u64;
     let h = seconds / 3600;
     let m = (seconds % 3600) / 60;
     let s = seconds % 60;
@@ -312,7 +312,7 @@ fn seconds(frames: f64, fps: f64) -> f64 {
     } else {
         fps
     };
-    js::round((frames / fps) * 10.0) / 10.0
+    js::math_round((frames / fps) * 10.0) / 10.0
 }
 
 /// Video clips in timeline order for the history panel. A new timeline shows its whole cut; a changed

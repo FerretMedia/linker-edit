@@ -1,18 +1,28 @@
-// What the TypeScript server got from JavaScript and Node themselves, for the ports that must write the same bytes
-// (the edit history, the project and collection files) and the same messages: JSON.stringify, Number(),
-// String(number), slicing by UTF-16 units, localeCompare and Node's path functions.
+// What the TypeScript server got from JavaScript and Node themselves, where Rust's own differs and a file, a cache
+// key, a message or a tool's answer would come out different: JSON.stringify, Number(), String(number),
+// Math.round, toFixed, slicing by UTF-16 units, localeCompare (ICU), Node's path functions, mtimeMs and
+// toISOString. And promise chains: jobs run one at a time, in the order they were queued.
 
 use std::cmp::Ordering;
+use std::fs::Metadata;
+use std::future::Future;
 use std::io;
 use std::path::{Component, Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::sync::{Arc, LazyLock};
+use std::time::UNIX_EPOCH;
 
 use icu_collator::options::{CollatorOptions, Strength};
 use icu_collator::preferences::CollationNumericOrdering;
 use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::Value;
 use serde_json::ser::{CompactFormatter, Formatter, PrettyFormatter};
+use sha2::{Digest, Sha256};
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+
+// --- JSON ---
 
 /// Writes numbers as JavaScript does: 2 rather than 2.0, 1e+21 rather than 1e21.
 struct JsNumbers<F>(F);
@@ -68,6 +78,37 @@ pub fn stringify_pretty(value: &impl Serialize) -> String {
     write(value, PrettyFormatter::with_indent(b"  "))
 }
 
+/// A number as JSON.stringify writes it, as a Value: 40 rather than 40.0, null for NaN and infinities.
+pub fn number_value(value: f64) -> Value {
+    if !value.is_finite() {
+        Value::Null
+    } else if value.fract() == 0.0 && value.abs() <= 9_007_199_254_740_991.0 {
+        Value::from(value as i64)
+    } else {
+        Value::from(value)
+    }
+}
+
+/// For `#[serde(serialize_with = "js::num")]` on an f64.
+pub fn num<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    number_value(*value).serialize(serializer)
+}
+
+/// For `#[serde(serialize_with = "js::opt_num")]` on an Option<f64>.
+pub fn opt_num<S: Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error> {
+    value
+        .map(number_value)
+        .unwrap_or(Value::Null)
+        .serialize(serializer)
+}
+
+/// For `#[serde(serialize_with = "js::nums")]` on a list of f64.
+pub fn nums<S: Serializer, T: AsRef<[f64]>>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_seq(value.as_ref().iter().map(|value| number_value(*value)))
+}
+
+// --- Numbers ---
+
 /// String(value) for a number, as ECMAScript's Number::toString writes it.
 pub fn number_to_string(value: f64) -> String {
     if value.is_nan() {
@@ -105,6 +146,26 @@ pub fn number_to_string(value: f64) -> String {
     }
 }
 
+/// Number(text): 0 for nothing, NaN when it isn't a number.
+pub fn parse_number(text: &str) -> f64 {
+    let text = trim(text);
+    if text.is_empty() {
+        return 0.0;
+    }
+    match text {
+        "Infinity" | "+Infinity" => f64::INFINITY,
+        "-Infinity" => f64::NEG_INFINITY,
+        // Rust reads "inf" and "nan", JavaScript doesn't.
+        _ if text
+            .chars()
+            .any(|c| c.is_ascii_alphabetic() && !matches!(c, 'e' | 'E')) =>
+        {
+            f64::NAN
+        }
+        _ => text.parse().unwrap_or(f64::NAN),
+    }
+}
+
 /// Number(value), with None for undefined: null is 0, a string is read as a number, anything else is NaN.
 pub fn number(value: Option<&Value>) -> f64 {
     match value {
@@ -112,24 +173,7 @@ pub fn number(value: Option<&Value>) -> f64 {
         Some(Value::Null) => 0.0,
         Some(Value::Bool(value)) => f64::from(u8::from(*value)),
         Some(Value::Number(value)) => value.as_f64().unwrap_or(f64::NAN),
-        Some(Value::String(text)) => {
-            let text = trim(text);
-            if text.is_empty() {
-                return 0.0;
-            }
-            match text {
-                "Infinity" | "+Infinity" => f64::INFINITY,
-                "-Infinity" => f64::NEG_INFINITY,
-                // Rust reads "inf" and "nan", JavaScript doesn't.
-                _ if text
-                    .chars()
-                    .any(|c| c.is_ascii_alphabetic() && !matches!(c, 'e' | 'E')) =>
-                {
-                    f64::NAN
-                }
-                _ => text.parse().unwrap_or(f64::NAN),
-            }
-        }
+        Some(Value::String(text)) => parse_number(text),
         Some(Value::Array(_) | Value::Object(_)) => f64::NAN,
     }
 }
@@ -157,8 +201,8 @@ pub fn truthy(value: &Value) -> bool {
     }
 }
 
-/// Math.round, which rounds halves up: -2.5 is -2.
-pub fn round(value: f64) -> f64 {
+/// Math.round: halves go up, also below zero (-2.5 is -2), unlike f64::round.
+pub fn math_round(value: f64) -> f64 {
     let floor = value.floor();
     if value - floor >= 0.5 {
         floor + 1.0
@@ -166,6 +210,46 @@ pub fn round(value: f64) -> f64 {
         floor
     }
 }
+
+/// `Math.round(value * 10 ** digits) / 10 ** digits`.
+pub fn round_to(value: f64, digits: i32) -> f64 {
+    let scale = 10f64.powi(digits);
+    math_round(value * scale) / scale
+}
+
+/// Number.prototype.toFixed: an exact half goes away from zero, where Rust's formatting rounds it to even.
+pub fn to_fixed(value: f64, digits: usize) -> String {
+    let exact = format!("{:.40}", value.abs());
+    let tie = exact
+        .split_once('.')
+        .map(|(_, fraction)| {
+            let rest = &fraction[digits.min(fraction.len())..];
+            rest.starts_with('5') && rest[1..].bytes().all(|byte| byte == b'0')
+        })
+        .unwrap_or(false);
+    if !tie {
+        return format!("{value:.digits$}");
+    }
+    let scale = 10f64.powi(digits as i32);
+    let away = (value.abs() * scale).floor() + 1.0;
+    let sign = if value < 0.0 { "-" } else { "" };
+    format!("{sign}{:.digits$}", away / scale)
+}
+
+/// n.toLocaleString("en-US") for a whole number: 20,000.
+pub fn group_thousands(value: usize) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (index, c) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+// --- Text ---
 
 /// text.length: UTF-16 code units.
 pub fn length(text: &str) -> usize {
@@ -189,35 +273,12 @@ pub fn trim(text: &str) -> &str {
     text.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
 }
 
-/// n.toLocaleString("en-US") for a whole number: 20,000.
-pub fn group_thousands(value: usize) -> String {
-    let digits = value.to_string();
-    let mut out = String::new();
-    for (index, c) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// new Date().toISOString().
-pub fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-}
-
-/// Date.now().
-pub fn now_millis() -> i64 {
-    chrono::Utc::now().timestamp_millis()
-}
-
-/// !Number.isNaN(Date.parse(text)) for the ISO 8601 forms Linker-Edit writes, and dates and times without a zone.
-pub fn is_date(text: &str) -> bool {
-    chrono::DateTime::parse_from_rfc3339(text).is_ok()
-        || chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
-        || chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M").is_ok()
-        || chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok()
+/// sha256 of the text, in hex.
+pub fn sha256_hex(text: &str) -> String {
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn collator(numeric: bool, strength: Option<Strength>) -> CollatorBorrowed<'static> {
@@ -240,21 +301,50 @@ pub fn locale_compare(a: &str, b: &str) -> Ordering {
     LOCALE_COMPARE.compare(a, b)
 }
 
-/// a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }): "Clip 9" before "Clip 10", case ignored.
+/// a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }): "Clip 9" before "Clip 10", Equal when
+/// only case or accents differ.
 pub fn locale_compare_numeric(a: &str, b: &str) -> Ordering {
     NUMERIC_BASE.compare(a, b)
 }
 
-/// Node's path.isAbsolute: on Windows also \\x and /x, which are on the current drive.
+// --- Dates ---
+
+/// new Date().toISOString().
+pub fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// new Date(ms).toISOString().
+pub fn iso_from_ms(ms: f64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms.trunc() as i64)
+        .unwrap_or_default()
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Date.now().
+pub fn now_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// !Number.isNaN(Date.parse(text)) for the ISO 8601 forms Linker-Edit writes, and dates and times without a zone.
+pub fn is_date(text: &str) -> bool {
+    chrono::DateTime::parse_from_rfc3339(text).is_ok()
+        || chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f").is_ok()
+        || chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M").is_ok()
+        || chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok()
+}
+
+// --- Paths and files ---
+
+/// Node's path.isAbsolute: on Windows a path from the drive's root ("/Music", "\Music") counts too.
 pub fn is_absolute(path: &str) -> bool {
     if cfg!(windows) {
         let bytes = path.as_bytes();
-        let separator = |b: u8| b == b'/' || b == b'\\';
-        bytes.first().is_some_and(|&b| separator(b))
+        path.starts_with(['/', '\\'])
             || (bytes.len() > 2
                 && bytes[0].is_ascii_alphabetic()
                 && bytes[1] == b':'
-                && separator(bytes[2]))
+                && matches!(bytes[2], b'/' | b'\\'))
     } else {
         path.starts_with('/')
     }
@@ -306,9 +396,132 @@ pub fn join(a: &Path, b: &str) -> PathBuf {
 }
 
 /// Node's path.resolve(path): absolute, normalized, with no trailing separator.
-pub fn resolve(path: &Path) -> PathBuf {
-    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+pub fn resolve(path: impl AsRef<Path>) -> PathBuf {
+    let path = path.as_ref();
+    let absolute = if path.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_default()
+    } else {
+        std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+    };
     normalize(&absolute)
+}
+
+/// path.extname: from the last dot of the last part, "" when the name starts with its only dot or has none.
+pub fn extname(file: &str) -> &str {
+    let name = file
+        .rsplit(['/', std::path::MAIN_SEPARATOR])
+        .next()
+        .unwrap_or(file);
+    match name.rfind('.') {
+        Some(index) if name[..index].chars().any(|c| c != '.') => &name[index..],
+        _ => "",
+    }
+}
+
+/// path.parse(file).name: the file's name without its extension.
+pub fn parsed_name(file: &Path) -> String {
+    let base = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = extname(&base).len();
+    base[..base.len() - ext].to_string()
+}
+
+/// fs.Stats.mtimeMs: milliseconds since 1970, with the fraction Node gives.
+pub fn mtime_ms(meta: &Metadata) -> f64 {
+    let Ok(modified) = meta.modified() else {
+        return 0.0;
+    };
+    match modified.duration_since(UNIX_EPOCH) {
+        Ok(since) => since.as_secs() as f64 * 1e3 + f64::from(since.subsec_nanos()) / 1e6,
+        Err(before) => {
+            let before = before.duration();
+            -(before.as_secs() as f64 * 1e3 + f64::from(before.subsec_nanos()) / 1e6)
+        }
+    }
+}
+
+// --- One at a time ---
+
+/// Jobs that run one at a time, in the order they were queued: the TypeScript's `queue = queue.then(job)`. Each job
+/// takes its place when queued and runs in a task of its own, so it runs whether or not anyone waits for it.
+#[derive(Clone)]
+pub struct Serial {
+    next: Arc<AtomicU64>,
+    serving: Arc<watch::Sender<u64>>,
+}
+
+impl Default for Serial {
+    fn default() -> Self {
+        Self {
+            next: Arc::new(AtomicU64::new(0)),
+            serving: Arc::new(watch::channel(0).0),
+        }
+    }
+}
+
+/// Lets the next job go when the running one ends, also when it panics.
+struct Turn(Arc<watch::Sender<u64>>);
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        self.0.send_modify(|serving| *serving += 1);
+    }
+}
+
+impl Serial {
+    /// Queues a job. Needs a tokio runtime. Aborting the returned handle before the job ran stalls the queue.
+    pub fn spawn<F, T>(&self, job: F) -> JoinHandle<T>
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let ticket = self.next.fetch_add(1, AtomicOrdering::SeqCst);
+        let mut serving = self.serving.subscribe();
+        let sender = self.serving.clone();
+        tokio::spawn(async move {
+            let _ = serving.wait_for(|now| *now == ticket).await;
+            let _turn = Turn(sender);
+            job.await
+        })
+    }
+}
+
+/// The result of a job that several callers wait for, like one promise awaited twice.
+#[derive(Clone)]
+pub struct Shared<T: Clone> {
+    result: watch::Receiver<Option<T>>,
+}
+
+impl<T: Clone + Send + Sync + 'static> Shared<T> {
+    /// Runs the job in the queue and shares what it gives.
+    pub fn queue<F>(serial: &Serial, job: F) -> Self
+    where
+        F: Future<Output = T> + Send + 'static,
+    {
+        let (sender, result) = watch::channel(None);
+        serial.spawn(async move {
+            let value = job.await;
+            sender.send_replace(Some(value));
+        });
+        Self { result }
+    }
+
+    /// A result that is already there, or comes from elsewhere.
+    pub fn from_receiver(result: watch::Receiver<Option<T>>) -> Self {
+        Self { result }
+    }
+
+    /// What the job gave; None when it panicked.
+    pub async fn get(&self) -> Option<T> {
+        let mut result = self.result.clone();
+        result
+            .wait_for(Option::is_some)
+            .await
+            .ok()
+            .and_then(|value| value.clone())
+    }
 }
 
 #[cfg(test)]
@@ -341,6 +554,15 @@ mod tests {
             stringify_pretty(&json!({ "a": [], "b": { "c": 24.0 } })),
             "{\n  \"a\": [],\n  \"b\": {\n    \"c\": 24\n  }\n}"
         );
+        assert_eq!(number_value(30.0).to_string(), "30");
+        assert_eq!(number_value(1.25).to_string(), "1.25");
+        assert_eq!(number_value(f64::NAN), Value::Null);
+        // A file time read back from a cache is the same to the last bit (serde_json's float_roundtrip).
+        let mtime = 1_794_962_131_877.482_7;
+        assert_eq!(
+            serde_json::from_str::<f64>(&number_value(mtime).to_string()).unwrap(),
+            mtime
+        );
     }
 
     #[test]
@@ -352,9 +574,21 @@ mod tests {
         assert!(number(Some(&json!("inf"))).is_nan());
         assert!(number(Some(&json!("24fps"))).is_nan());
         assert_eq!(number(Some(&json!(true))), 1.0);
-        assert_eq!(round(-2.5), -2.0);
-        assert_eq!(round(2.5), 3.0);
-        assert_eq!(round(0.49999999999999994), 0.0);
+        assert_eq!(parse_number("5."), 5.0);
+        assert_eq!(parse_number("1e3"), 1000.0);
+        assert!(parse_number("1.2.3").is_nan());
+    }
+
+    #[test]
+    fn rounds_like_javascript() {
+        assert_eq!(math_round(-2.5), -2.0);
+        assert_eq!(math_round(2.5), 3.0);
+        assert_eq!(math_round(0.499_999_999_999_999_94), 0.0);
+        assert_eq!(round_to(-14.25, 1), -14.2);
+        assert_eq!(to_fixed(0.125, 2), "0.13");
+        assert_eq!(to_fixed(-0.125, 2), "-0.13");
+        assert_eq!(to_fixed(1.005, 2), "1.00");
+        assert_eq!(to_fixed(0.5, 2), "0.50");
     }
 
     #[test]
@@ -362,6 +596,7 @@ mod tests {
         assert_eq!(slice("abc", 2), "ab");
         assert_eq!(slice("a🎬b", 2), "a");
         assert_eq!(slice("a🎬b", 3), "a🎬");
+        assert_eq!(slice("ab\u{1F600}c", 3), "ab");
         assert_eq!(length("a🎬"), 3);
         assert_eq!(group_thousands(20_000), "20,000");
         assert_eq!(group_thousands(999), "999");
@@ -376,6 +611,61 @@ mod tests {
         let mut clips = vec!["Clip 10", "clip 9", "b-roll", ".git"];
         clips.sort_by(|a, b| locale_compare_numeric(a, b));
         assert_eq!(clips, [".git", "b-roll", "clip 9", "Clip 10"]);
+        let mut names = vec![
+            "b.mp4",
+            "Upbeat.wav",
+            "a.MOV",
+            "broken.mp4",
+            "Calm",
+            "_x",
+            "10",
+            "9",
+        ];
+        names.sort_by(|a, b| locale_compare(a, b));
+        assert_eq!(
+            names,
+            [
+                "_x",
+                "10",
+                "9",
+                "a.MOV",
+                "b.mp4",
+                "broken.mp4",
+                "Calm",
+                "Upbeat.wav"
+            ]
+        );
+        // Node's order for these, from ICU.
+        let mut names = vec![
+            "a.wav",
+            "a-b.wav",
+            "#1.wav",
+            "a_b.wav",
+            "(old).wav",
+            "-dash.wav",
+            "a b.wav",
+            "~x.wav",
+        ];
+        names.sort_by(|a, b| locale_compare(a, b));
+        assert_eq!(
+            names,
+            [
+                "-dash.wav",
+                "(old).wav",
+                "#1.wav",
+                "~x.wav",
+                "a b.wav",
+                "a_b.wav",
+                "a-b.wav",
+                "a.wav"
+            ]
+        );
+        assert_eq!(locale_compare("a", "A"), Ordering::Less);
+        assert_eq!(
+            locale_compare_numeric("Whoosh 2", "whoosh 10"),
+            Ordering::Less
+        );
+        assert_eq!(locale_compare_numeric("Café", "cafe"), Ordering::Equal);
     }
 
     #[test]
@@ -384,15 +674,22 @@ mod tests {
             join(Path::new("/home/me"), "Videos/../Music"),
             PathBuf::from(format!("{0}home{0}me{0}Music", std::path::MAIN_SEPARATOR))
         );
-        assert!(is_absolute("/x"));
-        assert!(!is_absolute("x"));
+        assert!(is_absolute("/Music"));
+        assert!(!is_absolute("Music/Song.wav"));
+        assert_eq!(is_absolute(r"C:\Music"), cfg!(windows));
+        assert!(!is_absolute("C:Music"));
         if cfg!(windows) {
-            assert!(is_absolute("C:\\x"));
-            assert!(!is_absolute("C:x"));
             assert_eq!(
                 resolve(Path::new("C:/a/b/../c/")),
                 PathBuf::from("C:\\a\\c")
             );
         }
+        let here = std::env::current_dir().unwrap();
+        assert_eq!(resolve("a/./b/../c/"), here.join("a").join("c"));
+        assert_eq!(extname("Song.MP3"), ".MP3");
+        assert_eq!(extname(".hidden"), "");
+        assert_eq!(extname("a.b/c"), "");
+        assert_eq!(parsed_name(Path::new("dir/Reel.final.mp4")), "Reel.final");
+        assert_eq!(iso_from_ms(0.0), "1970-01-01T00:00:00.000Z");
     }
 }

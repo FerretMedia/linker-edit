@@ -877,6 +877,7 @@ mod tests {
             LocalLink {
                 database: None,
                 folder: Some(vec!["Clients".into()]),
+                library: None,
             },
         ));
         let b = store.create(new_project(None, Some(link.clone()), LocalLink::default()));
