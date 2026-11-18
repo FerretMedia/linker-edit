@@ -306,7 +306,9 @@ fn set(choice: Choice, appearance: WindowAppearance, cx: &mut App) {
     ComponentTheme::update(cx, |t| {
         t.font_family = theme.font_family.into();
         t.mono_font_family = theme.mono_font_family.into();
-        t.font_size = TextSize::Sm.size();
+        // gpui-component's Root makes this the window's rem: 16px, as in the browser, so
+        // gpui's px_5, h_7… are Tailwind's. Text sizes are set where they're used.
+        t.font_size = px(16.);
         t.radius = theme.radius.md;
         t.radius_lg = theme.radius.lg;
         t.shadow = !dark;

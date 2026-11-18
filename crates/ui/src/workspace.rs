@@ -463,6 +463,17 @@ mod tests {
     }
 
     #[gpui::test]
+    fn spaces_things_as_the_browser_does(cx: &mut TestAppContext) {
+        // gpui's px_5, h_7… are rems; with the browser's 16px rem the composer is the Svelte
+        // one's 696 × 106 (it was 12.5% smaller with gpui-component's default 14px).
+        let (window, _server) = open_with_snapshot(cx);
+        render(cx, window, |window, _| {
+            let composer = window.find("composer").bounds().size;
+            assert_eq!((composer.width, composer.height), (px(696.), px(106.)));
+        });
+    }
+
+    #[gpui::test]
     fn a_refused_message_goes_back_in_the_composer(cx: &mut TestAppContext) {
         let (window, workspace, server) = open_workspace(cx);
         server.send(LinkEvent::Connected);

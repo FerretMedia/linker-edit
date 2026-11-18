@@ -17,9 +17,9 @@ use gpui::{
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::base::Popover;
-use gpui_kit::component::Icon;
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{Icon, Sizable, Size};
 use linker_edit_protocol::{ApprovalMode, ClientMessage, ContextUsage, Provider};
 
 use crate::context::{cache_expiry, compact_suggested, format_tokens, group_thousands};
@@ -63,7 +63,8 @@ impl Composer {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(2, 10)
+                // min-h-16 and max-h-64 of the box, with its padding: one line up to nine.
+                .auto_grow(1, 9)
                 .submit_on_enter(true)
                 .placeholder("Ask Claude to edit…")
         });
@@ -380,9 +381,11 @@ impl Render for Composer {
             .bg(theme.card)
             .shadow(composer_shadow(&theme))
             .child(
-                div().min_h_16().px_4().pt(px(14.)).pb_1().child(
+                // px-4 pt-3.5 pb-1, less the 4px the extra-small input keeps at its sides.
+                div().min_h_16().px_3().pt(px(14.)).pb_1().child(
                     Textarea::new(&self.input)
                         .appearance(false)
+                        .with_size(Size::XSmall)
                         .text_size(TextSize::Composer.size())
                         .line_height(relative(1.625)),
                 ),
