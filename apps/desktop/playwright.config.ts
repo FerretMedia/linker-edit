@@ -12,7 +12,21 @@ const configFile = path.join(dir, "linker-edit.config.json");
 if (!process.env.TEST_WORKER_INDEX) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(configFile, JSON.stringify({ port, workspaceDir: path.join(dir, "workspace"), projectsDir: path.join(dir, "projects") }));
+  // Every folder inside this one, never the user's ~/LinkerEdit; no ResolveMCP, so a Resolve open on this computer
+  // is never touched, as on CI; and no Resolve here, so the speech engine isn't downloaded in the background.
+  fs.writeFileSync(
+    configFile,
+    JSON.stringify({
+      port,
+      workspaceDir: path.join(dir, "workspace"),
+      projectsDir: path.join(dir, "projects"),
+      previewDir: path.join(dir, "previews"),
+      transcriptsDir: path.join(dir, "transcripts"),
+      toolsDir: path.join(dir, "tools"),
+      resolveMcp: "",
+    }),
+  );
+  fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ resolveHere: false }));
   // A teammate's project folder to add through the folder picker.
   fs.mkdirSync(path.join(dir, "team", "Promo"), { recursive: true });
   fs.writeFileSync(path.join(dir, "team", "Promo", "linker-edit.json"), JSON.stringify({ version: 1, name: "Promo", resolve: null }));
