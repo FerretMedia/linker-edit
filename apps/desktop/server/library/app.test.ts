@@ -8,12 +8,12 @@ import type { LibraryView, ResolveStatus, ServerMessage } from "../../shared/pro
 import { createApp, type AppOptions } from "../app.ts";
 import { memoryProjectStore, workspaceProject } from "../projects/testing.ts";
 import { runResolveTool } from "../resolve/run.ts";
-import { hasPython, pythonConnection } from "../resolve/testing.ts";
+import { FAKE_RESOLVE_MODULE, hasPython, pythonConnection } from "../resolve/testing.ts";
 import { memoryLibraryStore, projectFolders } from "./folders.ts";
 import { createLibrary } from "./library.ts";
 import type { ProbeFile } from "./scan.ts";
 
-const FAKE = fs.readFileSync(path.join(import.meta.dirname, "..", "resolve", "fixtures", "DaVinciResolveScript.py"), "utf8");
+const FAKE = FAKE_RESOLVE_MODULE;
 const temp = (name: string) => fs.mkdtempSync(path.join(os.tmpdir(), `linker-edit-library-app-${name}-`));
 const probe: ProbeFile = async () => ({ duration: 30, channels: 2, loudness: -14 });
 

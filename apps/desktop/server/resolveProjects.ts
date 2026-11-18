@@ -1,7 +1,7 @@
 import type { LocalLink, ResolveDatabase, ResolveLibrary, ResolveLink } from "../shared/protocol.ts";
 import { ResolveError, type ResolveConnection } from "./resolve/connection.ts";
 
-// The scripts are server/resolve/scripts/list_projects.py and open_project.py.
+// The scripts are crates/server/src/resolve/scripts/list_projects.py and open_project.py.
 
 export interface OpenedProject {
   project: { name: string; id: string | null };

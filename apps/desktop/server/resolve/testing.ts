@@ -4,6 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { parseScriptResult, scriptSource, type ResolveConnection } from "./connection.ts";
 
+/** The stand-in Resolve scripting module the script tests run against; it lives with the Rust server's tests. */
+export const FAKE_RESOLVE_MODULE = fs.readFileSync(
+  path.join(import.meta.dirname, "..", "..", "..", "..", "crates", "server", "src", "resolve", "fixtures", "DaVinciResolveScript.py"),
+  "utf8",
+);
+
 export const PYTHON = process.platform === "win32" ? "python" : "python3";
 export const hasPython = spawnSync(PYTHON, ["--version"]).status === 0;
 

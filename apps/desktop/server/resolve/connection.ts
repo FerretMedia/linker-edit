@@ -1,6 +1,6 @@
 // Linker-Edit's one connection to Resolve: Resolve's own MCP server (ResolveMCP), started as a child
 // process and spoken to over stdio. Everything Linker-Edit does in Resolve is a Python script from
-// server/resolve/scripts run through its run_script tool: the status check, history saves, previews,
+// crates/server/src/resolve/scripts run through its run_script tool: the status check, history saves, previews,
 // opening projects and the agents' Resolve tools. Calls go one at a time, in order.
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
@@ -32,12 +32,15 @@ export interface ResolveConnection {
   readonly command: string | null;
   /** Calls one of ResolveMCP's tools and returns its text. */
   callTool(name: string, args?: Record<string, unknown>, timeoutMs?: number): Promise<string>;
-  /** Runs server/resolve/scripts/<name>.py with `ARGS` set to args, and returns its `result`. */
+  /** Runs crates/server/src/resolve/scripts/<name>.py with `ARGS` set to args, and returns its `result`. */
   runScript<T>(name: string, args?: unknown, timeoutSeconds?: number): Promise<T>;
   close(): void;
 }
 
-const SCRIPTS_DIR = path.join(APP_ROOT, "server", "resolve", "scripts");
+// The scripts live with the Rust server, which embeds them; the npm package and the desktop app carry a copy in
+// resolve-scripts/ (scripts/copy-root-files.ts, scripts/build-desktop.ts). A source checkout reads the originals.
+const SOURCE_SCRIPTS = path.join(APP_ROOT, "..", "..", "crates", "server", "src", "resolve", "scripts");
+export const SCRIPTS_DIR = fs.existsSync(SOURCE_SCRIPTS) ? SOURCE_SCRIPTS : path.join(APP_ROOT, "resolve-scripts");
 const scriptCache = new Map<string, string>();
 
 function scriptFile(name: string): string {

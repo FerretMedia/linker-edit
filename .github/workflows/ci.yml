@@ -111,7 +111,7 @@ jobs:
           echo "$tools" | grep -q '"transcribe"'
           echo "$tools" | grep -q '"create_timeline"'
           # The Resolve scripts ship in the package, where the server reads them.
-          test -f node_modules/linker-edit/server/resolve/scripts/tool_add_clips.py
+          test -f node_modules/linker-edit/resolve-scripts/tool_add_clips.py
           # No display here for the app window, so it uses the browser path.
           LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" npx linker-edit --browser > "$RUNNER_TEMP/server.log" 2>&1 &
           server=$!
@@ -144,7 +144,7 @@ jobs:
           EOF
           # Agents start the "linker" MCP server with the app's own binary, run as Node.
           echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ELECTRON_RUN_AS_NODE=1 "$app" release/linux-unpacked/resources/app/dist/linker-mcp.js | grep -q '"create_timeline"'
-          test -f release/linux-unpacked/resources/app/server/resolve/scripts/tool_add_clips.py
+          test -f release/linux-unpacked/resources/app/resolve-scripts/tool_add_clips.py
           # No setuid sandbox helper in an unpacked build, and no display without xvfb.
           LINKER_EDIT_CONFIG="$RUNNER_TEMP/config.json" xvfb-run -a "$app" --no-sandbox > "$RUNNER_TEMP/app.log" 2>&1 &
           curl --silent --fail --retry 60 --retry-delay 1 --retry-all-errors http://127.0.0.1:4391/ | grep -q "<html" || {

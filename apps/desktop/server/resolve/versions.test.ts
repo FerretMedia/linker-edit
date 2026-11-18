@@ -4,10 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runResolveTool } from "./run.ts";
-import { hasPython, pythonConnection } from "./testing.ts";
+import { FAKE_RESOLVE_MODULE, hasPython, pythonConnection } from "./testing.ts";
 import { applyTimeline, backupProject, KEEP_BACKUPS, readOrigins, recordOrigin } from "./versions.ts";
 
-const FAKE = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "DaVinciResolveScript.py"), "utf8");
+const FAKE = FAKE_RESOLVE_MODULE;
 const NOW = new Date(2026, 10, 12, 9, 30, 15);
 
 function setup(extra: object = {}) {

@@ -1,5 +1,5 @@
 // Linker-Edit's own Resolve tools, which agents get in the "linker" MCP server. Each runs a script from
-// server/resolve/scripts through Resolve's own MCP server. The rules are in the scripts, not only in the
+// crates/server/src/resolve/scripts through Resolve's own MCP server. The rules are in the scripts, not only in the
 // prompt: they change only "AI - " timelines, and nothing here deletes media, bins or projects or opens
 // another project.
 
