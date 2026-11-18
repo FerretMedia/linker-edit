@@ -1,7 +1,7 @@
-# @linker-edit/drp
+# linker-edit-drp
 
-Reads and patches DaVinci Resolve project (`.drp`) and timeline (`.drt`) files without Resolve. Zero
-dependencies: Node's own `zlib` does the ZIP, zstd and CRC work.
+Reads and patches DaVinci Resolve project (`.drp`) and timeline (`.drt`) files without Resolve: ZIP, zstd and
+CRC with `flate2`, `zstd` and `crc32fast`.
 
 It's for two things that come later: browsing any project's timelines from its `.drp` backup without opening it
 in Resolve, which has only one project open at a time, and building "Send to iPad" bundles for DaVinci Resolve
@@ -13,29 +13,29 @@ for iPad, which has no scripting.
 
 ## API
 
-```ts
-import { readDrp, mediaItems, checkVersion, patchDrp } from "@linker-edit/drp";
+```rust
+use linker_edit_drp::{Edit, check_version, media_items, patch_drp, read_drp};
 
-const file = readDrp(fs.readFileSync("Edit.drp")); // a .drt reads the same way
+let file = read_drp(&std::fs::read("Edit.drp")?)?; // a .drt reads the same way
 
-file.project; // { name, dbAppVer: "21.0.4.0005", dbPrjVer: 17 }
-file.mediaPool; // bins: { id, name, folders, items }, items with { kind, name, path, fps, width, height, frames }
+file.project; // name, db_app_ver: "21.0.4.0005", db_prj_ver: 17
+file.media_pool; // bins: id, name, folders, items; items with kind, name, path, fps, width, height, frames
 file.timelines; // timelines and compound clips, each with tracks of clips:
-// { id, kind, name, start, end, sourceIn, sourceOut, mediaId, mediaPath, mediaFps, enabled }
+// id, kind, name, start, end, source_in, source_out, media_id, media_path, media_fps, enabled
 
-const check = checkVersion(file, 14); // { ok: true } or { ok: false, message } for a Resolve that reads format 14
+let check = check_version(&file, 14); // whether a Resolve that reads format 14 opens it, and if not why
 
-const patched: Buffer = patchDrp(file, [
-  { type: "moveClip", clipId, start: 86500 }, // optionally `trackId` of the same timeline and type
-  { type: "trimClip", clipId, start: 86510, end: 86600 }, // record in/out; the source in moves with the in
-  { type: "removeClip", clipId },
-  { type: "renameTimeline", timelineId, name: "Cut 2" },
-  { type: "relinkMedia", mediaId, path: "D:\\Proxies\\A001.mov" },
-]);
+let patched: Vec<u8> = patch_drp(&file, &[
+    Edit::MoveClip { clip_id, start: 86500, track_id: None }, // optionally a track of the same timeline and type
+    Edit::TrimClip { clip_id, start: Some(86510), end: Some(86600) }, // record in/out; the source in moves with the in
+    Edit::RemoveClip { clip_id },
+    Edit::RenameTimeline { timeline_id, name: "Cut 2".into() },
+    Edit::RelinkMedia { media_id, path: r"D:\Proxies\A001.mov".into() },
+])?;
 ```
 
-All frame numbers are timeline frames; `end` and `sourceOut` are exclusive. Edits apply in order. `patchDrp`
-throws, and returns nothing, when an edit names a clip, track or item that isn't there, would make clips overlap
+All frame numbers are timeline frames; `end` and `source_out` are exclusive. Edits apply in order. `patch_drp`
+returns an error, and nothing else, when an edit names a clip, track or item that isn't there, would make clips overlap
 on a track, would run a clip before the start or past the end of its media, or would give two timelines the
 same name. It doesn't move linked clips together: move a clip's video and audio with one edit each.
 
@@ -59,7 +59,7 @@ A `.drp` and a `.drt` are both a plain ZIP of XML (a `.drt` is a project with th
 | `Gallery.xml` | Stills |
 
 - **Version comment.** Every XML entry starts with `<!--DbAppVer="21.0.4.0005" DbPrjVer="17"-->`. Resolve 21
-  writes project format 17, 19.1.3 writes 14. An older Resolve refuses a newer format, which `checkVersion`
+  writes project format 17, 19.1.3 writes 14. An older Resolve refuses a newer format, which `check_version`
   explains.
 - **Objects** are `<Type DbId="uuid">` and refer to each other by DbId. Broken links break the import; there are
   no checksums beyond the ZIP's CRC32.
@@ -89,7 +89,7 @@ A `.drp` and a `.drt` are both a plain ZIP of XML (a `.drt` is a project with th
 
 ## What's verified
 
-Verified, by the tests in `test/` against three Resolve exports (Resolve 19.1.3 and 21.0.4; see `NOTICE`):
+Verified, by the tests in `tests/` against three Resolve exports (Resolve 19.1.3 and 21.0.4; see `NOTICE`):
 
 - Reading the project, versions, bins, media (paths, frame rate, size, length), timelines, compound clips,
   nested timelines, tracks and clips, from a `.drp` and a `.drt`.
@@ -98,22 +98,13 @@ Verified, by the tests in `test/` against three Resolve exports (Resolve 19.1.3 
 - `<In>` encodes to the exact bytes Resolve wrote; a relinked `<Clip>` blob keeps every other field and relinking
   back restores the original payload.
 - The zstd frames this library writes have the same header shape as Resolve's (content size, no checksum).
-  Electron 45.2.3, which runs the desktop app's server, bundles Node 24.22.2 with `zlib.zstdCompressSync` and
-  `zstdDecompressSync`, so no zstd fallback is needed.
 
 Not verified yet:
 
 - **That Resolve or Resolve for iPad opens a patched file.** Nothing written here has been imported anywhere.
   The plan's Phase 0 does this first, with a hand-patched `.drp` on the iPad.
-- **Where a disabled clip is stored.** No sample has one, so `enabled` is always `null`.
+- **Where a disabled clip is stored.** No sample has one, so `enabled` is always `None`.
 - **Retimed clips and mixed frame rates.** `In` is read as timeline frames, from the prior art; a trim of a
   retimed clip may be refused when it shouldn't be.
 - **Formats other than 14 and 17**, Windows-written files, Fusion and Fairlight data after edits, and bins
   deeper than one level.
-
-## Using it from the desktop app
-
-Nothing imports this package yet. If `apps/desktop` imports it, `apps/desktop/scripts/build-desktop.ts` has to
-bundle or stage it: the staged install fetches its dependencies from npm, where this private package isn't.
-Rolldown bundles whatever isn't in the app's `dependencies`, so listing it in `devDependencies` keeps it in the
-bundles.

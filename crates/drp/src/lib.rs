@@ -1,5 +1,5 @@
 //! Reads and patches DaVinci Resolve .drp project and .drt timeline files without Resolve.
-//! The port of `packages/drp`; its README has the format map.
+//! The README has the format map and what is verified.
 
 pub mod blobs;
 mod patch;

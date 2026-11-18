@@ -35,11 +35,11 @@ threadSettled.ts and threadInbox.ts:
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
-packages/drp (@linker-edit/drp) builds on the .drp/.drt format mapping in
+crates/drp (linker-edit-drp) builds on the .drp/.drt format mapping in
 davinci-resolve-mcp (https://github.com/samuelgursky/davinci-resolve-mcp),
 resolve-advanced/vendor/drp-format: the layouts of the media pool's <Clip> blobs,
 keyed dictionaries and the timeline clip's <In>. Its test fixtures
-(packages/drp/test/fixtures) are Resolve exports copied from that repository:
+(crates/drp/tests/fixtures) are Resolve exports copied from that repository:
 bins-r19.drp is vendor/drp-format/templates/media-clip-r19.drp, compound-r21.drp is
 vendor/drp-format/__tests__/fixtures/compound-nav-r21.drp and nested-r19.drt is
 resolve-advanced/test/fixtures/E127_resolve_nested_export.drt:
