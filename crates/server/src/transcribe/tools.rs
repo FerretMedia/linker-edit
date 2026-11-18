@@ -87,8 +87,7 @@ const WINDOWS_X64: bool = cfg!(all(windows, target_arch = "x86_64"));
 pub(crate) fn command(program: impl AsRef<OsStr>) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(program);
     command.kill_on_drop(true);
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    crate::js::hide_window(&mut command);
     command
 }
 
@@ -269,8 +268,7 @@ pub async fn download(
             return Err(error);
         }
     };
-    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    if hex != item.sha256 {
+    if crate::net::hex(&digest) != item.sha256 {
         let _ = tokio::fs::remove_file(&part).await;
         bail!(
             "The download of {} was damaged. Try again.",

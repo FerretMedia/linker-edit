@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::connection::ResolveConnection;
+use crate::projects::store::STATE_DIR;
 
 /// Where a project's backups go, in its working folder. Kept out of the edit history.
 pub const BACKUPS_DIR: &str = "backups";
@@ -16,8 +17,6 @@ pub const BACKUPS_DIR: &str = "backups";
 pub const KEEP_BACKUPS: usize = 30;
 
 const AI_PREFIX: &str = "AI - ";
-/// projects::store's STATE_DIR: Linker-Edit's own files in a working folder.
-const STATE_DIR: &str = ".linker-edit";
 
 // Windows file names can't hold ":", and neither need timeline names.
 fn file_stamp(date: NaiveDateTime) -> String {

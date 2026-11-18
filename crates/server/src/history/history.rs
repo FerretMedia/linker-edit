@@ -24,6 +24,7 @@ use super::model::{
 use super::playable::{media_type, playable_timeline};
 use crate::js;
 use crate::projects::store::PROJECT_FILE;
+use crate::resolve::connection::ResolveConnection;
 use crate::rules::PROJECT_NOTES_FILE;
 
 /// Snapshots live under this folder of the workspace, one subfolder per Resolve project.
@@ -113,6 +114,18 @@ pub trait ScriptRunner: Send + Sync {
     ) -> anyhow::Result<Value>;
 }
 
+#[async_trait]
+impl ScriptRunner for dyn ResolveConnection {
+    async fn run_script(
+        &self,
+        script: &str,
+        args: Value,
+        timeout_secs: u64,
+    ) -> anyhow::Result<Value> {
+        self.run_script_value(script, args, timeout_secs).await
+    }
+}
+
 /// Resolve's open project with every timeline (or the one asked for), read in as many script runs as it takes.
 pub async fn read_resolve_snapshot<R: ScriptRunner + ?Sized>(
     connection: &R,
@@ -182,8 +195,7 @@ fn git_command(cwd: &Path, args: &[String]) -> Command {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    js::hide_window(&mut command);
     command
 }
 
@@ -1587,15 +1599,15 @@ mod tests {
         let timeline = |id: &str| raw_timeline(id, id, vec![]);
         let pages = PagedResolve(Mutex::new(vec![
             (
-                r#"{"budget":40,"current_only":false,"ids":null}"#.into(),
+                r#"{"ids":null,"current_only":false,"budget":40}"#.into(),
                 json!({ "project": "Doc", "project_id": "p", "current_timeline": "a", "timelines": [timeline("a")], "remaining": ["b", "c"] }),
             ),
             (
-                r#"{"budget":40,"ids":["b","c"]}"#.into(),
+                r#"{"ids":["b","c"],"budget":40}"#.into(),
                 json!({ "project": "Doc", "project_id": "p", "current_timeline": "a", "timelines": [timeline("b")], "remaining": ["c"] }),
             ),
             (
-                r#"{"budget":40,"ids":["c"]}"#.into(),
+                r#"{"ids":["c"],"budget":40}"#.into(),
                 json!({ "project": "Doc", "project_id": "p", "current_timeline": "a", "timelines": [timeline("c")], "remaining": [] }),
             ),
         ]));

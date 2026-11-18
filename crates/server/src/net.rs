@@ -154,13 +154,6 @@ pub fn system_clock() -> Clock {
     Arc::new(|| chrono::Utc::now().timestamp_millis())
 }
 
-/// new Date(ms).toISOString(): 2026-11-16T10:00:00.000Z.
-pub fn iso_date(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .unwrap_or_default()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-}
-
 /// Writes a file with the folders it needs, readable only by this user (`{ mode: 0o600 }`, which, as in Node, only
 /// applies when the file is made).
 pub fn write_private(file: &Path, text: &str) -> io::Result<()> {
@@ -202,6 +195,11 @@ pub fn base64url(bytes: &[u8]) -> String {
 
 pub fn sha256(text: &str) -> Vec<u8> {
     Sha256::digest(text.as_bytes()).to_vec()
+}
+
+/// sha256 of the text, in hex: createHash("sha256").update(text).digest("hex").
+pub fn sha256_hex(text: &str) -> String {
+    hex(&sha256(text))
 }
 
 pub fn hex(bytes: &[u8]) -> String {
@@ -253,6 +251,5 @@ mod tests {
         assert_eq!(encode_uri_component("a b/c?d=é"), "a%20b%2Fc%3Fd%3D%C3%A9");
         assert_eq!(encode_uri_component("-_.!~*'()"), "-_.!~*'()");
         assert_eq!(slice_utf16("abc", 2), "ab");
-        assert_eq!(iso_date(0), "1970-01-01T00:00:00.000Z");
     }
 }

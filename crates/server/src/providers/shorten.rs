@@ -3,7 +3,7 @@
 
 use serde_json::{Map, Value};
 
-use super::types::{js_len, js_slice};
+use crate::js;
 
 /// About 5,000 tokens.
 pub const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
@@ -14,7 +14,7 @@ const NOTE: &str = "Linker-Edit shortened this result to save context. Ask again
 
 /// A JSON result with its long lists capped, or a plain cut when it isn't JSON; None when it fits.
 pub fn shorten_text(text: &str, max: usize) -> Option<String> {
-    if js_len(text) <= max {
+    if js::length(text) <= max {
         return None;
     }
     let Ok(parsed) = serde_json::from_str::<Value>(text) else {
@@ -22,13 +22,13 @@ pub fn shorten_text(text: &str, max: usize) -> Option<String> {
     };
     for limit in ITEM_LIMITS {
         // Compact JSON: indentation would cost tokens too.
-        let shortened = cap_lists(&parsed, limit).to_string();
-        if js_len(&shortened) <= max {
+        let shortened = js::stringify(&cap_lists(&parsed, limit));
+        if js::length(&shortened) <= max {
             return Some(format!("{shortened}\n{NOTE}"));
         }
     }
     Some(cut(
-        &cap_lists(&parsed, ITEM_LIMITS[ITEM_LIMITS.len() - 1]).to_string(),
+        &js::stringify(&cap_lists(&parsed, ITEM_LIMITS[ITEM_LIMITS.len() - 1])),
         max,
     ))
 }
@@ -36,8 +36,8 @@ pub fn shorten_text(text: &str, max: usize) -> Option<String> {
 fn cut(text: &str, max: usize) -> String {
     format!(
         "{}\n… {} more characters left out. {NOTE}",
-        js_slice(text, max),
-        js_len(text) - max
+        js::slice(text, max),
+        js::length(text) - max
     )
 }
 

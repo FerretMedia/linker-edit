@@ -13,6 +13,10 @@ use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 
 use super::api::Api;
+use crate::collections::tools::brief_tools;
+use crate::library::tools::library_tools;
+use crate::resolve::tools::{CORE_TOOLS, ResolveToolKind, resolve_tools};
+use crate::study::study::study_tools;
 
 /// A Resolve tool (resolve/tools.ts's RESOLVE_TOOLS), as the linker server lists it.
 #[derive(Debug, Clone)]
@@ -26,8 +30,8 @@ pub struct LinkerResolveTool {
     pub core: bool,
 }
 
-/// The tools the server lists, by the module that owns them. The Resolve, library, study and collections
-/// ports own these lists; `catalog()` puts them together.
+/// The tools the server lists, by the module that owns them; `catalog()` puts the real ones together, tests
+/// make their own.
 #[derive(Debug, Clone, Default)]
 pub struct LinkerToolCatalog {
     /// RESOLVE_TOOLS, sent to /api/resolve-tool.
@@ -40,12 +44,23 @@ pub struct LinkerToolCatalog {
     pub brief: Vec<Value>,
 }
 
-/// The tools of the other ports. Until the hub wires them in, only transcribe is listed.
-// Hub: fill from crate::resolve::tools (RESOLVE_TOOLS, CORE_TOOLS), crate::library::tools (LIBRARY_TOOLS),
-// crate::study (STUDY_TOOLS) and crate::collections::tools (BRIEF_TOOLS). CI checks that tools/list has
-// "transcribe" and "create_timeline".
+/// Linker-Edit's tools: Resolve's (with CORE_TOOLS loaded up front), the library's, study's and the brief's.
 pub fn catalog() -> LinkerToolCatalog {
-    LinkerToolCatalog::default()
+    LinkerToolCatalog {
+        resolve: resolve_tools()
+            .iter()
+            .map(|tool| LinkerResolveTool {
+                name: tool.name.into(),
+                description: tool.description.into(),
+                input_schema: tool.input_schema.clone(),
+                read_only: tool.kind == ResolveToolKind::Read,
+                core: CORE_TOOLS.contains(&tool.name),
+            })
+            .collect(),
+        library: library_tools(),
+        study: study_tools(),
+        brief: brief_tools(),
+    }
 }
 
 pub const TRANSCRIBE: &str = "transcribe";
@@ -180,25 +195,6 @@ async fn post(api: &Api, route: &str, body: Value) -> Reply {
     }
 }
 
-/// JavaScript's String(value), for a tool name that may be anything.
-fn js_string(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".into(),
-        Some(Value::Null) => "null".into(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| match item {
-                Value::Null => String::new(),
-                item => js_string(Some(item)),
-            })
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(Value::Object(_)) => "[object Object]".into(),
-        Some(value) => value.to_string(),
-    }
-}
-
 async fn call_tool(
     catalog: &LinkerToolCatalog,
     api: &Api,
@@ -225,7 +221,7 @@ async fn call_tool(
     }
     match name_text.and_then(|name| catalog.route(name)) {
         Some(route) => post(api, route, json!({ "tool": name, "input": args })).await,
-        None => Reply::error(format!("Unknown tool {}.", js_string(name))),
+        None => Reply::error(format!("Unknown tool {}.", crate::js::string(name))),
     }
 }
 
@@ -266,7 +262,7 @@ async fn handle(
             json!({ "result": { "content": content, "isError": reply.is_error } })
         }
         _ => json!({
-            "error": { "code": -32601, "message": format!("Method not found: {}", js_string(method)) },
+            "error": { "code": -32601, "message": format!("Method not found: {}", crate::js::string(method)) },
         }),
     };
     let mut message = json!({ "id": id });
@@ -417,42 +413,6 @@ mod tests {
         (Api::new(format!("http://127.0.0.1:{port}"), "t0ken"), seen)
     }
 
-    fn tool(name: &str, read_only: bool, core: bool) -> LinkerResolveTool {
-        LinkerResolveTool {
-            name: name.into(),
-            description: format!("{name} does it."),
-            input_schema: json!({ "type": "object" }),
-            read_only,
-            core,
-        }
-    }
-
-    fn named(name: &str, read_only: bool) -> Value {
-        json!({ "name": name, "description": "", "inputSchema": { "type": "object" }, "annotations": { "readOnlyHint": read_only } })
-    }
-
-    fn test_catalog() -> LinkerToolCatalog {
-        LinkerToolCatalog {
-            resolve: vec![
-                tool("view_frames", true, true),
-                tool("create_timeline", false, true),
-                tool("add_clips", false, true),
-                tool("render_timeline", false, true),
-                tool("set_color", false, false),
-            ],
-            library: vec![
-                named("library_search", true),
-                named("library_import", false),
-            ],
-            study: vec![named("study_media", true), named("compare_cut", true)],
-            brief: vec![
-                named("save_brief", false),
-                named("add_lesson", false),
-                named("save_example", false),
-            ],
-        }
-    }
-
     /// The linker MCP server in front of `api`; request(method, params) answers with the result.
     struct Linker {
         input: tokio::io::DuplexStream,
@@ -465,7 +425,7 @@ mod tests {
             let (input, server_input) = tokio::io::duplex(1 << 16);
             let (server_output, output) = tokio::io::duplex(1 << 20);
             tokio::spawn(serve_linker_mcp(
-                Arc::new(test_catalog()),
+                Arc::new(catalog()),
                 api,
                 "1.2.3".into(),
                 BufReader::new(server_input),
@@ -500,24 +460,18 @@ mod tests {
         let answer = linker.request("tools/list", json!({})).await;
         let tools = answer["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().filter_map(tool_name).collect();
-        assert_eq!(
-            names,
-            [
-                "view_frames",
-                "create_timeline",
-                "add_clips",
-                "render_timeline",
-                "set_color",
-                "transcribe",
-                "library_search",
-                "library_import",
-                "study_media",
-                "compare_cut",
-                "save_brief",
-                "add_lesson",
-                "save_example"
-            ]
-        );
+        let mut expected: Vec<&str> = resolve_tools().iter().map(|tool| tool.name).collect();
+        expected.extend([
+            "transcribe",
+            "library_search",
+            "library_import",
+            "study_media",
+            "compare_cut",
+            "save_brief",
+            "add_lesson",
+            "save_example",
+        ]);
+        assert_eq!(names, expected);
         let hint = |name: &str| {
             tools
                 .iter()
@@ -536,7 +490,8 @@ mod tests {
             .filter(|tool| tool["_meta"]["anthropic/alwaysLoad"] == json!(false))
             .filter_map(tool_name)
             .collect();
-        assert_eq!(deferred, ["set_color"]);
+        assert!(deferred.contains(&"set_color"));
+        assert!(!deferred.contains(&"add_clips"));
 
         let init = linker
             .request("initialize", json!({ "protocolVersion": "2025-11-25" }))

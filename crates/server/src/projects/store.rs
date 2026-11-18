@@ -253,7 +253,7 @@ fn folder_name(name: &str) -> String {
         })
         .collect();
     let collapsed = replaced
-        .split(|c: char| c.is_whitespace() || c == '\u{FEFF}')
+        .split(js::is_space)
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" ");

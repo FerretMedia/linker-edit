@@ -175,7 +175,7 @@ pub struct TimelineMetadata {
     pub audio_tracks: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StoredTimeline {
     pub metadata: TimelineMetadata,
     pub cuts: Vec<Clip>,

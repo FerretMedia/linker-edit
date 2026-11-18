@@ -1,5 +1,5 @@
 // What every provider session has: the sink a turn writes into, the session itself, and what they need from
-// the policy (policy.ts) and the rules (rules.ts), which the Resolve port owns.
+// the policy (policy.rs) and the rules (rules.rs).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -10,6 +10,8 @@ use linker_edit_protocol::{ApprovalMode, ContextUsage, Tone, ToolStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
+
+use crate::js;
 
 /// A boxed future that can move between threads, as callbacks into a running turn return.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -102,12 +104,7 @@ pub trait ProviderSession: Send + Sync {
     fn resume_id(&self) -> Option<String>;
 }
 
-/// policy.ts's ToolDecision.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolDecision {
-    Allow,
-    Deny { message: String },
-}
+pub use crate::policy::ToolDecision;
 
 /// What a session needs from policy.ts, which the Resolve port owns: `refusal` and `decideToolCall`, the same
 /// functions behind a trait so the hub can hand the real policy in.
@@ -125,48 +122,42 @@ pub trait ToolGate: Send + Sync {
     ) -> ToolDecision;
 }
 
-// From rules.ts and policy.ts, which the Resolve port owns; the hub swaps these for `pub use` of its consts.
+pub use crate::policy::{
+    CLAUDE_DISALLOWED_RESOLVE_TOOLS, CODEX_DISABLED_RESOLVE_TOOLS, RESOLVE_RUN_SCRIPT,
+};
+pub use crate::rules::{LINKER_MCP_NAME, RESOLVE_MCP_NAME};
 
-/// rules.ts's RESOLVE_MCP_NAME: Resolve's own MCP server, as agents see it.
-pub const RESOLVE_MCP_NAME: &str = "resolve";
-/// rules.ts's LINKER_MCP_NAME: Linker-Edit's own MCP server.
-pub const LINKER_MCP_NAME: &str = "linker";
-/// policy.ts's RESOLVE_RUN_SCRIPT.
-pub const RESOLVE_RUN_SCRIPT: &str = "mcp__resolve__run_script";
-/// policy.ts's CLAUDE_DISALLOWED_RESOLVE_TOOLS.
-pub const CLAUDE_DISALLOWED_RESOLVE_TOOLS: &[&str] = &[
-    "mcp__resolve__run_script_unsafe",
-    "mcp__resolve__delete_dctl",
-    "mcp__resolve__delete_lut",
-];
-/// policy.ts's CODEX_DISABLED_RESOLVE_TOOLS.
-pub const CODEX_DISABLED_RESOLVE_TOOLS: &[&str] = &[
-    "run_script",
-    "run_script_unsafe",
-    "update_dctl",
-    "generate_lut",
-    "delete_dctl",
-    "delete_lut",
-];
+/// The real policy (policy.rs) as a ToolGate: what the hub hands every session.
+pub struct Policy;
 
-/// A string's length as JavaScript counts it, in UTF-16 code units.
-pub fn js_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
+#[async_trait]
+impl ToolGate for Policy {
+    fn refusal(&self, tool_name: &str, input: &Value) -> Option<String> {
+        crate::policy::refusal(tool_name, input)
+    }
 
-/// The first `end` UTF-16 code units of a string, as JavaScript's `text.slice(0, end)`.
-pub fn js_slice(text: &str, end: usize) -> String {
-    let units: Vec<u16> = text.encode_utf16().take(end).collect();
-    String::from_utf16_lossy(&units)
+    async fn decide_tool_call(
+        &self,
+        tool_name: &str,
+        input: &Value,
+        mode: ApprovalMode,
+        ask: BoxFuture<'_, bool>,
+    ) -> ToolDecision {
+        crate::policy::decide_tool_call(tool_name, input, mode, || ask).await
+    }
 }
 
 /// truncate's limit when the caller names none.
 pub const TRUNCATE_MAX: usize = 4000;
 
 pub fn truncate(text: &str, max: usize) -> String {
-    let len = js_len(text);
+    let len = js::length(text);
     if len > max {
-        format!("{}\n… ({} more characters)", js_slice(text, max), len - max)
+        format!(
+            "{}\n… ({} more characters)",
+            js::slice(text, max),
+            len - max
+        )
     } else {
         text.to_string()
     }

@@ -132,10 +132,8 @@ pub fn prepend_path_dirs(env: &mut Vec<(String, String)>, dirs: &[PathBuf]) {
 
 /// tokio's Command for an agent's program: no console window on Windows (the TypeScript's windowsHide).
 pub fn command(program: &Path) -> tokio::process::Command {
-    #[allow(unused_mut)]
     let mut command = tokio::process::Command::new(program);
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    crate::js::hide_window(&mut command);
     command
 }
 

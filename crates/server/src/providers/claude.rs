@@ -83,23 +83,9 @@ fn cache_ttl_ms(usage: &Value) -> Option<i64> {
     }
 }
 
-/// new Date(ms).toISOString().
-fn iso(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms)
-        .unwrap_or_default()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-}
-
 /// toLocaleString("en-US") for a whole number: 250000 is "250,000".
 fn with_commas(value: f64) -> String {
-    let digits = format!("{}", value.abs().round() as u64);
-    let mut out = String::new();
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(digit);
-    }
+    let out = crate::js::group_thousands(value.abs().round() as usize);
     if value < 0.0 { format!("-{out}") } else { out }
 }
 
@@ -172,7 +158,9 @@ impl ClaudeSession {
             sink.context(Some(ContextUsage {
                 used_tokens,
                 max_tokens: state.max_tokens,
-                cache_expires_at: state.ttl_ms.map(|ttl| iso((self.now)() + ttl)),
+                cache_expires_at: state
+                    .ttl_ms
+                    .map(|ttl| crate::js::iso_from_ms((self.now)() + ttl)),
             }));
         }
     }

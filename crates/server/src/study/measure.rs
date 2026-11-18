@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::js;
 use crate::library::scan::{input_part, parse_duration, parse_loudness};
+use crate::resolve::media::{ParsedSilences, parse_silences};
 use crate::transcribe::tools::{RunOutput, run_process};
 
 /// Bump when a Study changes shape or how it is measured, so cached ones are measured again.
@@ -208,47 +209,15 @@ pub fn parse_shots(log: &str, duration: f64) -> Option<Shots> {
     })
 }
 
-/// Quiet stretches from ffmpeg's silencedetect log, and their total. The same as resolve/media.ts's parseSilences
-/// with no padding, which is all study needs; it rounds to milliseconds.
-fn parse_silences(log: &str) -> (f64, Vec<(f64, f64)>, f64) {
-    let round = |value| js::round_to(value, 3);
-    static SILENCE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"silence_(start|end): (-?[0-9.]+)").unwrap());
-    let duration = parse_duration(log).unwrap_or(0.0);
-    let mut raw = Vec::new();
-    let mut open: Option<f64> = None;
-    for found in SILENCE.captures_iter(log) {
-        let value = js::parse_number(&found[2]).max(0.0);
-        if &found[1] == "start" {
-            open = Some(value);
-        } else if let Some(start) = open.take() {
-            raw.push((start, value));
-        }
-    }
-    if let Some(start) = open
-        && duration > start
-    {
-        raw.push((start, duration));
-    }
-    let silences: Vec<(f64, f64)> = raw
-        .into_iter()
-        .map(|(start, end)| {
-            (
-                if start <= 0.0 { 0.0 } else { start },
-                if end >= duration { duration } else { end },
-            )
-        })
-        .filter(|(start, end)| end - start > 0.01)
-        .map(|(start, end)| (round(start), round(end)))
-        .collect();
-    let silent = silences.iter().map(|(start, end)| end - start).sum::<f64>();
-    (round(duration), silences, round(silent))
-}
-
 /// How quiet the video gets, from ffmpeg's silencedetect log.
 pub fn parse_sound(log: &str) -> Sound {
-    let (duration, silences, silent_seconds) = parse_silences(log);
-    let mut lengths: Vec<f64> = silences.iter().map(|(start, end)| end - start).collect();
+    let ParsedSilences {
+        duration,
+        silences,
+        silent_seconds,
+        ..
+    } = parse_silences(log, 0.0);
+    let mut lengths: Vec<f64> = silences.iter().map(|[start, end]| end - start).collect();
     lengths.sort_by(f64::total_cmp);
     Sound {
         quiet_share: if duration > 0.0 {

@@ -324,7 +324,7 @@ impl StudyService {
         } else {
             file.to_string()
         };
-        let key = &js::sha256_hex(&key_source)[..12];
+        let key = &crate::net::sha256_hex(&key_source)[..12];
         let name = js::parsed_name(Path::new(file));
         let name = UNSAFE.replace_all(&name, "_");
         let base = self

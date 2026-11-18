@@ -67,14 +67,6 @@ fn tailscale_command() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("tailscale"))
 }
 
-/// The windowsHide of Node's child processes.
-pub(crate) fn hide_window(command: &mut tokio::process::Command) {
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    #[cfg(not(windows))]
-    let _ = command;
-}
-
 /// The real tailscale CLI.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TailscaleCli;
@@ -89,7 +81,7 @@ impl RunTailscale for TailscaleCli {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        hide_window(&mut command);
+        crate::js::hide_window(&mut command);
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,

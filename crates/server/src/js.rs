@@ -18,7 +18,6 @@ use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
 use serde::{Serialize, Serializer};
 use serde_json::Value;
 use serde_json::ser::{CompactFormatter, Formatter, PrettyFormatter};
-use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -190,6 +189,31 @@ pub fn to_string(value: &Value) -> String {
     }
 }
 
+/// String(value), with None for undefined: "null" for null, as a template literal writes it.
+pub fn string(value: Option<&Value>) -> String {
+    match value {
+        None => "undefined".into(),
+        Some(Value::Null) => "null".into(),
+        Some(value) => to_string(value),
+    }
+}
+
+/// A Value as JSON.parse would have made it: whole numbers are integers, so Python's 10.0 equals json!(10).
+pub fn whole_numbers(value: Value) -> Value {
+    match value {
+        Value::Number(number) if number.is_f64() => {
+            number.as_f64().map_or(Value::Number(number), number_value)
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(whole_numbers).collect()),
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(key, value)| (key, whole_numbers(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 /// Boolean(value).
 pub fn truthy(value: &Value) -> bool {
     match value {
@@ -268,17 +292,30 @@ pub fn slice(text: &str, end: usize) -> &str {
     text
 }
 
-/// text.trim(), which also takes off the byte order mark.
-pub fn trim(text: &str) -> &str {
-    text.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
+/// JavaScript's whitespace and line terminators (\s): Rust's char::is_whitespace also has U+0085 and lacks the
+/// byte order mark.
+pub fn is_space(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
 }
 
-/// sha256 of the text, in hex.
-pub fn sha256_hex(text: &str) -> String {
-    Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+/// text.trim().
+pub fn trim(text: &str) -> &str {
+    text.trim_matches(is_space)
+}
+
+/// text.trimEnd().
+pub fn trim_end(text: &str) -> &str {
+    text.trim_end_matches(is_space)
 }
 
 fn collator(numeric: bool, strength: Option<Strength>) -> CollatorBorrowed<'static> {
@@ -314,9 +351,9 @@ pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// new Date(ms).toISOString().
-pub fn iso_from_ms(ms: f64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms.trunc() as i64)
+/// new Date(ms).toISOString(): 2026-11-16T10:00:00.000Z.
+pub fn iso_from_ms(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
         .unwrap_or_default()
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
@@ -442,6 +479,16 @@ pub fn mtime_ms(meta: &Metadata) -> f64 {
     }
 }
 
+// --- Child processes ---
+
+/// Node's windowsHide: no console window for the child process on Windows.
+pub fn hide_window(command: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 // --- One at a time ---
 
 /// Jobs that run one at a time, in the order they were queued: the TypeScript's `queue = queue.then(job)`. Each job
@@ -543,6 +590,8 @@ mod tests {
             (1e-7, "1e-7"),
             (1.5e-10, "1.5e-10"),
             (23.976, "23.976"),
+            (-35.0, "-35"),
+            (3.0, "3"),
         ] {
             assert_eq!(number_to_string(value), text);
         }
@@ -557,6 +606,14 @@ mod tests {
         assert_eq!(number_value(30.0).to_string(), "30");
         assert_eq!(number_value(1.25).to_string(), "1.25");
         assert_eq!(number_value(f64::NAN), Value::Null);
+        assert_eq!(
+            whole_numbers(json!({ "a": [1.0, 2.5, 3] })).to_string(),
+            r#"{"a":[1,2.5,3]}"#
+        );
+        assert_eq!(string(None), "undefined");
+        assert_eq!(string(Some(&json!(null))), "null");
+        assert_eq!(string(Some(&json!([1.0, null, "a"]))), "1,,a");
+        assert_eq!(string(Some(&json!({}))), "[object Object]");
         // A file time read back from a cache is the same to the last bit (serde_json's float_roundtrip).
         let mtime = 1_794_962_131_877.482_7;
         assert_eq!(
@@ -598,6 +655,8 @@ mod tests {
         assert_eq!(slice("a🎬b", 3), "a🎬");
         assert_eq!(slice("ab\u{1F600}c", 3), "ab");
         assert_eq!(length("a🎬"), 3);
+        assert_eq!(trim("\u{feff} a\u{3000}\n"), "a");
+        assert_eq!(trim("\u{85}a"), "\u{85}a");
         assert_eq!(group_thousands(20_000), "20,000");
         assert_eq!(group_thousands(999), "999");
         assert_eq!(group_thousands(1_234_567), "1,234,567");
@@ -690,6 +749,6 @@ mod tests {
         assert_eq!(extname(".hidden"), "");
         assert_eq!(extname("a.b/c"), "");
         assert_eq!(parsed_name(Path::new("dir/Reel.final.mp4")), "Reel.final");
-        assert_eq!(iso_from_ms(0.0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(iso_from_ms(0), "1970-01-01T00:00:00.000Z");
     }
 }

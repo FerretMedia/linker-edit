@@ -13,13 +13,13 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::connection::{ResolveConnection, ResolveErrorKind, error_kind};
-use super::media::{
-    SilenceOptions, find_ffmpeg, find_silences, frames_dir, js_number_text, media_frame,
-    shrink_image,
-};
+use super::media::{SilenceOptions, find_silences, frames_dir, media_frame, shrink_image};
 use super::render::{RenderEvent, RenderRequest, render_timeline};
 use super::tools::find_resolve_tool;
 use super::versions::{TimelineRef, record_origin};
+use crate::js;
+use crate::providers::shorten::{MAX_TOOL_OUTPUT_CHARS, shorten_text};
+use crate::transcribe::tools::find_ffmpeg;
 
 /// A timeline as a save of the edit history holds it: history::model's StoredTimeline, read from its
 /// metadata.json, cuts.json, audio.json and markers.json. Only what restore_timeline uses; numbers stay JSON so
@@ -70,8 +70,8 @@ pub struct SavedClip {
     pub properties: Option<Map<String, Value>>,
 }
 
-/// The edit history, as restore_timeline reads it: history::readSavedTimeline. A trait so the history module
-/// (and tests) can supply it.
+/// The edit history, as restore_timeline reads it: history::readSavedTimeline. A trait so tests can stand in
+/// for it; the real one is [`GitSavedTimelines`].
 #[async_trait]
 pub trait SavedTimelines: Send + Sync {
     /// The timeline `reference` (its id, or else its exact name) in the save `commit` of the edit history in the
@@ -84,20 +84,43 @@ pub trait SavedTimelines: Send + Sync {
     ) -> anyhow::Result<Option<SavedTimeline>>;
 }
 
+/// The edit history in the working folder's Git repository: history::read_saved_timeline, by the timeline's id
+/// or else its exact name.
+pub struct GitSavedTimelines;
+
+#[async_trait]
+impl SavedTimelines for GitSavedTimelines {
+    async fn read_saved_timeline(
+        &self,
+        dir: &Path,
+        commit: &str,
+        reference: &str,
+    ) -> anyhow::Result<Option<SavedTimeline>> {
+        let Some(saved) =
+            crate::history::history::read_saved_timeline(dir, commit, reference, true).await?
+        else {
+            return Ok(None);
+        };
+        // Numbers as JSON.parse reads them from the save, so they go back to Resolve as the TypeScript sent them.
+        let timeline = js::whole_numbers(serde_json::to_value(saved.timeline)?);
+        Ok(Some(serde_json::from_value(timeline)?))
+    }
+}
+
 #[derive(Clone)]
 pub struct ToolContext {
     /// The project's working folder, for exports and renders.
     pub dir: PathBuf,
     /// Where frames for view_frames go; temporary. Defaults to linker-edit-frames in the temp folder.
     pub frames_root: Option<PathBuf>,
-    /// The ffmpeg to use; media::find_ffmpeg() (next to the app, then PATH) when left out.
+    /// The ffmpeg to use; transcribe::tools::find_ffmpeg() (next to the app, then PATH) when left out.
     pub ffmpeg: Option<PathBuf>,
     /// How often long jobs are checked on.
     pub poll: Option<Duration>,
     /// Cancelled when the user stops the turn: long jobs such as renders stop with it.
     pub signal: Option<CancellationToken>,
-    /// The edit history, for restore_timeline.
-    pub history: Option<Arc<dyn SavedTimelines>>,
+    /// The edit history, for restore_timeline: GitSavedTimelines unless a test stands in for it.
+    pub history: Arc<dyn SavedTimelines>,
 }
 
 impl ToolContext {
@@ -108,7 +131,7 @@ impl ToolContext {
             ffmpeg: None,
             poll: None,
             signal: None,
-            history: None,
+            history: Arc::new(GitSavedTimelines),
         }
     }
 
@@ -196,18 +219,6 @@ fn safe_name(name: &str) -> String {
         "timeline".to_string()
     } else {
         safe
-    }
-}
-
-/// String(value), as a template literal writes a JSON value; None is undefined.
-fn js_string(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".to_string(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Number(number)) => number
-            .as_f64()
-            .map_or_else(|| number.to_string(), js_number_text),
-        Some(other) => other.to_string(),
     }
 }
 
@@ -326,12 +337,8 @@ async fn restore_timeline(
     else {
         anyhow::bail!("Pass the save's commit and the timeline's id or exact name in that save.");
     };
-    let Some(history) = &context.history else {
-        anyhow::bail!(
-            "restore_timeline needs the edit history, which this server didn't pass to the tool."
-        );
-    };
-    let Some(saved) = history
+    let Some(saved) = context
+        .history
         .read_saved_timeline(&context.dir, commit.trim(), reference)
         .await?
     else {
@@ -400,16 +407,16 @@ async fn restore_timeline(
             format!(
                 "{} ({kind} track {}, a title or generator)",
                 clip.name,
-                js_string(Some(&clip.track))
+                js::string(Some(&clip.track))
             )
         })
         .collect();
     let key = |kind: Option<&Value>, track: Option<&Value>, start: Option<&Value>| {
         format!(
             "{}:{}:{}",
-            js_string(kind),
-            js_string(track),
-            js_string(start)
+            js::string(kind),
+            js::string(track),
+            js::string(start)
         )
     };
     let mut added: Vec<Value> = Vec::new();
@@ -469,8 +476,8 @@ async fn restore_timeline(
             format!(
                 "{} ({kind} track {} at frame {}: its media isn't in the media pool any more)",
                 clip.name,
-                js_string(Some(&clip.track)),
-                js_string(Some(&clip.start))
+                js::string(Some(&clip.track)),
+                js::string(Some(&clip.start))
             )
         })
         .collect();
@@ -930,93 +937,11 @@ pub async fn run_resolve_tool(
         Output::Plain(result) => (result, Vec::new()),
         Output::WithImages { result, images } => (result, images),
     };
-    let json = js_numbers(result).to_string();
+    let json = js::stringify(&result);
     Ok(ToolResult {
         text: shorten_text(&json, MAX_TOOL_OUTPUT_CHARS).unwrap_or(json),
         images,
     })
-}
-
-/// JSON as JSON.parse and JSON.stringify make it: whole numbers without ".0".
-pub(crate) fn js_numbers(value: Value) -> Value {
-    match value {
-        Value::Number(number) if number.is_f64() => match number.as_f64() {
-            Some(float) if float.fract() == 0.0 && float.abs() <= 9_007_199_254_740_991.0 => {
-                json!(float as i64)
-            }
-            _ => Value::Number(number),
-        },
-        Value::Array(items) => Value::Array(items.into_iter().map(js_numbers).collect()),
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .map(|(key, value)| (key, js_numbers(value)))
-                .collect(),
-        ),
-        other => other,
-    }
-}
-
-// The port of providers/shorten.ts's shortenText, which this module needs. Resolve tools can return thousands of
-// timeline items or transcript lines in one call. All of it would stay in the agent's context for the rest of
-// the chat, so long results are cut first.
-// TODO(hub): use providers::shorten::shorten_text once the providers port lands, and drop this copy.
-
-/// About 5,000 tokens.
-const MAX_TOOL_OUTPUT_CHARS: usize = 20_000;
-const ITEM_LIMITS: [usize; 5] = [50, 20, 10, 5, 2];
-const SHORTENED_NOTE: &str = "Linker-Edit shortened this result to save context. Ask again for a narrower part (one track, a range, a filter) to see what was left out.";
-
-/// A JSON result with its long lists capped, or a plain cut when it isn't JSON; None when it fits. Lengths count
-/// characters.
-fn shorten_text(text: &str, max: usize) -> Option<String> {
-    if text.chars().count() <= max {
-        return None;
-    }
-    let Ok(parsed) = serde_json::from_str::<Value>(text) else {
-        return Some(cut(text, max));
-    };
-    for limit in ITEM_LIMITS {
-        // Compact JSON: indentation would cost tokens too.
-        let shortened = cap_lists(&parsed, limit).to_string();
-        if shortened.chars().count() <= max {
-            return Some(format!("{shortened}\n{SHORTENED_NOTE}"));
-        }
-    }
-    Some(cut(
-        &cap_lists(&parsed, ITEM_LIMITS[ITEM_LIMITS.len() - 1]).to_string(),
-        max,
-    ))
-}
-
-fn cut(text: &str, max: usize) -> String {
-    let kept: String = text.chars().take(max).collect();
-    let left = text.chars().count() - max;
-    format!("{kept}\n… {left} more characters left out. {SHORTENED_NOTE}")
-}
-
-fn cap_lists(value: &Value, limit: usize) -> Value {
-    match value {
-        Value::Array(items) => {
-            let mut kept: Vec<Value> = items
-                .iter()
-                .take(limit)
-                .map(|item| cap_lists(item, limit))
-                .collect();
-            if items.len() > limit {
-                kept.push(json!(format!(
-                    "… {} more items left out",
-                    items.len() - limit
-                )));
-            }
-            Value::Array(kept)
-        }
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(key, item)| (key.clone(), cap_lists(item, limit)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
 }
 
 #[cfg(test)]

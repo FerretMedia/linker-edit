@@ -356,8 +356,7 @@ impl Inner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        #[cfg(windows)]
-        builder.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        crate::js::hide_window(&mut builder);
         let mut child = builder.spawn().map_err(|error| {
             unavailable(format!("Couldn't start Resolve's MCP server: {error}"))
         })?;

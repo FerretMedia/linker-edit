@@ -26,8 +26,8 @@ use super::cloudflared::{
 use super::sessions::Sessions;
 use crate::linker::LinkerService;
 use crate::net::{
-    Clock, Fetch, HttpFetch, Listener, Listeners, Request, encode_uri_component, iso_date,
-    pretty_json, slice_utf16, system_clock, write_private,
+    Clock, Fetch, HttpFetch, Listener, Listeners, Request, encode_uri_component, pretty_json,
+    slice_utf16, system_clock, write_private,
 };
 
 pub const LIMIT: u32 = 3;
@@ -853,7 +853,7 @@ impl Connect {
         };
         Ok(Redeemed {
             session: entered.token,
-            expires_at: iso_date(entered.expires_at),
+            expires_at: crate::js::iso_from_ms(entered.expires_at),
         })
     }
 
@@ -1378,7 +1378,7 @@ mod tests {
                 .unwrap()
                 .keys()
                 .collect::<Vec<_>>(),
-            ["expiresAt", "session"]
+            ["session", "expiresAt"]
         );
         assert!(
             setup

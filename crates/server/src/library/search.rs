@@ -10,7 +10,7 @@ use crate::js;
 
 fn words(text: &str) -> Vec<String> {
     text.to_lowercase()
-        .split(|c: char| c.is_whitespace() || c == ',')
+        .split(|c: char| js::is_space(c) || c == ',')
         .filter(|word| !word.is_empty())
         .map(str::to_string)
         .collect()

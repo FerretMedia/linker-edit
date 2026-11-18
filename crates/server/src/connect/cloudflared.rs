@@ -9,85 +9,99 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use anyhow::bail;
 use async_trait::async_trait;
-use futures::StreamExt;
 use regex::Regex;
-use sha2::{Digest, Sha256};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::sync::Notify;
 
-use crate::net::hex;
-use crate::remote::hide_window;
+use crate::js::hide_window;
+use crate::transcribe::tools::{Download, download, find_on_path};
 
-pub const CLOUDFLARED_VERSION: &str = "2026.10.0";
+// The version is a macro so the download addresses below can be built with concat! at compile time.
+macro_rules! cloudflared_version {
+    () => {
+        "2026.10.0"
+    };
+}
+
+macro_rules! release {
+    ($file:literal) => {
+        concat!(
+            "https://github.com/cloudflare/cloudflared/releases/download/",
+            cloudflared_version!(),
+            "/",
+            $file
+        )
+    };
+}
+
+pub const CLOUDFLARED_VERSION: &str = cloudflared_version!();
 
 /// A pinned download, checked against its SHA-256 (GitHub's asset digest).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Build {
-    pub url: String,
-    pub sha256: &'static str,
-    pub size: u64,
+    pub download: Download,
     /// A .tgz holding cloudflared (macOS), not the program itself.
     pub tgz: bool,
 }
 
 /// By platform and processor, in Node's names. Windows on Arm runs the x64 build.
-fn builds() -> Vec<(&'static str, Build)> {
-    let build = |file: &str, sha256, size, tgz| Build {
-        url: format!(
-            "https://github.com/cloudflare/cloudflared/releases/download/{CLOUDFLARED_VERSION}/{file}"
-        ),
-        sha256,
-        size,
-        tgz,
-    };
-    vec![
-        (
-            "win32-x64",
-            build(
-                "cloudflared-windows-amd64.exe",
-                "86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c",
-                55_365_048,
-                false,
-            ),
-        ),
-        (
-            "linux-x64",
-            build(
-                "cloudflared-linux-amd64",
-                "d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db",
-                40_129_756,
-                false,
-            ),
-        ),
-        (
-            "linux-arm64",
-            build(
-                "cloudflared-linux-arm64",
-                "e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08",
-                37_687_584,
-                false,
-            ),
-        ),
-        (
-            "darwin-x64",
-            build(
-                "cloudflared-darwin-amd64.tgz",
-                "903845b81828c8cb3c5d13d816a2de71c06a3da5785469df8eb0e1b736d92f9f",
-                21_741_581,
-                true,
-            ),
-        ),
-        (
-            "darwin-arm64",
-            build(
-                "cloudflared-darwin-arm64.tgz",
-                "a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70",
-                19_809_074,
-                true,
-            ),
-        ),
-    ]
-}
+const BUILDS: [(&str, Build); 5] = [
+    (
+        "win32-x64",
+        Build {
+            download: Download {
+                url: release!("cloudflared-windows-amd64.exe"),
+                sha256: "86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c",
+                size: 55_365_048,
+            },
+            tgz: false,
+        },
+    ),
+    (
+        "linux-x64",
+        Build {
+            download: Download {
+                url: release!("cloudflared-linux-amd64"),
+                sha256: "d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db",
+                size: 40_129_756,
+            },
+            tgz: false,
+        },
+    ),
+    (
+        "linux-arm64",
+        Build {
+            download: Download {
+                url: release!("cloudflared-linux-arm64"),
+                sha256: "e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08",
+                size: 37_687_584,
+            },
+            tgz: false,
+        },
+    ),
+    (
+        "darwin-x64",
+        Build {
+            download: Download {
+                url: release!("cloudflared-darwin-amd64.tgz"),
+                sha256: "903845b81828c8cb3c5d13d816a2de71c06a3da5785469df8eb0e1b736d92f9f",
+                size: 21_741_581,
+            },
+            tgz: true,
+        },
+    ),
+    (
+        "darwin-arm64",
+        Build {
+            download: Download {
+                url: release!("cloudflared-darwin-arm64.tgz"),
+                sha256: "a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70",
+                size: 19_809_074,
+            },
+            tgz: true,
+        },
+    ),
+];
 
 /// The build for a platform and processor in Node's names (process.platform, process.arch).
 pub fn build_for(platform: &str, arch: &str) -> Option<Build> {
@@ -96,7 +110,7 @@ pub fn build_for(platform: &str, arch: &str) -> Option<Build> {
     } else {
         format!("{platform}-{arch}")
     };
-    builds()
+    BUILDS
         .into_iter()
         .find(|(name, _)| *name == key)
         .map(|(_, build)| build)
@@ -118,78 +132,7 @@ fn this_build() -> Option<Build> {
     build_for(platform, arch)
 }
 
-/// The program on PATH, as transcribe/tools.ts's findOnPath.
-pub fn find_on_path(name: &str) -> Option<PathBuf> {
-    let names = if cfg!(windows) {
-        vec![format!("{name}.exe"), name.to_string()]
-    } else {
-        vec![name.to_string()]
-    };
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .flat_map(|dir| names.iter().map(move |candidate| dir.join(candidate)))
-        .find(|file| file.exists())
-}
-
 pub type OnPercent = Arc<dyn Fn(u32) + Send + Sync>;
-
-/// Downloads a pinned file to target, checked against its hash, through target.part so a broken download is never
-/// taken for a good one. As transcribe/tools.ts's download.
-pub async fn download(build: &Build, target: &Path, on_percent: OnPercent) -> anyhow::Result<()> {
-    if target.exists() {
-        return Ok(());
-    }
-    if let Some(dir) = target.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let response = reqwest::get(&build.url).await?;
-    if !response.status().is_success() {
-        bail!(
-            "Download failed ({}): {}",
-            response.status().as_u16(),
-            build.url
-        );
-    }
-    let mut part = target.as_os_str().to_owned();
-    part.push(".part");
-    let part = PathBuf::from(part);
-    let mut hash = Sha256::new();
-    let written: anyhow::Result<()> = async {
-        let mut out = tokio::fs::File::create(&part).await?;
-        let mut received: u64 = 0;
-        let mut reported: Option<u32> = None;
-        let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            hash.update(&chunk);
-            received += chunk.len() as u64;
-            out.write_all(&chunk).await?;
-            let percent = (received as f64 / build.size as f64 * 100.0).floor() as u32;
-            if reported != Some(percent) {
-                reported = Some(percent);
-                on_percent(percent);
-            }
-        }
-        out.flush().await?;
-        Ok(())
-    }
-    .await;
-    if let Err(error) = written {
-        let _ = std::fs::remove_file(&part);
-        return Err(error);
-    }
-    if hex(&hash.finalize()) != build.sha256 {
-        let _ = std::fs::remove_file(&part);
-        let name = target
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        bail!("The download of {name} was damaged. Try again.");
-    }
-    std::fs::rename(&part, target)?;
-    Ok(())
-}
 
 /// Finds or downloads cloudflared, about 20 to 55 MB once, into dir (AppConfig::tools_dir). Answers the file to run.
 pub async fn prepare_cloudflared(
@@ -223,11 +166,12 @@ pub async fn prepare_cloudflared(
     if file.exists() {
         return Ok(file);
     }
+    let on_percent = move |percent: f64| on_percent(percent as u32);
     if !build.tgz {
-        download(&build, &file, on_percent).await?;
+        download(&build.download, &file, &on_percent, None).await?;
     } else {
         let archive = dir.join(format!("cloudflared-{CLOUDFLARED_VERSION}.tgz"));
-        download(&build, &archive, on_percent).await?;
+        download(&build.download, &archive, &on_percent, None).await?;
         let mut unpacking = home.as_os_str().to_owned();
         unpacking.push(".unpacking");
         let unpacking = PathBuf::from(unpacking);
@@ -470,10 +414,16 @@ mod tests {
             ("linux", "arm64"),
         ] {
             let build = build_for(platform, arch).unwrap();
-            assert!(build.url.contains(&format!("/{CLOUDFLARED_VERSION}/")));
-            assert_eq!(build.sha256.len(), 64);
             assert!(
                 build
+                    .download
+                    .url
+                    .contains(&format!("/{CLOUDFLARED_VERSION}/"))
+            );
+            assert_eq!(build.download.sha256.len(), 64);
+            assert!(
+                build
+                    .download
                     .sha256
                     .chars()
                     .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())

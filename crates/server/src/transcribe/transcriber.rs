@@ -309,7 +309,7 @@ impl Inner {
 
     fn cache_files(&self, file: &str) -> (String, String) {
         static UNSAFE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[^A-Za-z0-9_.-]+").unwrap());
-        let key = &js::sha256_hex(&normalize(file))[..12];
+        let key = &crate::net::sha256_hex(&normalize(file))[..12];
         let name = js::parsed_name(Path::new(file));
         let name = UNSAFE.replace_all(&name, "_");
         let base = self

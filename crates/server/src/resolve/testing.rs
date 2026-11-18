@@ -37,22 +37,7 @@ pub fn has_python() -> bool {
 
 /// The ffmpeg for tests: one on PATH, or the one npm installed with ffmpeg-static. None skips the test.
 pub fn test_ffmpeg() -> Option<PathBuf> {
-    if let Ok(found) = super::media::find_ffmpeg() {
-        return Some(found);
-    }
-    let name = if cfg!(windows) {
-        "ffmpeg.exe"
-    } else {
-        "ffmpeg"
-    };
-    let npm = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../node_modules/ffmpeg-static")
-        .join(name);
-    if npm.exists() {
-        return Some(npm);
-    }
-    eprintln!("No ffmpeg on this computer: skipping a test that needs one.");
-    None
+    crate::transcribe::tools::find_ffmpeg().ok()
 }
 
 // Plays the part of Resolve's run_script: sets `resolve` and `project` from a stand-in scripting module,
@@ -252,7 +237,7 @@ pub fn logged_calls(state_file: &Path) -> Vec<Value> {
         Ok(text) => text
             .trim()
             .lines()
-            .map(|line| super::run::js_numbers(serde_json::from_str(line).unwrap()))
+            .map(|line| crate::js::whole_numbers(serde_json::from_str(line).unwrap()))
             .collect(),
         Err(_) => Vec::new(),
     }

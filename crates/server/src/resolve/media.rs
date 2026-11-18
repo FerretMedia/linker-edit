@@ -1,39 +1,28 @@
 // Work on media files that needs no Resolve: silences and frames, with the ffmpeg Linker-Edit ships.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
 use regex::Regex;
 use serde::Serialize;
 
+use crate::js;
+use crate::transcribe::tools::run_process;
+
 /// Runs ffmpeg; its exit code (1 when it couldn't run or ran out of time) and what it wrote to stderr.
 async fn run(ffmpeg: &Path, args: &[String], timeout: Duration) -> (i32, String) {
-    let mut command = tokio::process::Command::new(ffmpeg);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    let Ok(child) = command.spawn() else {
-        return (1, String::new());
-    };
-    match tokio::time::timeout(timeout, child.wait_with_output()).await {
-        Ok(Ok(out)) => (
-            out.status.code().unwrap_or(1),
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        ),
-        _ => (1, String::new()),
+    let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
+    match run_process(ffmpeg, &args, timeout, None).await {
+        Ok(output) => (output.code.unwrap_or(1), output.log),
+        Err(_) => (1, String::new()),
     }
 }
 
 /// Math.round(value * 1000) / 1000.
 fn round(value: f64) -> f64 {
-    (value * 1000.0 + 0.5).floor() / 1000.0
+    js::round_to(value, 3)
 }
 
 /// The silences in a file, from ffmpeg's silencedetect. Times are seconds from the file's start.
@@ -60,21 +49,18 @@ static DURATION: LazyLock<Regex> =
 static SILENCE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"silence_(start|end): (-?[\d.]+)").unwrap());
 
-/// Number() of a matched number: NaN when it isn't one, like "1.2.3".
-fn number(text: &str) -> f64 {
-    text.parse().unwrap_or(f64::NAN)
-}
-
 /// Reads ffmpeg's silencedetect log. A silence still open at the end runs to the end of the file.
 pub fn parse_silences(log: &str, padding: f64) -> ParsedSilences {
     let duration = DURATION.captures(log).map_or(0.0, |time| {
-        number(&time[1]) * 3600.0 + number(&time[2]) * 60.0 + number(&time[3])
+        js::parse_number(&time[1]) * 3600.0
+            + js::parse_number(&time[2]) * 60.0
+            + js::parse_number(&time[3])
     });
     let mut raw: Vec<(f64, f64)> = Vec::new();
     let mut open: Option<f64> = None;
     for found in SILENCE.captures_iter(log) {
         // Math.max(0, NaN) is NaN, as f64::max isn't.
-        let parsed = number(&found[2]);
+        let parsed = js::parse_number(&found[2]);
         let value = if parsed.is_nan() {
             parsed
         } else {
@@ -146,21 +132,6 @@ impl Default for SilenceOptions {
 static AUDIO: LazyLock<Regex> = LazyLock::new(|| Regex::new("Audio:").unwrap());
 static READABLE: LazyLock<Regex> = LazyLock::new(|| Regex::new("silence|Duration").unwrap());
 
-/// A number as JavaScript's String() writes it: 0.5, -35, 1e+21.
-pub(crate) fn js_number_text(value: f64) -> String {
-    if value.is_nan() {
-        "NaN".to_string()
-    } else if value.is_infinite() {
-        if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string()
-    } else if value == 0.0 {
-        // -0 too.
-        "0".to_string()
-    } else {
-        // Display writes 10.0 as "10", like JavaScript.
-        format!("{value}")
-    }
-}
-
 pub async fn find_silences(
     ffmpeg: &Path,
     file: &Path,
@@ -168,8 +139,8 @@ pub async fn find_silences(
 ) -> anyhow::Result<Silences> {
     let filter = format!(
         "silencedetect=noise={}dB:d={}",
-        js_number_text(options.threshold_db),
-        js_number_text(options.min_silence)
+        js::number_to_string(options.threshold_db),
+        js::number_to_string(options.min_silence)
     );
     let args: Vec<String> = ["-hide_banner", "-nostats", "-i"]
         .into_iter()
@@ -204,7 +175,7 @@ pub async fn media_frame(ffmpeg: &Path, file: &Path, seconds: f64, out: &Path) -
         "error".into(),
         "-y".into(),
         "-ss".into(),
-        js_number_text(seconds.max(0.0)),
+        js::number_to_string(seconds.max(0.0)),
         "-i".into(),
         file.to_string_lossy().into_owned(),
         "-frames:v".into(),
@@ -269,32 +240,6 @@ pub fn frames_dir(root: &Path) -> anyhow::Result<PathBuf> {
         .keep())
 }
 
-/// The ffmpeg Linker-Edit ships next to its own program, or one on PATH. The app's packaging puts ffmpeg next to
-/// the linker-edit binary; a build from source uses the one on PATH.
-pub fn find_ffmpeg() -> anyhow::Result<PathBuf> {
-    let name = if cfg!(windows) {
-        "ffmpeg.exe"
-    } else {
-        "ffmpeg"
-    };
-    let bundled = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
-        .filter(|file| file.is_file());
-    let on_path = || {
-        std::env::var_os("PATH").and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join(name))
-                .find(|file| file.is_file())
-        })
-    };
-    bundled.or_else(on_path).ok_or_else(|| {
-        anyhow::anyhow!(
-            "ffmpeg is missing. Reinstall Linker-Edit, or install ffmpeg so it's on your PATH."
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,12 +275,5 @@ mod tests {
         );
         assert_eq!(parsed.silences, vec![[0.0, 0.9], [8.6, 10.0]]);
         assert_eq!(parsed.speech, vec![[0.9, 8.6]]);
-    }
-
-    #[test]
-    fn writes_numbers_for_ffmpeg_like_javascript() {
-        assert_eq!(js_number_text(-35.0), "-35");
-        assert_eq!(js_number_text(0.5), "0.5");
-        assert_eq!(js_number_text(3.0), "3");
     }
 }

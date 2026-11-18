@@ -173,7 +173,7 @@ impl Inner {
                 .to_string_lossy()
                 .into_owned(),
             size: scanned.size,
-            modified: js::iso_from_ms(scanned.mtime_ms),
+            modified: js::iso_from_ms(scanned.mtime_ms as i64),
             duration: scanned.duration,
             channels: scanned.channels,
             loudness: scanned.loudness,

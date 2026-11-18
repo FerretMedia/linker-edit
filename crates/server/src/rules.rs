@@ -195,10 +195,7 @@ pub fn write_project_file(dir: &Path, text: &str) -> Option<String> {
     let contents = if js::trim(text).is_empty() {
         String::new()
     } else {
-        format!(
-            "{}\n",
-            text.trim_end_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
-        )
+        format!("{}\n", js::trim_end(text))
     };
     let written = std::fs::create_dir_all(dir)
         .and_then(|()| std::fs::write(dir.join(PROJECT_NOTES_FILE), contents));

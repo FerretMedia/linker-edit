@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::*;
+use crate::history::history::{History, HistoryOptions, ResolveSnapshots, create_history};
 use crate::resolve::connection::ResolveError;
 use crate::resolve::testing::{
     FAKE_RESOLVE_MODULE, PythonConnection, fake_connection, has_python, logged_calls,
@@ -626,34 +627,6 @@ async fn detects_scene_cuts_on_ai_timelines_only() {
     }
 }
 
-#[test]
-fn shortens_long_results_by_capping_their_lists() {
-    let long = json!({ "items": (0..100).collect::<Vec<_>>() }).to_string();
-    assert_eq!(shorten_text(&long, 20_000), None);
-    let shortened = shorten_text(&long, 100).unwrap();
-    let first_twenty = (0..20).map(|n| n.to_string()).collect::<Vec<_>>().join(",");
-    assert!(
-        shortened.starts_with(&format!(
-            r#"{{"items":[{first_twenty},"… 80 more items left out"]}}"#
-        )),
-        "{shortened}"
-    );
-    assert!(shortened.ends_with(SHORTENED_NOTE));
-    let cut_text = shorten_text(&"x".repeat(30), 10).unwrap();
-    assert!(
-        cut_text.starts_with("xxxxxxxxxx\n… 20 more characters left out."),
-        "{cut_text}"
-    );
-}
-
-#[test]
-fn writes_numbers_like_json_stringify() {
-    assert_eq!(
-        js_numbers(json!({ "a": [1.0, 2.5, 3] })).to_string(),
-        r#"{"a":[1,2.5,3]}"#
-    );
-}
-
 // restore_timeline over a saved timeline, with Resolve's side stood in for.
 
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -736,7 +709,7 @@ fn restoring_resolve(timelines: Value) -> Arc<crate::resolve::testing::FakeConne
 
 fn restore_context(dir: &Path) -> ToolContext {
     let mut context = ToolContext::new(dir);
-    context.history = Some(Arc::new(OneSave));
+    context.history = Arc::new(OneSave);
     context
 }
 
@@ -888,5 +861,81 @@ async fn refuses_a_tool_it_doesnt_have() {
     assert_eq!(
         error.to_string(),
         "There is no Resolve tool called delete_everything."
+    );
+}
+
+// restore_timeline end to end: the stand-in Resolve's project saved in a real edit history (snapshot.py and git),
+// read back by GitSavedTimelines, and rebuilt with the scripts restoring_resolve stands in for. (The stand-in keeps
+// no state between script runs, so it can't hold the timeline the restore makes.)
+#[tokio::test]
+async fn restores_a_timeline_from_the_edit_history() {
+    if !has_python() {
+        return;
+    }
+    let s = setup();
+    let python: Arc<dyn ResolveConnection> = s.connection.clone();
+    let history = create_history(HistoryOptions {
+        dir: s.project.clone(),
+        read_snapshot: Arc::new(ResolveSnapshots(python)),
+        check_project: None,
+    });
+    let saved = history.record(None).await.unwrap().unwrap();
+    let connection = restoring_resolve(json!([{ "id": "t2" }]));
+    let result = run_resolve_tool(
+        connection.clone(),
+        "restore_timeline",
+        json!({ "commit": saved.commit, "timeline": "AI - Cut" }),
+        &ToolContext::new(&s.project),
+    )
+    .await
+    .unwrap();
+    let result: Value = serde_json::from_str(&result.text).unwrap();
+    let short: String = saved.commit.chars().take(7).collect();
+    assert_eq!(
+        result["timeline"],
+        json!(format!("AI - Cut (restored {short})"))
+    );
+    assert_eq!(result["clips"], json!({ "saved": 2, "placed": 2 }));
+    assert_eq!(result["markers"], json!(3));
+    let calls = connection.scripts();
+    assert_eq!(
+        connection.script_names(),
+        [
+            "tool_list_timelines",
+            "tool_create_timeline",
+            "tool_add_clips",
+            "tool_add_markers"
+        ]
+    );
+    // Whole numbers go back to Resolve as the TypeScript sent them: 1920, not 1920.0.
+    assert_eq!(
+        calls[1].args,
+        json!({
+            "name": format!("Cut (restored {short})"),
+            "width": 1920,
+            "height": 1080,
+            "frame_rate": 25,
+            "start_timecode": "01:00:00:00",
+            "replaces": "t2"
+        })
+    );
+    let placed: Vec<String> = calls[2].args["clips"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|clip| {
+            format!(
+                "{} {} {} {}",
+                clip["type"], clip["track"], clip["start"], clip["media"]
+            )
+        })
+        .collect();
+    assert_eq!(
+        placed,
+        [r#""video" 1 90000 "m1""#, r#""video" 1 90025 "m1""#]
+    );
+    assert_eq!(
+        calls[3].args["markers"][0],
+        json!({ "frame": 10, "color": "Blue", "name": "", "note": "", "duration": 1 })
     );
 }

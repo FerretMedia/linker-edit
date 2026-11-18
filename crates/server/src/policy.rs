@@ -10,11 +10,10 @@ use linker_edit_protocol::ApprovalMode;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::js;
+use crate::library::tools::LIBRARY_IMPORT;
 use crate::resolve::tools::{ResolveToolKind, find_resolve_tool};
 use crate::rules::{LINKER_MCP_NAME, RESOLVE_MCP_NAME};
-
-/// library::tools' LIBRARY_IMPORT: the library tool that brings files into the media pool, so a write.
-const LIBRARY_IMPORT: &str = "library_import";
 
 const READ_ONLY_TOOLS: [&str; 10] = [
     "Read",
@@ -74,16 +73,14 @@ pub const CODEX_DISABLED_RESOLVE_TOOLS: [&str; 6] = [
 ];
 
 /// For Claude's tool list: the tools of Resolve's own MCP server it never gets.
-pub static CLAUDE_DISALLOWED_RESOLVE_TOOLS: LazyLock<Vec<String>> = LazyLock::new(|| {
-    ["run_script_unsafe", "delete_dctl", "delete_lut"]
-        .iter()
-        .map(|tool| format!("{}{tool}", *RESOLVE_PREFIX))
-        .collect()
-});
+pub const CLAUDE_DISALLOWED_RESOLVE_TOOLS: [&str; 3] = [
+    "mcp__resolve__run_script_unsafe",
+    "mcp__resolve__delete_dctl",
+    "mcp__resolve__delete_lut",
+];
 
 /// Resolve's own run_script, as agents see it. It changes the project, so the project is backed up first.
-pub static RESOLVE_RUN_SCRIPT: LazyLock<String> =
-    LazyLock::new(|| format!("{}{RUN_SCRIPT}", *RESOLVE_PREFIX));
+pub const RESOLVE_RUN_SCRIPT: &str = "mcp__resolve__run_script";
 
 /// JavaScript's \s, for regex classes: Rust's also has U+0085 and lacks the BOM.
 const JS_SPACE: &str = r"\t\n\x0B\x0C\r \x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}";
@@ -97,21 +94,7 @@ static GIT_READ: LazyLock<Regex> = LazyLock::new(|| {
 
 fn is_git_read(command: &str) -> bool {
     // --output writes the result to a file.
-    GIT_READ.is_match(js_trim(command)) && !command.contains("--output")
-}
-
-/// String.prototype.trim: JavaScript's whitespace and line terminators.
-fn js_trim(text: &str) -> &str {
-    text.trim_matches(|c: char| {
-        matches!(
-            c,
-            '\t' | '\n' | '\u{0B}' | '\u{0C}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-                ..='\u{200a}'
-        ) || matches!(
-            c,
-            '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
-        )
-    })
+    GIT_READ.is_match(js::trim(command)) && !command.contains("--output")
 }
 
 /// Does this tool call change the open Resolve project? True for Linker-Edit's write tools and Resolve's
@@ -121,7 +104,7 @@ pub fn is_resolve_write(tool_name: &str) -> bool {
         return tool == LIBRARY_IMPORT
             || find_resolve_tool(tool).is_some_and(|tool| tool.kind == ResolveToolKind::Write);
     }
-    tool_name == RESOLVE_RUN_SCRIPT.as_str()
+    tool_name == RESOLVE_RUN_SCRIPT
 }
 
 /// In "ask" mode: does this tool call need the user's OK before it runs?
@@ -499,14 +482,14 @@ mod tests {
     #[test]
     fn names_the_tools_each_agent_never_gets() {
         assert_eq!(
-            *CLAUDE_DISALLOWED_RESOLVE_TOOLS,
-            [
-                "mcp__resolve__run_script_unsafe",
-                "mcp__resolve__delete_dctl",
-                "mcp__resolve__delete_lut"
-            ]
+            CLAUDE_DISALLOWED_RESOLVE_TOOLS.to_vec(),
+            ["run_script_unsafe", "delete_dctl", "delete_lut"]
+                .map(|tool| format!("{}{tool}", *RESOLVE_PREFIX))
         );
-        assert_eq!(*RESOLVE_RUN_SCRIPT, "mcp__resolve__run_script");
+        assert_eq!(
+            RESOLVE_RUN_SCRIPT,
+            format!("{}{RUN_SCRIPT}", *RESOLVE_PREFIX)
+        );
         for tool in CODEX_DISABLED_RESOLVE_TOOLS {
             assert!(!RESOLVE_READS.contains(&tool));
         }

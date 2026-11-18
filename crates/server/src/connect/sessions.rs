@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::net::{
-    Clock, Listener, Listeners, base64url, hex, iso_date, millis, pretty_json, random_bytes,
-    sha256, slice_utf16, system_clock, write_private,
+    Clock, Listener, Listeners, base64url, hex, millis, pretty_json, random_bytes, sha256,
+    slice_utf16, system_clock, write_private,
 };
 
 const CODE_LIFETIME: i64 = 60_000;
@@ -249,8 +249,8 @@ impl Sessions {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
                 kind: entry.kind.unwrap_or(ConnectDeviceKind::Cookie),
-                created_at: iso_date(entry.created_at),
-                last_seen_at: iso_date(entry.last_seen_at),
+                created_at: crate::js::iso_from_ms(entry.created_at),
+                last_seen_at: crate::js::iso_from_ms(entry.last_seen_at),
             })
             .collect()
     }
