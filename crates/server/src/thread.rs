@@ -445,6 +445,9 @@ impl Thread {
     }
 }
 
+/// A tool call of the turn: its name and input, as far as they arrived.
+type ToolCall = (Option<String>, Option<Value>);
+
 /// The sink a turn writes into. Kept outside the chat items, so a turn's Resolve writes are still saved if its
 /// thread is deleted.
 pub struct ThreadSink {
@@ -452,7 +455,7 @@ pub struct ThreadSink {
     signal: CancellationToken,
     session: Arc<dyn ProviderSession>,
     produced: AtomicBool,
-    tools: Mutex<IndexMap<String, (Option<String>, Option<Value>)>>,
+    tools: Mutex<IndexMap<String, ToolCall>>,
     reply: Mutex<String>,
     // One backup per turn, before its first change; a failed one is tried again before the next change.
     backed_up: tokio::sync::Mutex<bool>,

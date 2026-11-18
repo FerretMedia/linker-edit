@@ -1,3 +1,6 @@
+// Each test module uses some of these.
+#![allow(dead_code)]
+
 // What the app's tests share: a client that keeps state as the UI does, agent sessions that run scripted turns,
 // a history that records what it was asked to save, and settings in memory. The TypeScript's app.test.ts setup.
 
@@ -432,8 +435,10 @@ pub struct Setup {
     pub store: Option<Arc<MemoryProjectStore>>,
     pub history: Option<Arc<FakeHistory>>,
     pub scripts: Vec<Script>,
-    configure: Option<Box<dyn FnOnce(&mut AppOptions)>>,
+    configure: Option<Configure>,
 }
+
+type Configure = Box<dyn FnOnce(&mut AppOptions)>;
 
 pub fn setup() -> Setup {
     Setup {
