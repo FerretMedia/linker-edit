@@ -13,9 +13,10 @@ use linker_edit_protocol::{
     TimelineStripState, TranscriptionStatus,
 };
 
+use crate::media::timeline::PreviewTarget;
 use crate::state::LinkEvent;
 use crate::workspace::tests::{Server, open_workspace, render};
-use crate::workspace::{Page, PreviewTarget, Workspace};
+use crate::workspace::{Page, Workspace};
 
 fn snapshot() -> protocol::AppState {
     crate::state::tests::snapshot()

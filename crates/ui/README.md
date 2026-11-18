@@ -17,6 +17,9 @@ building the server. `crates/app` calls [`run`](src/lib.rs).
 | `src/workspace.rs` | The root view: sidebar, chat column with its header, one side panel |
 | `src/views/` | One file per region of `+page.svelte`: `sidebar` (with `sidebar_rows`, `sidebar_footer`, `computer_picker`, `context_menu`), `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter`; the dialogs: `dialog` (the frame and small controls), `add_project`, `folder_picker`, `project_settings`, `project_icon` (with the icon picker), `collection_icon`, `collection_editor` |
 | `src/state.rs` | `AppState` and the `Link` to the server |
+| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter`; the preview: `preview_panel`, `timeline_player`, `player_controls` |
+| `src/media/` | Video and sound for the preview: `timeline` (port of `player.ts`), `ffmpeg` (finding and running it), `video` (frames), `audio` (cpal, the mixer and clock), `player` (the engine both preview views use) |
+| `src/state.rs` | `AppState` and the `Link` to the server (with its HTTP address, `ServerHttp`) |
 | `src/transport.rs` | The `/ws` client: a `Link` to a server in another process |
 | `src/labels.rs`, `src/context.rs`, `src/markdown.rs`, `src/sidebar.rs`, `src/browse_path.rs`, `src/project_icon_colors.rs`, `src/collection_icons.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts`, `sidebar.ts`, `browsePath.ts`, `projectIconColors.ts`, `collectionIcons.ts` |
 | `src/views/` (pages) | `settings_page` (with `remote_access`, `linker_connect`, `collections_settings`, `settings_parts`: SettingsGroup/Row, Switch, Segmented, the pages' frame), `library_page` + `library_folder_dialog`, `history_panel` + `clip_strip`, `project_file_panel`, `app_update_card` (for the sidebar footer) |
@@ -104,6 +107,17 @@ window (on Windows through the native caption, with Snap and double-click to max
 Wrap every control in a header in `window::no_drag()`, or pressing it drags the window.
 The rightmost header leaves room for the minimize/maximize/close buttons, which the
 workspace draws over the top right corner; the leftmost one clears macOS's traffic lights.
+
+## Video
+
+GPUI has no `<video>`, so `src/media` plays it: one ffmpeg process per clip on screen (or
+coming up within 3 s) decodes frames at the stage's size, with the clip's look applied, as raw
+BGRA on a pipe; each becomes a GPUI image. Another ffmpeg per audio clip decodes PCM for the
+mixer, which the sound card (cpal) pulls; what it has played is the clock the pictures follow.
+Media comes from the server over HTTP (`/media/<id>`, `/preview/<file>`), so it works for
+another computer's server too. ffmpeg is found next to the binary, on PATH, or in a checkout's
+`node_modules/ffmpeg-static`; packaging puts it next to the binary. Linux builds need ALSA's
+headers (`libasound2-dev`) for cpal.
 
 ## Testing
 

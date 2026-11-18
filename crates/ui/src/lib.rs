@@ -13,6 +13,7 @@ pub mod icons;
 pub mod labels;
 pub mod library;
 pub mod markdown;
+pub mod media;
 #[cfg(test)]
 mod pages_tests;
 pub mod project_icon_colors;

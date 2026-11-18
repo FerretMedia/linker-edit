@@ -1,12 +1,18 @@
-//! The root view (+page.svelte's main layout): the sidebar, the chat column with its header,
-//! and at most one side panel; or the settings or library page in their place; "Connecting…"
-//! until the server's first snapshot; the toasts. It owns what is only the window's business
-//! (which page and panel are open); everything else comes from [`AppState`].
+//! The root view (+page.svelte's main layout): the sidebar, the chat column with its header, and
+//! at most one side panel (preview, history, project file); or the settings or library page in
+//! their place; a dialog over it all; "Connecting…" until the server's first snapshot; the toasts.
+//! It owns what is only the window's business (which page, panel and dialog are open, the keys);
+//! everything else comes from [`AppState`].
+//!
+//! Each page, panel and dialog is a view made when it opens and dropped when it closes, as the
+//! Svelte components mount and unmount, with its subscription beside it.
+
+use std::time::Duration;
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
     IntoElement, KeyBinding, KeyDownEvent, ModifiersChangedEvent, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions, div,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Task, Window, actions, div,
     prelude::FluentBuilder, px,
 };
 use gpui_kit::TestSupportExt;
@@ -16,6 +22,8 @@ use linker_edit_protocol::{ClientMessage, Tone};
 use crate::components::HeaderButton;
 use crate::icons::IconName;
 use crate::library::LibraryTab;
+use crate::media::sound::Sound;
+use crate::media::timeline::PreviewTarget;
 use crate::settings::SettingsSection;
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme, root_text};
@@ -25,14 +33,8 @@ use crate::views::library_page::{LibraryEvent, LibraryPage};
 use crate::views::project_file_panel::{ProjectFileEvent, ProjectFilePanel};
 use crate::views::project_settings::ProjectSettingsDialog;
 use crate::views::settings_page::{SettingsEvent, SettingsPage};
-use crate::views::{Chat, ChatEvent, Panel, SidePanel, Sidebar, SidebarEvent};
+use crate::views::{Chat, ChatEvent, Panel, PreviewEvent, PreviewPanel, Sidebar, SidebarEvent};
 use crate::window::{WindowControls, no_drag, title_bar};
-
-/// A dialog over the window (+page.svelte's `dialog`).
-pub enum OpenDialog {
-    AddProject(Entity<AddProjectDialog>),
-    ProjectSettings(Entity<ProjectSettingsDialog>),
-}
 
 actions!(
     workspace,
@@ -44,7 +46,8 @@ actions!(
     ]
 );
 
-/// The keys +page.svelte's `onKeydown` listens for.
+/// The keys +page.svelte's `onKeydown` listens for. The sidebar's own (T3 Code's Ctrl+N,
+/// Ctrl+1…9, …) come through [`Workspace`]'s key handler, as the sidebar decides them.
 pub fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new(
@@ -66,26 +69,35 @@ pub enum Page {
     Library(Entity<LibraryPage>),
 }
 
-/// player.ts's PreviewTarget: a timeline (None: Resolve's current one) as it was in a save
-/// (None: as it is). The preview panel's port plays it; History's Play sets it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PreviewTarget {
-    pub id: Option<String>,
-    pub commit: Option<String>,
+/// A dialog over the window (+page.svelte's `dialog`).
+pub enum OpenDialog {
+    AddProject(Entity<AddProjectDialog>),
+    ProjectSettings(Entity<ProjectSettingsDialog>),
 }
+
+/// The open side panel's view.
+enum Side {
+    Preview(Entity<PreviewPanel>),
+    History(Entity<HistoryPanel>),
+    /// Made anew for each project, as `{#key app.projectId}` does.
+    File(Option<String>, Entity<ProjectFilePanel>),
+}
+
+/// How often a library sound is checked for its end.
+const SOUND_POLL: Duration = Duration::from_millis(250);
 
 pub struct Workspace {
     state: Entity<AppState>,
     sidebar: Entity<Sidebar>,
     chat: Entity<Chat>,
     panel: Option<Panel>,
+    side: Option<(Side, Subscription)>,
+    page: Option<(Page, Subscription)>,
     dialog: Option<(OpenDialog, Subscription)>,
-    page: Option<Page>,
-    history: Option<Entity<HistoryPanel>>,
-    /// PROJECT.md's panel, made anew for each project.
-    file: Option<(Option<String>, Entity<ProjectFilePanel>)>,
-    /// The version picked in the history, with the project it belongs to.
+    /// What the preview shows, kept while it's closed: the project it belongs to and the version.
     preview_target: (Option<String>, PreviewTarget),
+    /// The library page's sound playing, and the watch for its end.
+    sound: Option<(Sound, Task<()>)>,
     /// Holds the keyboard when nothing else does, so the shortcuts (Ctrl+, Escape, the
     /// sidebar's) always arrive.
     focus: FocusHandle,
@@ -125,11 +137,11 @@ impl Workspace {
             chat,
             state,
             panel: None,
-            dialog: None,
+            side: None,
             page: None,
-            history: None,
-            file: None,
-            preview_target: (None, PreviewTarget::default()),
+            dialog: None,
+            preview_target: Default::default(),
+            sound: None,
             focus,
             _subscriptions: subscriptions,
         }
@@ -139,8 +151,28 @@ impl Workspace {
         &self.sidebar
     }
 
+    pub fn chat(&self) -> &Entity<Chat> {
+        &self.chat
+    }
+
+    pub fn panel(&self) -> Option<Panel> {
+        self.panel
+    }
+
+    pub fn page(&self) -> Option<&Page> {
+        self.page.as_ref().map(|(page, _)| page)
+    }
+
     pub fn dialog(&self) -> Option<&OpenDialog> {
         self.dialog.as_ref().map(|(dialog, _)| dialog)
+    }
+
+    /// The preview panel while it's open.
+    pub fn preview(&self) -> Option<&Entity<PreviewPanel>> {
+        match &self.side {
+            Some((Side::Preview(preview), _)) => Some(preview),
+            _ => None,
+        }
     }
 
     fn sidebar_event(&mut self, event: &SidebarEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -149,10 +181,7 @@ impl Workspace {
                 self.state.read(cx).send(ClientMessage::NewThread {
                     project_id: project_id.clone(),
                 });
-                self.chat.update(cx, |chat, cx| {
-                    chat.composer()
-                        .update(cx, |composer, cx| composer.focus(window, cx))
-                });
+                self.focus_composer(window, cx);
             }
             SidebarEvent::AddProject => self.add_project(window, cx),
             SidebarEvent::ProjectSettings(project_id) => {
@@ -169,6 +198,8 @@ impl Workspace {
             SidebarEvent::Settings(section) => self.open_settings(*section, window, cx),
         }
     }
+
+    // --- Dialogs ---
 
     /// AddProjectDialog.svelte.
     pub fn add_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -188,6 +219,262 @@ impl Workspace {
         cx.notify();
     }
 
+    // --- Pages ---
+
+    /// Opens the settings page at `section`, as `openSettings` does.
+    pub fn open_settings(
+        &mut self,
+        section: SettingsSection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(Page::Settings(page)) = self.page() {
+            page.update(cx, |page, cx| page.show(section, window, cx));
+            return;
+        }
+        let page = cx.new(|cx| SettingsPage::new(self.state.clone(), section, window, cx));
+        let subscription = cx.subscribe_in(
+            &page,
+            window,
+            |this, _, event: &SettingsEvent, window, cx| match event {
+                SettingsEvent::Close => this.close_page(window, cx),
+                SettingsEvent::Library => this.open_library(LibraryTab::Universal, window, cx),
+            },
+        );
+        self.show_page(Page::Settings(page), subscription, cx);
+    }
+
+    /// Opens the library page at `tab`, as `openLibrary` does.
+    pub fn open_library(&mut self, tab: LibraryTab, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Page::Library(page)) = self.page() {
+            page.update(cx, |page, cx| page.show(tab, cx));
+            return;
+        }
+        let page = cx.new(|cx| LibraryPage::new(self.state.clone(), tab, window, cx));
+        let subscription = cx.subscribe_in(
+            &page,
+            window,
+            |this, page, event: &LibraryEvent, window, cx| match event {
+                LibraryEvent::Close => this.close_page(window, cx),
+                LibraryEvent::Play(url) => this.play_sound(url, page.clone(), cx),
+                LibraryEvent::Stop => this.sound = None,
+            },
+        );
+        self.show_page(Page::Library(page), subscription, cx);
+    }
+
+    fn show_page(&mut self, page: Page, subscription: Subscription, cx: &mut Context<Self>) {
+        self.sound = None;
+        self.page = Some((page, subscription));
+        cx.notify();
+    }
+
+    /// Escape: closes the library's folder dialog when it is open, else the page.
+    fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Page::Library(page)) = self.page()
+            && page.read(cx).has_dialog()
+        {
+            page.update(cx, |page, cx| page.close_dialog(cx));
+            return;
+        }
+        self.close_page(window, cx);
+    }
+
+    /// Back to the app, as `closeSettings` does for both pages.
+    pub fn close_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.page = None;
+        self.sound = None;
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// The library page's ▶: one sound at a time, as its `<audio>`. The page shows Pause until it
+    /// hears that the sound stopped (it ended, or couldn't play).
+    fn play_sound(&mut self, url: &str, page: Entity<LibraryPage>, cx: &mut Context<Self>) {
+        let sound = self
+            .state
+            .read(cx)
+            .server
+            .as_ref()
+            .filter(|_| !cfg!(test))
+            .and_then(|server| match Sound::play(server, url) {
+                Ok(sound) => Some(sound),
+                Err(error) => {
+                    eprintln!("Couldn't play {url}: {error}");
+                    None
+                }
+            });
+        let Some(sound) = sound else {
+            self.sound = None;
+            page.update(cx, |page, cx| page.stopped(cx));
+            return;
+        };
+        let watch = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(SOUND_POLL).await;
+                let ended = this
+                    .update(cx, |this, _| {
+                        this.sound
+                            .as_ref()
+                            .is_none_or(|(sound, _)| sound.finished())
+                    })
+                    .unwrap_or(true);
+                if ended {
+                    break;
+                }
+            }
+            let _ = this.update(cx, |this, _| this.sound = None);
+            let _ = page.update(cx, |page, cx| page.stopped(cx));
+        });
+        self.sound = Some((sound, watch));
+    }
+
+    // --- Side panels ---
+
+    /// Opens `panel`, or closes it when it is the open one.
+    pub fn toggle_panel(&mut self, panel: Panel, cx: &mut Context<Self>) {
+        self.panel = (self.panel != Some(panel)).then_some(panel);
+        cx.notify();
+    }
+
+    /// The version the preview shows: the one picked in the history, while its project is open.
+    pub fn preview_target(&self, cx: &gpui::App) -> PreviewTarget {
+        let (project, target) = &self.preview_target;
+        if project.as_deref() == self.state.read(cx).project_id() {
+            target.clone()
+        } else {
+            PreviewTarget::default()
+        }
+    }
+
+    /// Opens the preview on `target` of the project in view, as +page.svelte's openPreview.
+    pub fn open_preview(&mut self, target: PreviewTarget, cx: &mut Context<Self>) {
+        self.preview_target = (self.state.read(cx).project_id().map(str::to_string), target);
+        if let Some(preview) = self.preview() {
+            let target = self.preview_target.clone();
+            preview.update(cx, |preview, cx| preview.set_target(target, cx));
+        }
+        self.panel = Some(Panel::Preview);
+        cx.notify();
+    }
+
+    /// Puts `draft` in the composer and the cursor after it.
+    fn compose(&mut self, draft: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let composer = self.chat.read(cx).composer().clone();
+        composer.update(cx, |composer, cx| {
+            composer.set_draft(draft, window, cx);
+            composer.focus(window, cx);
+        });
+    }
+
+    fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let composer = self.chat.read(cx).composer().clone();
+        composer.update(cx, |composer, cx| composer.focus(window, cx));
+    }
+
+    /// The open panel's view: made when it opens, let go of when it closes (the preview stops
+    /// its video first), so a closed panel stops asking the server, as the Svelte ones unmount.
+    fn side_view(
+        &mut self,
+        panel: Option<Panel>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let project = self.state.read(cx).project_id().map(str::to_string);
+        let keep = match (&self.side, panel) {
+            (Some((Side::Preview(_), _)), Some(Panel::Preview))
+            | (Some((Side::History(_), _)), Some(Panel::History)) => true,
+            (Some((Side::File(for_project, _), _)), Some(Panel::File)) => *for_project == project,
+            _ => false,
+        };
+        if !keep {
+            if let Some((Side::Preview(preview), _)) = self.side.take() {
+                preview.update(cx, |preview, cx| preview.release(window, cx));
+            }
+            self.side = panel.map(|panel| self.make_side(panel, project, window, cx));
+        }
+        Some(match &self.side.as_ref()?.0 {
+            Side::Preview(view) => view.clone().into_any_element(),
+            Side::History(view) => view.clone().into_any_element(),
+            Side::File(_, view) => view.clone().into_any_element(),
+        })
+    }
+
+    fn make_side(
+        &mut self,
+        panel: Panel,
+        project: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (Side, Subscription) {
+        let state = self.state.clone();
+        match panel {
+            Panel::Preview => {
+                let target = self.preview_target.clone();
+                let view = cx.new(|cx| PreviewPanel::new(state, target, cx));
+                let subscription = cx.subscribe_in(
+                    &view,
+                    window,
+                    |this, _, event: &PreviewEvent, window, cx| {
+                        match event {
+                            PreviewEvent::Target(target) => this.open_preview(target.clone(), cx),
+                            PreviewEvent::Close => this.panel = None,
+                            PreviewEvent::Comment(place) => {
+                                // Feedback on the preview starts with where in the video it is.
+                                let draft = this.chat.read(cx).composer().read(cx).draft(cx);
+                                let text = if draft.trim().is_empty() {
+                                    format!("{place}: ")
+                                } else {
+                                    format!("{}\n{place}: ", draft.trim_end())
+                                };
+                                this.compose(&text, window, cx);
+                            }
+                        }
+                        cx.notify();
+                    },
+                );
+                (Side::Preview(view), subscription)
+            }
+            Panel::History => {
+                let view = cx.new(|cx| HistoryPanel::new(state, cx));
+                let subscription = cx.subscribe_in(
+                    &view,
+                    window,
+                    |this, _, event: &HistoryEvent, window, cx| {
+                        match event {
+                            HistoryEvent::Close => this.panel = None,
+                            HistoryEvent::Restore(draft) => this.compose(draft, window, cx),
+                            HistoryEvent::Preview {
+                                timeline_id,
+                                commit,
+                            } => this.open_preview(
+                                PreviewTarget {
+                                    id: Some(timeline_id.clone()),
+                                    commit: Some(commit.clone()),
+                                },
+                                cx,
+                            ),
+                        }
+                        cx.notify();
+                    },
+                );
+                (Side::History(view), subscription)
+            }
+            Panel::File => {
+                let view = cx.new(|cx| ProjectFilePanel::new(state, window, cx));
+                let subscription = cx.subscribe(&view, |this, _, event: &ProjectFileEvent, cx| {
+                    match event {
+                        ProjectFileEvent::Close => this.panel = None,
+                    }
+                    cx.notify();
+                });
+                (Side::File(project, view), subscription)
+            }
+        }
+    }
+
+    // --- Keys ---
+
     /// The sidebar's shortcuts (T3 Code's), except while a dialog is open.
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog.is_some() {
@@ -204,168 +491,6 @@ impl Workspace {
     fn on_modifiers_changed(&mut self, event: &ModifiersChangedEvent, cx: &mut Context<Self>) {
         self.sidebar
             .update(cx, |sidebar, cx| sidebar.on_modifiers_changed(event, cx));
-    }
-
-    pub fn page(&self) -> Option<&Page> {
-        self.page.as_ref()
-    }
-
-    /// Opens the settings page at `section`, as `openSettings` does.
-    pub fn open_settings(
-        &mut self,
-        section: SettingsSection,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(Page::Settings(page)) = &self.page {
-            page.update(cx, |page, cx| page.show(section, window, cx));
-            return;
-        }
-        let page = cx.new(|cx| SettingsPage::new(self.state.clone(), section, window, cx));
-        self._subscriptions.push(cx.subscribe_in(
-            &page,
-            window,
-            |this, _, event: &SettingsEvent, window, cx| match event {
-                SettingsEvent::Close => this.close_page(cx),
-                SettingsEvent::Library => this.open_library(LibraryTab::Universal, window, cx),
-            },
-        ));
-        self.page = Some(Page::Settings(page));
-        cx.notify();
-    }
-
-    /// Opens the library page at `tab`, as `openLibrary` does.
-    pub fn open_library(&mut self, tab: LibraryTab, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(Page::Library(page)) = &self.page {
-            page.update(cx, |page, cx| page.show(tab, cx));
-            return;
-        }
-        let page = cx.new(|cx| LibraryPage::new(self.state.clone(), tab, window, cx));
-        self._subscriptions
-            .push(
-                cx.subscribe(&page, |this, page, event: &LibraryEvent, cx| match event {
-                    LibraryEvent::Close => this.close_page(cx),
-                    // The preview's port plugs its player in here. Until then nothing plays, so the
-                    // page hears at once that it stopped, as from a failed `audio.play()`.
-                    LibraryEvent::Play(_) => page.update(cx, |page, cx| page.stopped(cx)),
-                    LibraryEvent::Stop => {}
-                }),
-            );
-        self.page = Some(Page::Library(page));
-        cx.notify();
-    }
-
-    /// Escape: closes the library's folder dialog when it is open, else the page.
-    fn back(&mut self, cx: &mut Context<Self>) {
-        if let Some(Page::Library(page)) = &self.page
-            && page.read(cx).has_dialog()
-        {
-            page.update(cx, |page, cx| page.close_dialog(cx));
-            return;
-        }
-        self.close_page(cx);
-    }
-
-    /// Back to the app, as `closeSettings` does for both pages.
-    pub fn close_page(&mut self, cx: &mut Context<Self>) {
-        self.page = None;
-        cx.notify();
-    }
-
-    /// The version the preview shows: the one picked in the history, while its project is open.
-    pub fn preview_target(&self, cx: &gpui::App) -> PreviewTarget {
-        let (project, target) = &self.preview_target;
-        if project.as_deref() == self.state.read(cx).project_id() {
-            target.clone()
-        } else {
-            PreviewTarget::default()
-        }
-    }
-
-    /// Opens the preview on a version, as +page.svelte's `openPreview` does.
-    pub fn open_preview(&mut self, target: PreviewTarget, cx: &mut Context<Self>) {
-        let project = self.state.read(cx).project_id().map(String::from);
-        self.preview_target = (project, target);
-        self.panel = Some(Panel::Preview);
-        cx.notify();
-    }
-
-    pub fn panel(&self) -> Option<Panel> {
-        self.panel
-    }
-
-    pub fn chat(&self) -> &Entity<Chat> {
-        &self.chat
-    }
-
-    /// Opens `panel`, or closes it when it is the open one.
-    pub fn toggle_panel(&mut self, panel: Panel, cx: &mut Context<Self>) {
-        self.panel = (self.panel != Some(panel)).then_some(panel);
-        cx.notify();
-    }
-
-    fn history_panel(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<HistoryPanel> {
-        if let Some(panel) = &self.history {
-            return panel.clone();
-        }
-        let panel = cx.new(|cx| HistoryPanel::new(self.state.clone(), cx));
-        self._subscriptions.push(cx.subscribe_in(
-            &panel,
-            window,
-            |this, _, event: &HistoryEvent, window, cx| {
-                match event {
-                    HistoryEvent::Close => this.panel = None,
-                    HistoryEvent::Restore(draft) => {
-                        let composer = this.chat.read(cx).composer().clone();
-                        composer.update(cx, |composer, cx| {
-                            composer.set_draft(draft, window, cx);
-                            composer.focus(window, cx);
-                        })
-                    }
-                    HistoryEvent::Preview {
-                        timeline_id,
-                        commit,
-                    } => this.open_preview(
-                        PreviewTarget {
-                            id: Some(timeline_id.clone()),
-                            commit: Some(commit.clone()),
-                        },
-                        cx,
-                    ),
-                }
-                cx.notify();
-            },
-        ));
-        self.history = Some(panel.clone());
-        panel
-    }
-
-    fn file_panel(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<ProjectFilePanel> {
-        let project = self.state.read(cx).project_id().map(String::from);
-        if let Some((for_project, panel)) = &self.file
-            && *for_project == project
-        {
-            return panel.clone();
-        }
-        let panel = cx.new(|cx| ProjectFilePanel::new(self.state.clone(), window, cx));
-        self._subscriptions.push(
-            cx.subscribe(&panel, |this, _, event: &ProjectFileEvent, cx| {
-                match event {
-                    ProjectFileEvent::Close => this.panel = None,
-                }
-                cx.notify();
-            }),
-        );
-        self.file = Some((project, panel.clone()));
-        panel
     }
 
     fn toasts(&self, theme: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -428,6 +553,13 @@ impl Render for Workspace {
             self.focus.focus(window, cx);
         }
         let state = self.state.read(cx);
+        // One root for every layout: it holds the keyboard and takes the window's own keys.
+        let root = root_text(div(), &theme)
+            .id("workspace")
+            .relative()
+            .size_full()
+            .bg(theme.background)
+            .track_focus(&self.focus);
 
         // Until the first snapshot: the whole window is the title bar, with one line in it.
         if state.app.is_none() {
@@ -438,11 +570,11 @@ impl Render for Workspace {
             } else {
                 "Connecting to the Linker-Edit server…"
             };
-            return root_text(div(), &theme)
-                .id("workspace")
-                .relative()
-                .size_full()
-                .bg(theme.background)
+            if self.side.is_some() {
+                // A relink forgets the project; the panels go with it.
+                self.side_view(None, window, cx);
+            }
+            return root
                 .child(
                     title_bar("connecting", px(16.), true, true, window)
                         .size_full()
@@ -457,24 +589,19 @@ impl Render for Workspace {
         }
 
         // The settings or library page replaces the app while open.
-        if let Some(page) = &self.page {
+        if let Some(page) = self.page() {
             let page = match page {
                 Page::Settings(page) => page.clone().into_any_element(),
                 Page::Library(page) => page.clone().into_any_element(),
             };
-            return root_text(div(), &theme)
-                .id("workspace")
-                .relative()
-                .size_full()
-                .bg(theme.background)
-                .track_focus(&self.focus)
+            return root
                 .on_action(
-                    cx.listener(|this, _: &ToggleSettings, window, cx| match &this.page {
-                        Some(Page::Settings(_)) => this.close_page(cx),
+                    cx.listener(|this, _: &ToggleSettings, window, cx| match this.page() {
+                        Some(Page::Settings(_)) => this.close_page(window, cx),
                         _ => this.open_settings(SettingsSection::General, window, cx),
                     }),
                 )
-                .on_action(cx.listener(|this, _: &Back, _, cx| this.back(cx)))
+                .on_action(cx.listener(|this, _: &Back, window, cx| this.back(window, cx)))
                 .child(page)
                 .child(WindowControls)
                 .children(toasts)
@@ -491,6 +618,7 @@ impl Render for Workspace {
         let lost = !state.connected;
         let signed_out = state.signed_out;
         let has_project = project.is_some();
+        let side = self.side_view(panel, window, cx);
 
         // The side panels show a Resolve project's timelines; a setup thread has none.
         let toggles = if setup { &[][..] } else { &Panel::ALL[..] };
@@ -556,31 +684,6 @@ impl Render for Workspace {
                     .children(toggles),
             );
 
-        // History and the project file are views of their own, dropped while closed as the
-        // Svelte ones unmount (so they stop asking the server); the project file is made anew
-        // per project, as `{#key app.projectId}` does.
-        if panel != Some(Panel::History) {
-            self.history = None;
-        }
-        if panel != Some(Panel::File) {
-            self.file = None;
-        }
-        let side = match panel {
-            Some(Panel::History) => Some(self.history_panel(window, cx).into_any_element()),
-            Some(Panel::File) => Some(self.file_panel(window, cx).into_any_element()),
-            Some(panel) => Some(
-                SidePanel::new(
-                    panel,
-                    cx.listener(|this, _, _, cx| {
-                        this.panel = None;
-                        cx.notify();
-                    }),
-                )
-                .into_any_element(),
-            ),
-            None => None,
-        };
-
         let main = div()
             .flex()
             .flex_col()
@@ -618,21 +721,15 @@ impl Render for Workspace {
             OpenDialog::AddProject(dialog) => dialog.clone().into_any_element(),
             OpenDialog::ProjectSettings(dialog) => dialog.clone().into_any_element(),
         });
-        root_text(div(), &theme)
-            .id("workspace")
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, event, window, cx| this.on_key_down(event, window, cx)))
+        root.on_key_down(cx.listener(|this, event, window, cx| this.on_key_down(event, window, cx)))
             .on_modifiers_changed(
                 cx.listener(|this, event, _, cx| this.on_modifiers_changed(event, cx)),
             )
-            .relative()
-            .flex()
-            .flex_row()
-            .size_full()
-            .bg(theme.background)
             .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
                 this.open_settings(SettingsSection::General, window, cx)
             }))
+            .flex()
+            .flex_row()
             .child(self.sidebar.clone())
             .child(main)
             .children(side)
@@ -755,6 +852,9 @@ pub(crate) mod tests {
             assert_eq!(window.find("preview-panel").bounds().size.width, px(512.));
 
             window.click("close-panel", cx);
+        });
+        // The preview says it closed; the workspace takes it away on the next frame.
+        render(cx, window, |window, _| {
             assert!(window.try_find("preview-panel").is_none());
         });
     }

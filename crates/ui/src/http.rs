@@ -118,8 +118,8 @@ pub fn client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
         .map_err(|error| error.to_string())
 }
 
-/// `GET path` on `server`, with its session; blocking.
-pub fn get(
+/// `GET path` on `server`, with its session; blocking. Whatever the status.
+pub fn get_any(
     server: &ServerAddress,
     path: &str,
     timeout: Duration,
@@ -128,7 +128,16 @@ pub fn get(
     if let Some(session) = server.bearer() {
         request = request.bearer_auth(session);
     }
-    let response = request.send().map_err(|error| error.to_string())?;
+    request.send().map_err(|error| error.to_string())
+}
+
+/// `GET path` on `server`, with its session; blocking. An error unless it answers 2xx.
+pub fn get(
+    server: &ServerAddress,
+    path: &str,
+    timeout: Duration,
+) -> Result<reqwest::blocking::Response, String> {
+    let response = get_any(server, path, timeout)?;
     if !response.status().is_success() {
         return Err(format!(
             "Linker-Edit answered {}.",

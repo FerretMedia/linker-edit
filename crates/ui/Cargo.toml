@@ -39,9 +39,16 @@ tokio = { workspace = true }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # The one HTTP client (http.rs): the server's pictures for GPUI's `img` (async, on a runtime of
-# its own), and a few blocking requests off the UI thread (the computer menu's list and sign-in).
+# its own), and a few blocking requests off the UI thread (the computer menu's list and sign-in,
+# the preview's /api/timeline).
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
+# Video playback (src/media): ffmpeg runs as a process and pipes raw frames and samples; frames
+# become GPUI images (`image` and `smallvec` are the types RenderImage takes), samples go to the
+# sound card through cpal, whose clock the picture follows.
+cpal = "0.18"
+image = { version = "0.25", default-features = false }
+smallvec = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Lets the first copy's window come to the front when a second copy hands over.

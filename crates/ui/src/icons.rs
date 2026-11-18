@@ -114,6 +114,8 @@ icons! {
     Newspaper => "newspaper",
     Palette => "palette",
     Pause => "pause",
+    // Play and Pause with `fill-current`, as the player's buttons draw them.
+    PauseFilled => "pause-filled",
     Pencil => "pencil",
     Pin => "pin",
     PinOff => "pin-off",
