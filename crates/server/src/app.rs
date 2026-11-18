@@ -3261,8 +3261,9 @@ impl Locked<'_> {
                 }
             }
             ClientMessage::InstallAppUpdate => {
-                if let Some(updates) = &self.options().app_updates {
-                    updates.install();
+                // install asks whether Resolve is busy, which takes the lock this message is handled under.
+                if let Some(updates) = self.options().app_updates.clone() {
+                    tokio::spawn(async move { updates.install() });
                 }
             }
             ClientMessage::CancelAppUpdate => {

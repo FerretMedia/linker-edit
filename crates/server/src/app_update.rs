@@ -170,37 +170,39 @@ impl AppUpdates {
 
     /// Restarts to update once nothing is busy with Resolve. Must be called inside the tokio runtime.
     pub fn install(&self) {
-        {
+        let downloaded = self
+            .state
+            .lock()
+            .unwrap()
+            .state
+            .as_ref()
+            .is_some_and(|update| update.status == DesktopUpdateStatus::Downloaded);
+        if !downloaded {
+            return;
+        }
+        // Not under this lock: busy takes the app's, and the app takes this one to show the update.
+        if (self.busy)() {
             let mut state = self.state.lock().unwrap();
-            let downloaded = state
-                .state
-                .as_ref()
-                .is_some_and(|update| update.status == DesktopUpdateStatus::Downloaded);
-            if !downloaded {
+            if state.waiting.is_some() {
                 return;
             }
-            if (self.busy)() {
-                if state.waiting.is_some() {
-                    return;
-                }
-                let me = self.me.clone();
-                let poll = self.poll;
-                state.waiting = Some(tokio::spawn(async move {
-                    loop {
-                        tokio::time::sleep(poll).await;
-                        let Some(updates) = me.upgrade() else { return };
-                        if !(updates.busy)() {
-                            // Done waiting: this task ends here rather than being stopped.
-                            updates.state.lock().unwrap().waiting = None;
-                            updates.install_now();
-                            return;
-                        }
+            let me = self.me.clone();
+            let poll = self.poll;
+            state.waiting = Some(tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(poll).await;
+                    let Some(updates) = me.upgrade() else { return };
+                    if !(updates.busy)() {
+                        // Done waiting: this task ends here rather than being stopped.
+                        updates.state.lock().unwrap().waiting = None;
+                        updates.install_now();
+                        return;
                     }
-                }));
-                drop(state);
-                self.listeners.notify();
-                return;
-            }
+                }
+            }));
+            drop(state);
+            self.listeners.notify();
+            return;
         }
         self.install_now();
     }

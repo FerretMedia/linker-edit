@@ -2013,3 +2013,72 @@ mod sidebar {
         );
     }
 }
+
+mod app_updates {
+    use super::*;
+    use crate::app_update::{AppUpdates, DesktopUpdater, OnUpdateState};
+    use linker_edit_protocol::{DesktopUpdateState, DesktopUpdateStatus};
+    use std::sync::OnceLock;
+    use std::time::Duration;
+
+    /// The desktop app's updater with a release downloaded; it says when it's asked to restart into it.
+    struct Downloaded(Notify);
+
+    #[async_trait::async_trait]
+    impl DesktopUpdater for Downloaded {
+        fn status(&self) -> DesktopUpdateState {
+            DesktopUpdateState {
+                status: DesktopUpdateStatus::Downloaded,
+                current_version: "2026.1111.2".into(),
+                available_version: Some("2026.1112.0".into()),
+                downloaded_version: Some("2026.1112.0".into()),
+                percent: Some(100.0),
+                notes: vec![],
+                checked_at: None,
+                error: None,
+                download_url: None,
+                not_applied: None,
+            }
+        }
+        fn on_status(&self, _listener: OnUpdateState) {}
+        async fn check(&self) {}
+        async fn download(&self) {}
+        async fn install(&self) -> bool {
+            self.0.notify_one();
+            true
+        }
+        fn cancel(&self) {}
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn restarts_to_update_when_a_page_asks_and_resolve_is_free() {
+        let updater = Arc::new(Downloaded(Notify::new()));
+        let made: Arc<OnceLock<App>> = Arc::default();
+        let app = made.clone();
+        let updates = AppUpdates::with_updater(
+            updater.clone(),
+            Arc::new(move || app.get().is_some_and(App::busy)),
+        );
+        let h = setup()
+            .with(move |options| options.app_updates = Some(updates))
+            .start();
+        let _ = made.set(h.app.clone());
+        // A message is handled with the app locked; asking whether Resolve is busy used to lock it again, and hang.
+        let (app, id, runtime) = (h.app.clone(), h.id, tokio::runtime::Handle::current());
+        let (done, handled) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _runtime = runtime.enter();
+            app.handle_message(
+                id,
+                message(json!({ "type": "install_app_update" })).unwrap(),
+            );
+            let _ = done.send(());
+        });
+        handled
+            .recv_timeout(Duration::from_secs(5))
+            .expect("install_app_update was handled");
+        tokio::time::timeout(Duration::from_secs(5), updater.0.notified())
+            .await
+            .expect("the updater was asked to restart into the update");
+    }
+}
