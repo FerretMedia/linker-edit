@@ -4,6 +4,7 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createApp } from "./app.ts";
@@ -201,6 +202,49 @@ describe("server", () => {
     const [request, response] = (await once(socket, "unexpected-response")) as [http.ClientRequest, http.IncomingMessage];
     expect(response.statusCode).toBe(401);
     request.destroy();
+  });
+
+  it("compresses the UI and the socket for the owner's other devices, not this computer's own window", async () => {
+    fs.mkdirSync(path.join(dist, "_app", "immutable"), { recursive: true });
+    const script = "export const cut = (clip) => clip.trim();\n".repeat(200);
+    fs.writeFileSync(path.join(dist, "_app", "immutable", "entry.js"), script);
+    const fetchRaw = (urlPath: string, headers: http.OutgoingHttpHeaders) =>
+      new Promise<{ headers: http.IncomingHttpHeaders; body: Buffer }>((resolve, reject) => {
+        http
+          .get({ host: "127.0.0.1", port, path: urlPath, headers }, (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (chunk: Buffer) => chunks.push(chunk));
+            res.on("end", () => resolve({ headers: res.headers, body: Buffer.concat(chunks) }));
+          })
+          .on("error", reject);
+      });
+    const extensions = async (headers: Record<string, string>, origin: string) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin, headers });
+      await once(socket, "open");
+      socket.terminate();
+      return socket.extensions;
+    };
+    const gzipped = { "accept-encoding": "gzip, deflate, br" };
+
+    const local = await fetchRaw("/_app/immutable/entry.js", gzipped);
+    expect(local.headers["content-encoding"]).toBeUndefined();
+    expect(local.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+    expect(String(local.body)).toBe(script);
+    expect((await fetchRaw("/", gzipped)).headers["cache-control"]).toBe("no-cache");
+    expect(await extensions({}, `http://127.0.0.1:${port}`)).toBe("");
+
+    gate = { host: "studio.tail1234.ts.net:8443", owner: "jane@example.com" };
+    try {
+      const owner = { host: "studio.tail1234.ts.net:8443", "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
+      const remote = await fetchRaw("/_app/immutable/entry.js", { ...owner, ...gzipped });
+      expect(remote.headers["content-encoding"]).toBe("gzip");
+      expect(remote.body.length).toBeLessThan(script.length / 10);
+      expect(String(zlib.gunzipSync(remote.body))).toBe(script);
+      expect((await fetchRaw("/_app/immutable/entry.js", { ...owner, "accept-encoding": "gzip;q=0" })).headers["content-encoding"]).toBeUndefined();
+      expect(await extensions(owner, "https://studio.tail1234.ts.net:8443")).toBe("permessage-deflate");
+    } finally {
+      gate = null;
+    }
   });
 
   it("sends the app's own pages a snapshot", async () => {
