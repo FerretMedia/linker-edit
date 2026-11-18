@@ -121,7 +121,7 @@ Icons are one-color masks; multi-color marks are stacked layers (`components::Li
 
 ## The title bar
 
-There is no system title bar, as in `desktop/main.ts`. Each top header is built with
+There is no system title bar, as in T3 Code. Each top header is built with
 `window::title_bar(id, padding_x, leftmost, rightmost, window)`, 52px high; it drags the
 window (on Windows through the native caption, with Snap and double-click to maximize).
 Wrap every control in a header in `window::no_drag()`, or pressing it drags the window.
@@ -159,9 +159,10 @@ own (it also names the single-instance lock, so your copy doesn't hand over to s
 else's), and `LINKER_EDIT_THEME` to pick light or dark. A visual change gets before/after
 screenshots.
 
-Until crates/server runs in the binary, `LINKER_EDIT_SERVER_URL=http://127.0.0.1:<port>` (dev only)
-opens the window on a server already running, such as the TypeScript one started with its own
-`LINKER_EDIT_CONFIG` (a `port`, temp folders, `"resolveMcp": ""` to keep Resolve out, and a
-`settings.json` beside it with `"resolveHere": false` so it doesn't download the speech engine)
-and `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl` to replay a recorded turn
-instead of calling Claude. `LINKER_EDIT_SERVER_TOKEN` sends a Linker Connect session as Bearer.
+The window runs its own server in the process. Give it a `LINKER_EDIT_CONFIG` of your own
+(a `port`, temp folders, `"resolveMcp": ""` to keep Resolve out, and a `settings.json` beside it
+with `"resolveHere": false` so it doesn't download the speech engine) and
+`LINKER_EDIT_REPLAY=crates/server/tests/fixtures/claude-turn.jsonl` to replay a recorded turn
+instead of calling Claude. Dev only: `LINKER_EDIT_SERVER_URL=http://127.0.0.1:<port>` opens the
+window on a server that already runs, and `LINKER_EDIT_SERVER_TOKEN` sends a Linker Connect
+session as Bearer.

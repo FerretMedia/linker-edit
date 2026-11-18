@@ -43,7 +43,7 @@ Priorities come from real use. If something here matters to you, or is missing, 
 ## Requirements
 
 - **DaVinci Resolve Studio 21.1.2 or newer**, which comes with its own MCP server (`ResolveMCP`). Linker-Edit finds it in Resolve's install folder. Set Preferences → System → General → *External scripting using* to **Local**, and restart Resolve after changing it. The free edition has no MCP server.
-- **Claude Code** (`claude`, logged in) and/or **Codex** (`codex`, logged in).
+- **Claude Code** and/or **Codex**, logged in (`claude`, `codex login`). Linker-Edit comes with its own copy of both and uses your login.
 - **[Git](https://git-scm.com)**, for the edit history.
 
 ## Install
@@ -52,30 +52,32 @@ Download the installer for your computer from the [latest release](https://githu
 
 | | |
 | --- | --- |
-| Windows | `Linker-Edit-<version>-win-x64.exe` |
-| macOS, Apple silicon | `Linker-Edit-<version>-mac-arm64.dmg` |
-| macOS, Intel | `Linker-Edit-<version>-mac-x64.dmg` |
-| Linux | `Linker-Edit-<version>-linux-x86_64.AppImage` |
+| Windows | `Linker-Edit-win-x64-Setup.exe` |
+| macOS, Apple silicon | `Linker-Edit-osx-arm64-Setup.pkg` |
+| macOS, Intel | `Linker-Edit-osx-x64-Setup.pkg` |
+| Linux | `Linker-Edit-linux-x64.AppImage` |
 
-The builds aren't signed yet, so the first launch needs one extra step:
+Windows and macOS also have a `-Portable.zip` that runs from any folder and updates itself the same way. The builds aren't signed yet, so the first launch needs one extra step:
 
 - **Windows**: SmartScreen says it protected your PC. Click *More info* → *Run anyway*.
-- **macOS**: open the app once, then System Settings → Privacy & Security → *Open Anyway*.
-- **Linux**: `chmod +x` the AppImage, then run it.
+- **macOS**: open the installer once, then System Settings → Privacy & Security → *Open Anyway*.
+- **Linux**: `chmod +x` the AppImage, then run it. It needs FUSE 2 (`libfuse2`), as every AppImage does.
 
 Start Resolve, check that the Resolve status in the sidebar is green, then ask away. A good first prompt is "Describe the open project and its timelines".
 
-The app looks for a new version a few seconds after it starts and then every hour; click the version next to the logo to look now. It downloads a new version by itself, and the sidebar shows what's new and offers *Restart to update*. If an agent is still working in Resolve, it restarts once the turn is done instead of stopping it halfway through an edit. Quitting the app installs a downloaded update too. On macOS the sidebar links to the new download instead, because an unsigned app can't replace itself. Your projects, history and settings stay in `~/LinkerEdit`.
+The app looks for a new version 15 seconds after it starts and then every hour; click the version next to the logo to look now. It downloads a new version by itself, and the sidebar shows what's new and offers *Restart to update*. If an agent is still working in Resolve, it restarts once the turn is done instead of stopping it halfway through an edit. Closing the app installs a downloaded update too. Your projects, history and settings stay in `~/LinkerEdit`, and the app's log is `~/LinkerEdit/logs/linker-edit.log`.
+
+**Coming from an earlier version.** Versions before 2026.11.18 were built differently (on Electron) and can't update themselves to this one, except on Linux, where the AppImage still swaps itself for the new one. On macOS the sidebar offers the new version as a download: install it over the old app. On Windows, uninstall Linker-Edit under Settings → Apps first, then run the new installer. Your projects, threads and settings stay where they are.
 
 ### Or run it with Node.js
 
-With **Node.js 24+**:
+With **Node.js 18+**:
 
 ```sh
 npx linker-edit@latest
 ```
 
-Linker-Edit opens in its own window. Closing the window stops it; `npx linker-edit@latest --browser` opens it in your browser at http://127.0.0.1:4317 instead. When a new version is out, the sidebar says so: stop Linker-Edit (Ctrl+C) and run `npx linker-edit@latest` again.
+Linker-Edit opens in your browser at http://127.0.0.1:4317; stop it with Ctrl+C. `npx linker-edit@latest window` opens it in its own window instead, and `npx linker-edit@latest serve` only starts it, for a computer without a display that you use from another one. npm installs only your computer's build: Windows x64, macOS (Apple silicon or Intel) or Linux x64. When a new version is out, the sidebar says so: stop Linker-Edit and run `npx linker-edit@latest` again.
 
 ## Configuration
 
@@ -102,21 +104,26 @@ The defaults work for a standard install. To change where things go, create `~/L
 
 ## Development
 
+You need [Rust](https://rustup.rs) (`rust-toolchain.toml` picks the version) and **Node.js 24+** for the browser UI. On Linux, also the libraries the window and sound build against: `libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev libvulkan1`.
+
 ```sh
 npm install
 npm run dev
 ```
 
-Open http://localhost:5317, or run `npm run dev:desktop` to get the app window as well. `npm run build && npm start` serves the built app from http://127.0.0.1:4317 instead. Releases are described in [RELEASING.md](RELEASING.md).
+`npm run dev` serves the browser UI from Vite at http://localhost:5317, which reloads as you edit it, in front of the Rust server on 4317. With [cargo-watch](https://crates.io/crates/cargo-watch) installed, the server rebuilds and restarts when Rust code changes. `cargo run -p linker-edit` opens the app window, and `npm run build && npm start` serves the built UI from the Rust server at http://127.0.0.1:4317. Releases are described in [RELEASING.md](RELEASING.md).
 
 ### Repo layout
 
-The repository is an npm workspaces monorepo. Run `npm install` and the `npm run` commands from its root; they forward to the app, except `npm test` and `npm run typecheck`, which run in every workspace.
+A Cargo workspace (`crates/`) and an npm workspace (`apps/desktop`) side by side. Run `npm install` and the `npm run` commands from the root.
 
-- `apps/desktop`: the app, published to npm as `linker-edit`: the Node server (`server/`), the UI (`src/`), the Electron window (`desktop/`), their tests and build scripts. Its commands run in this folder, so a relative path you give them, like `LINKER_EDIT_REPLAY` below, is from here.
-- `apps/`: the other apps, such as the iPad app.
-- `packages/`: libraries the apps share, each a workspace with its own `package.json`.
-  - `packages/drp` (`@linker-edit/drp`): reads and patches DaVinci Resolve `.drp` project and `.drt` timeline files without Resolve. See [its README](packages/drp/README.md).
+- `crates/app`: the `linker-edit` program: the window with its server, `serve`, `--browser`, and `mcp` (the agents' tools).
+- `crates/server`: the server: all state, the agents, Resolve, the edit history, `/ws` and `/api`.
+- `crates/ui`: the app window, drawn with [GPUI](https://www.gpui.rs). See [its README](crates/ui/README.md).
+- `crates/protocol`: everything on `/ws` and `/api`; `apps/desktop/shared/protocol.ts` is generated from it.
+- `crates/drp`: reads and patches DaVinci Resolve `.drp` project and `.drt` timeline files without Resolve. See [its README](crates/drp/README.md).
+- `apps/desktop`: the browser UI (SvelteKit), which the server carries inside it for browsers and your other computers, its e2e tests, and the scripts that package releases.
+- `npm/linker-edit`: the npm package `npx linker-edit` runs; it starts the program from the platform's own package.
 - `docs/`: plans.
 
 ## How approvals work
@@ -317,11 +324,12 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 
 ## Testing
 
-- `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`crates/server/src/resolve/scripts`; `cargo test -p linker-edit-server` runs them too) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
-- `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
-- `LINKER_EDIT_REPLAY=../../crates/server/tests/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
+- `cargo test --workspace`: the server, window, protocol and .drp tests. Free and offline. With Python installed, they also run every Resolve script (`crates/server/src/resolve/scripts`) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg. `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` check the style.
+- `npm run typecheck` and `npm test`: the browser UI's types and its helpers' tests, and the release scripts'.
+- `npm run test:e2e`: builds the UI and the Rust program and drives it in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
+- `LINKER_EDIT_REPLAY=crates/server/tests/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
-- `node apps/desktop/scripts/update-smoke.ts`, after `npm run build && node apps/desktop/scripts/build-desktop.ts --dir`: starts the unpacked desktop app against an update feed on your computer and checks that it downloads the update, stops its server and quits to install it, and says so when the install didn't take. On Linux, run it under `xvfb-run`.
+- `xvfb-run -a node apps/desktop/scripts/update-smoke.ts` on Linux, after a release build laid out with `node apps/desktop/scripts/package.ts app`: packs the app as an older and a newer release, and checks that the older one downloads the newer one, restarts into it and comes back on the newer version.
 - `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
 
 ## Contributing
@@ -336,4 +344,4 @@ For anything larger, please open an issue before writing the code, so we can agr
 
 ## Credits
 
-MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio decoding by [FFmpeg](https://ffmpeg.org) through `ffmpeg-static` (GPL), both run as separate programs. Linker-Edit drives Resolve through the MCP server Blackmagic Design ships with DaVinci Resolve Studio; it starts your installed copy and doesn't distribute it. The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
+MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio and video decoding by [FFmpeg](https://ffmpeg.org), the `ffmpeg-static` build (GPL), both run as separate programs. The app comes with Claude Code and Codex, which run under their own licenses. Linker-Edit drives Resolve through the MCP server Blackmagic Design ships with DaVinci Resolve Studio; it starts your installed copy and doesn't distribute it. The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built in Rust with [GPUI](https://www.gpui.rs) and [gpui-component](https://github.com/longbridge/gpui-component) for the window, SvelteKit for the browser UI, and [Velopack](https://velopack.io) for installs and updates. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
