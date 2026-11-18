@@ -773,10 +773,19 @@ impl App {
     }
 
     /// Asks Resolve how it is; one check at a time, which every caller waits for. Starts when called.
-    pub fn refresh_resolve(&self) -> impl Future<Output = ()> + Send + 'static {
+    pub fn refresh_resolve(&self) -> BoxFuture<()> {
+        // Called with the lock held (a page's refresh_resolve, a thread's callback): the lock isn't reentrant, so
+        // the check starts from a task of its own, which takes it once that section is done.
+        if self.inner.owner.load(Ordering::SeqCst) == current_thread() {
+            let app = self.clone();
+            let started = tokio::spawn(async move { app.refresh_resolve().await });
+            return Box::pin(async move {
+                let _ = started.await;
+            });
+        }
         let mut locked = self.lock();
         if let Some(check) = &locked.guard.hub.resolve_check {
-            return check.clone();
+            return Box::pin(check.clone());
         }
         let app = self.clone();
         let check: Shared<BoxFuture<()>> = (Box::pin(async move {
@@ -789,7 +798,7 @@ impl App {
         locked.guard.hub.resolve_check = Some(check.clone());
         drop(locked);
         tokio::spawn(check.clone());
-        check
+        Box::pin(check)
     }
 
     /// Downloads the speech engine in the background, so nobody has to ask for it and an agent's first

@@ -1621,6 +1621,31 @@ mod projects {
         assert_eq!((project.name.as_str(), project.open), ("Doc v2", true));
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn asks_resolve_when_a_page_says_to() {
+        let store = store_of(vec![linked("Doc", None)]);
+        let h = setup()
+            .store(store)
+            .with(|options| {
+                options.check_resolve =
+                    Arc::new(|| Box::pin(async { connected(Some("Doc"), Some("doc-id")) }));
+            })
+            .start();
+        // A message is handled with the app locked; refresh_resolve used to lock it again, and hang the server.
+        let (app, id, runtime) = (h.app.clone(), h.id, tokio::runtime::Handle::current());
+        let (done, handled) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _runtime = runtime.enter();
+            app.handle_message(id, message(json!({ "type": "refresh_resolve" })).unwrap());
+            let _ = done.send(());
+        });
+        handled
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("refresh_resolve was handled");
+        h.app.refresh_resolve().await;
+        assert!(h.state().meta.projects[0].open);
+    }
+
     #[tokio::test]
     async fn adds_projects_from_resolve_its_database_and_blackmagic_cloud_once_each() {
         let store = store_of(vec![workspace_project()]);
