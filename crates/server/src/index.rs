@@ -2,7 +2,7 @@
 // The port of server/index.ts; cli.rs and the linker-edit binary start it.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -10,7 +10,8 @@ use linker_edit_protocol::release_name::release_name;
 use linker_edit_protocol::{ComputerSetup, Provider, RemoteAccess, SetupFolders};
 use tokio::net::TcpListener;
 
-use crate::app::{AppOptions, SessionRequest, ToolOutput, create_app};
+use crate::app::{App, AppOptions, SessionRequest, ToolOutput, create_app};
+use crate::app_update::{AppUpdates, DesktopUpdater};
 use crate::collections::store::file_collection_store;
 use crate::config::AppConfig;
 use crate::connect::cloudflared::Cloudflared;
@@ -65,7 +66,13 @@ pub fn replay_file() -> Option<PathBuf> {
 }
 
 /// Runs the server on listener until the process ends. Prints where it is, then starts what runs beside it.
-pub async fn run(config: AppConfig, listener: TcpListener) -> anyhow::Result<()> {
+/// `updater` is the installed desktop app's own (Velopack, in crates/app); without one, as from npm or a build
+/// from source, the server looks on npm for a newer version instead.
+pub async fn run(
+    config: AppConfig,
+    listener: TcpListener,
+    updater: Option<Arc<dyn DesktopUpdater>>,
+) -> anyhow::Result<()> {
     let replay = replay_file();
     if let Some(replay) = &replay {
         println!("Replaying {} instead of calling Claude", replay.display());
@@ -237,7 +244,16 @@ pub async fn run(config: AppConfig, listener: TcpListener) -> anyhow::Result<()>
         probe: Arc::new(ffmpeg_probe(Arc::new(find_ffmpeg))),
         on_error: None,
     })));
+    let has_updater = updater.is_some();
+    // Restart to update waits until nothing is busy with Resolve; the app it asks is made just below.
+    let made: Arc<OnceLock<App>> = Arc::default();
+    if let Some(updater) = updater {
+        let made = made.clone();
+        let busy = Arc::new(move || made.get().is_some_and(App::busy));
+        options.app_updates = Some(AppUpdates::with_updater(updater, busy));
+    }
     let app = create_app(options);
+    let _ = made.set(app.clone());
 
     let routes = router(HttpOptions {
         app: app.clone(),
@@ -285,8 +301,8 @@ pub async fn run(config: AppConfig, listener: TcpListener) -> anyhow::Result<()>
             }
         });
     }
-    // A checkout runs as 0.0.0 and has nothing to update to. The desktop app updates itself instead.
-    if VERSION != "0.0.0" && std::env::var_os("LINKER_EDIT_DESKTOP").is_none() {
+    // A checkout runs as 0.0.0 and has nothing to update to. The installed desktop app updates itself instead.
+    if VERSION != "0.0.0" && !has_updater {
         let app = app.clone();
         tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_secs(24 * 60 * 60));

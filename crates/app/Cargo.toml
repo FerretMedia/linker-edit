@@ -4,6 +4,7 @@ description = "Open-source AI for video editing: Claude and Codex edit your DaVi
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "linker-edit"
@@ -14,7 +15,26 @@ linker-edit-protocol.workspace = true
 linker-edit-server.workspace = true
 linker-edit-ui.workspace = true
 anyhow.workspace = true
+async-trait = "0.1"
+chrono.workspace = true
 # Whether another copy already runs (crates/ui single_instance's local socket), before a server starts.
 interprocess = "2"
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 tracing-subscriber.workspace = true
+# Installers and updates. Pinned exactly: the release workflow packs with the vpk of the same version.
+velopack = "=1.2.161"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# AttachConsole, so `serve` and `--version` print to the terminal they were started from (see console.rs).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[target.'cfg(windows)'.build-dependencies]
+# The exe's icon and version info.
+winresource = "0.1"

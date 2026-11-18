@@ -19,7 +19,7 @@ mod pages_tests;
 pub mod project_icon_colors;
 pub mod settings;
 pub mod sidebar;
-mod single_instance;
+pub mod single_instance;
 pub mod state;
 pub mod theme;
 pub mod transport;
@@ -39,8 +39,9 @@ pub use workspace::Workspace;
 /// Opens the window on `link` and runs until it closes. The link's server (`Link::server`) is
 /// this computer's: pictures and media come from it, the computer menu asks it for the user's
 /// other computers and comes back to it. If another copy already runs on the same data folder,
-/// brings its window forward and returns at once.
-pub fn run(link: Link) -> anyhow::Result<()> {
+/// brings its window forward and returns at once. `on_quit` runs once the window closed, before the app quits:
+/// the place to install a downloaded update, since on macOS quitting ends the process.
+pub fn run(link: Link, on_quit: impl FnOnce() + 'static) -> anyhow::Result<()> {
     let mut focus_requests = match single_instance::claim()? {
         single_instance::Instance::Primary(requests) => requests,
         single_instance::Instance::Secondary => return Ok(()),
@@ -66,7 +67,14 @@ pub fn run(link: Link) -> anyhow::Result<()> {
             })
             .detach();
             // One window: closing it quits, as main.ts's window-all-closed does.
-            cx.on_window_closed(|cx, _| cx.quit()).detach();
+            let mut on_quit = Some(on_quit);
+            cx.on_window_closed(move |cx, _| {
+                if let Some(on_quit) = on_quit.take() {
+                    on_quit();
+                }
+                cx.quit();
+            })
+            .detach();
         });
     Ok(())
 }
