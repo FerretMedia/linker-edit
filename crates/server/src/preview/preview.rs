@@ -40,6 +40,11 @@ pub struct PreviewJob {
 }
 
 impl PreviewJob {
+    /// A render that stop() stops by cancelling stop, for renderers other than Resolve's, as tests have.
+    pub fn new(stop: CancellationToken) -> Self {
+        PreviewJob { stop }
+    }
+
     pub fn stop(&self) {
         self.stop.cancel();
     }

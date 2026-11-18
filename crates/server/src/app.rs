@@ -353,11 +353,15 @@ fn commit_project_file(history: Option<Arc<dyn History>>, message: String) {
     let Some(history) = history else {
         return;
     };
-    tokio::spawn(async move {
+    let mut commit: BoxFuture<()> = Box::pin(async move {
         if let Err(error) = history.commit_project_file(&message).await {
             tracing::error!("Couldn't commit linker-edit.json: {error:#}");
         }
     });
+    // Started at once, as the TypeScript's promise was; what it then waits for finishes in the background.
+    if (&mut commit).now_or_never().is_none() {
+        tokio::spawn(commit);
+    }
 }
 
 /// The app's state while its lock is held. Calls that came back from inside it run when it's let go.
@@ -572,6 +576,14 @@ impl TurnContext {
             drop(app.refresh_resolve());
         }
     }
+}
+
+/// An approval swap under way: what apply_timeline needs once Resolve was taken for it.
+struct Applying {
+    apply: ApplyTimeline,
+    dir: PathBuf,
+    history: Option<Arc<dyn History>>,
+    learner: Option<String>,
 }
 
 /// The thread whose turn may use Resolve now.
@@ -920,50 +932,20 @@ impl App {
     }
 
     /// The user approved an AI timeline: the project is backed up, then it takes the main timeline's name and
-    /// place, and the main one stays, renamed. The swap lands in the edit history.
-    async fn apply_timeline(&self, client: ClientId, project_id: String, timeline_id: String) {
-        let Some(apply) = self.inner.options.apply_timeline.clone() else {
-            return;
-        };
-        let (dir, history, learner) = {
-            let mut locked = self.lock();
-            let Some(project) = locked.guard.hub.projects.get(&project_id) else {
-                return;
-            };
-            if timeline_id.is_empty() {
-                return;
-            }
-            let (dir, history) = (project.saved.dir.clone(), project.history.clone());
-            let collection = project.saved.collection.clone();
-            if locked.resolve_busy() {
-                locked.toast(
-                    Some(client),
-                    "Resolve is busy with a turn, a render or an open. Try again when it's done.",
-                    Tone::Error,
-                );
-                return;
-            }
-            locked.guard.hub.applying = Some(project_id.clone());
-            locked.send_meta();
-            // The thread the user approved it from learns from the edit, when the project has a brief to learn into.
-            let viewed = locked
-                .guard
-                .hub
-                .clients
-                .get(&client)
-                .and_then(|view| view.thread_id.clone())
-                .filter(|thread_id| {
-                    locked
-                        .guard
-                        .hub
-                        .threads
-                        .get(thread_id)
-                        .is_some_and(|entry| entry.project_id == project_id)
-                });
-            let has_brief = collection
-                .is_some_and(|collection| locked.guard.collections.get(&collection.id).is_some());
-            (dir, history, viewed.filter(|_| has_brief))
-        };
+    /// place, and the main one stays, renamed. The swap lands in the edit history. Locked::begin_apply started it.
+    async fn apply_timeline(
+        &self,
+        client: ClientId,
+        project_id: String,
+        timeline_id: String,
+        applying: Applying,
+    ) {
+        let Applying {
+            apply,
+            dir,
+            history,
+            learner,
+        } = applying;
         let result: anyhow::Result<Option<String>> = async {
             self.refresh_resolve().await;
             if let Some(refusal) = self.lock().project_refusal(&project_id) {
@@ -1062,30 +1044,15 @@ impl App {
         }
     }
 
-    async fn open_in_resolve(&self, client: ClientId, project_id: String) {
+    async fn open_in_resolve(
+        &self,
+        client: ClientId,
+        project_id: String,
+        link: ResolveLink,
+        local: LocalLink,
+    ) {
         let Some(projects) = self.inner.options.resolve_projects.clone() else {
             return;
-        };
-        let (link, local) = {
-            let mut locked = self.lock();
-            let Some(project) = locked.guard.hub.projects.get(&project_id) else {
-                return;
-            };
-            let Some(link) = project.saved.link.clone() else {
-                return;
-            };
-            let local = project.saved.local.clone();
-            if locked.resolve_busy() {
-                locked.toast(
-                    Some(client),
-                    "Resolve is busy. Wait until the running turn or render finishes.",
-                    Tone::Error,
-                );
-                return;
-            }
-            locked.guard.hub.opening = Some(project_id.clone());
-            locked.send_meta();
-            (link, local)
         };
         let opened = projects.open(&link, &local).await;
         {
@@ -1644,6 +1611,74 @@ impl Locked<'_> {
             || hub.opening.is_some()
             || hub.applying.is_some()
             || hub.tool_calls > 0
+    }
+
+    /// apply_timeline's start, as the message arrives: Resolve is taken for it at once, or the user is told why not.
+    fn begin_apply(
+        &mut self,
+        client: ClientId,
+        project_id: &str,
+        timeline_id: &str,
+    ) -> Option<Applying> {
+        let apply = self.options().apply_timeline.clone()?;
+        let project = self.guard.hub.projects.get(project_id)?;
+        if timeline_id.is_empty() {
+            return None;
+        }
+        let (dir, history) = (project.saved.dir.clone(), project.history.clone());
+        let collection = project.saved.collection.clone();
+        if self.resolve_busy() {
+            self.toast(
+                Some(client),
+                "Resolve is busy with a turn, a render or an open. Try again when it's done.",
+                Tone::Error,
+            );
+            return None;
+        }
+        self.guard.hub.applying = Some(project_id.to_string());
+        self.send_meta();
+        // The thread the user approved it from learns from the edit, when the project has a brief to learn into.
+        let hub = &self.guard.hub;
+        let viewed = hub
+            .clients
+            .get(&client)
+            .and_then(|view| view.thread_id.clone())
+            .filter(|thread_id| {
+                hub.threads
+                    .get(thread_id)
+                    .is_some_and(|entry| entry.project_id == project_id)
+            });
+        let has_brief = collection
+            .is_some_and(|collection| self.guard.collections.get(&collection.id).is_some());
+        Some(Applying {
+            apply,
+            dir,
+            history,
+            learner: viewed.filter(|_| has_brief),
+        })
+    }
+
+    /// open_in_resolve's start: Resolve is taken for the open at once, or the user is told why not.
+    fn begin_open(
+        &mut self,
+        client: ClientId,
+        project_id: &str,
+    ) -> Option<(ResolveLink, LocalLink)> {
+        self.options().resolve_projects.as_ref()?;
+        let project = self.guard.hub.projects.get(project_id)?;
+        let link = project.saved.link.clone()?;
+        let local = project.saved.local.clone();
+        if self.resolve_busy() {
+            self.toast(
+                Some(client),
+                "Resolve is busy. Wait until the running turn or render finishes.",
+                Tone::Error,
+            );
+            return None;
+        }
+        self.guard.hub.opening = Some(project_id.to_string());
+        self.send_meta();
+        Some((link, local))
     }
 
     /// Writes the project's rules where agents read them; again before each turn, so they are never stale.
@@ -3075,10 +3110,13 @@ impl Locked<'_> {
                 project_id,
                 timeline_id,
             } => {
-                let app = app.clone();
-                tokio::spawn(
-                    async move { app.apply_timeline(client, project_id, timeline_id).await },
-                );
+                if let Some(applying) = self.begin_apply(client, &project_id, &timeline_id) {
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        app.apply_timeline(client, project_id, timeline_id, applying)
+                            .await;
+                    });
+                }
             }
             ClientMessage::StopPreview => {
                 if let Some(job) = &self.guard.hub.preview_job {
@@ -3129,8 +3167,12 @@ impl Locked<'_> {
             ClientMessage::RelinkProject { project_id } => self.relink(client, &project_id),
             ClientMessage::RemoveProject { project_id } => self.remove_project(&project_id),
             ClientMessage::OpenInResolve { project_id } => {
-                let app = app.clone();
-                tokio::spawn(async move { app.open_in_resolve(client, project_id).await });
+                if let Some((link, local)) = self.begin_open(client, &project_id) {
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        app.open_in_resolve(client, project_id, link, local).await;
+                    });
+                }
             }
             ClientMessage::LoadLibrary => {
                 let app = app.clone();
