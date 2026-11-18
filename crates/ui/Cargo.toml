@@ -4,6 +4,7 @@ description = "The GPUI window: one client of the server, like the browser UI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 # Why GPUI comes through gpui-kit 0.10.0, pinned exactly:
 # - gpui-kit is Longbridge's facade over GPUI + gpui-component (inputs, virtual lists,

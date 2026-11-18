@@ -47,8 +47,8 @@ pub fn claim() -> anyhow::Result<Instance> {
     Ok(Instance::Primary(rx))
 }
 
-/// `linker-edit-<hash of the data folder>.sock`.
-fn socket_name() -> String {
+/// `linker-edit-<hash of the data folder>.sock`. crates/app checks it before starting a server.
+pub fn socket_name() -> String {
     let folder = std::env::var_os("LINKER_EDIT_CONFIG")
         .map(PathBuf::from)
         .or_else(|| std::env::home_dir().map(|home| home.join("LinkerEdit")))

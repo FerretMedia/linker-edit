@@ -13,7 +13,6 @@ repository = "https://github.com/FerretMedia/linker-edit"
 [workspace.dependencies]
 linker-edit-protocol = { path = "crates/protocol" }
 linker-edit-server = { path = "crates/server" }
-linker-edit-drp = { path = "crates/drp" }
 linker-edit-ui = { path = "crates/ui" }
 anyhow = "1"
 thiserror = "2"
@@ -27,7 +26,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = { version = "0.8", features = ["ws"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream"] }
-rmcp = "3"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 sha2 = "0.11"

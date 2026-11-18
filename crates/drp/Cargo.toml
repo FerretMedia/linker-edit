@@ -1,9 +1,10 @@
 [package]
 name = "linker-edit-drp"
-description = "Reads and patches DaVinci Resolve .drp/.drt files: the port of packages/drp"
+description = "Reads and patches DaVinci Resolve .drp/.drt files"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 crc32fast = "1"
