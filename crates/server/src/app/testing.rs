@@ -1,6 +1,3 @@
-// Each test module uses some of these.
-#![allow(dead_code)]
-
 // What the app's tests share: a client that keeps state as the UI does, agent sessions that run scripted turns,
 // a history that records what it was asked to save, and settings in memory. The TypeScript's app.test.ts setup.
 

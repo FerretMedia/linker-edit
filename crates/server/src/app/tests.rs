@@ -1,4 +1,3 @@
-#![allow(unused_imports, dead_code)]
 // The port of app.test.ts.
 
 use std::sync::atomic::{AtomicBool, Ordering};
