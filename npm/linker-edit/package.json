@@ -1,0 +1,23 @@
+{
+  "name": "linker-edit",
+  "version": "0.0.0",
+  "description": "Open-source AI for video editing and creative work. Claude and Codex edit your DaVinci Resolve project directly.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FerretMedia/linker-edit.git",
+    "directory": "npm/linker-edit"
+  },
+  "type": "module",
+  "bin": {
+    "linker-edit": "bin/linker-edit.js"
+  },
+  "files": [
+    "bin",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {}
+}

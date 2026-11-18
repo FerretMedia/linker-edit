@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { releaseName } from "#shared/release-name.ts";
-import { isNewer } from "../server/updates.ts";
+import { isNewer, releaseName } from "#shared/release-name.ts";
 import { releaseVersion } from "./release-version.ts";
 
 describe("releaseVersion", () => {
