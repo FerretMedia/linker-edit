@@ -1,0 +1,2 @@
+# LF everywhere, also in Windows checkouts: the Rust formatter, the cross-checks and the scripts expect it.
+* text=auto eol=lf
