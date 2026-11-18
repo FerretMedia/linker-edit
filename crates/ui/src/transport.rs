@@ -22,7 +22,7 @@ use tokio_tungstenite::tungstenite::{
     self, Message, client::IntoClientRequest, http::HeaderValue, http::StatusCode,
 };
 
-use crate::state::{ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
+use crate::state::{ClientMessage, Link, LinkEvent, ServerAddress, ServerEnd, ServerMessage};
 
 /// How long to wait before connecting again, as connection.svelte.ts's `setTimeout(…, 1000)`.
 const RECONNECT: Duration = Duration::from_secs(1);
@@ -58,7 +58,9 @@ pub fn ws_url(server: &str) -> anyhow::Result<String> {
 /// A link to the server at `server` (its http(s) address), connecting in the background.
 pub fn connect(server: &str, auth: Auth) -> anyhow::Result<Link> {
     let url = ws_url(server)?;
+    let address = ServerAddress::new(server, auth.clone())?;
     let (link, end) = Link::pair();
+    let link = link.with_server(address);
     std::thread::Builder::new()
         .name("linker-edit-ws".into())
         .spawn(move || {
@@ -181,6 +183,20 @@ mod tests {
             "ws://localhost:1/ws"
         );
         assert!(ws_url("127.0.0.1:4521").is_err());
+        // And where its files are, with the session only for its own addresses.
+        let local = ServerAddress::new("http://127.0.0.1:4521/", Auth::Local).unwrap();
+        assert_eq!(local.base, "http://127.0.0.1:4521");
+        assert!(local.is_local());
+        assert_eq!(local.url("/media/a"), "http://127.0.0.1:4521/media/a");
+        let session = Auth::Bearer("s3ss10n".into());
+        let connect =
+            ServerAddress::new("wss://Edit-0123456789abcdef.linker.cool/ws", session).unwrap();
+        assert_eq!(connect.base, "https://edit-0123456789abcdef.linker.cool");
+        assert_eq!(connect.bearer(), Some("s3ss10n"));
+        assert!(!connect.is_local());
+        assert!(connect.serves("https://edit-0123456789abcdef.linker.cool/preview/a.mp4"));
+        assert!(!connect.serves("https://linker.cool/avatar.png"));
+        assert!(ServerAddress::new("127.0.0.1:4521", Auth::Local).is_err());
     }
 
     /// A server that checks the upgrade as server/http.ts does, then echoes a snapshot back.
@@ -231,6 +247,7 @@ mod tests {
         let Link {
             mut events,
             commands,
+            ..
         } = link;
         let mut seen = Vec::new();
         while let Some(event) = events.next().await {

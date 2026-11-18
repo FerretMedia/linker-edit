@@ -28,6 +28,8 @@ use linker_edit_protocol::{
 
 pub use linker_edit_protocol::{ClientMessage, ServerMessage};
 
+pub use crate::transport::Auth;
+
 /// What comes down a link: a message, or the link itself going up or down.
 #[derive(Debug)]
 pub enum LinkEvent {
@@ -43,6 +45,70 @@ pub enum LinkEvent {
 pub struct Link {
     pub events: UnboundedReceiver<LinkEvent>,
     pub commands: UnboundedSender<ClientMessage>,
+    /// Where the server answers HTTP, and how to get in. [`crate::transport::connect`] fills it
+    /// in; a server in this process sets it with [`Link::with_server`]. None (tests): nothing is
+    /// fetched over HTTP (pictures, media, sign-in links, the computer menu).
+    pub server: Option<ServerAddress>,
+}
+
+/// A server's HTTP side: what the browser gets from its page's origin and cookie. Pictures,
+/// media, the preview's timeline, sign-in links and the computer menu all go through it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerAddress {
+    /// `http://127.0.0.1:4317`: the scheme, host and port, without a path or a trailing slash.
+    pub base: String,
+    pub auth: Auth,
+}
+
+impl ServerAddress {
+    /// `http://127.0.0.1:4317/`, `ws://…/ws` or `https://edit-1.linker.cool` → its base.
+    pub fn new(url: &str, auth: Auth) -> anyhow::Result<ServerAddress> {
+        crate::transport::ws_url(url)?;
+        let base = origin(url);
+        let base = match base.split_once("://") {
+            Some(("ws", rest)) => format!("http://{rest}"),
+            Some(("wss", rest)) => format!("https://{rest}"),
+            _ => base,
+        };
+        Ok(ServerAddress { base, auth })
+    }
+
+    /// `path` (starting with `/`) on this server.
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
+
+    /// The Linker Connect session it takes as `Authorization: Bearer`, if any.
+    pub fn bearer(&self) -> Option<&str> {
+        match &self.auth {
+            Auth::Local => None,
+            Auth::Bearer(session) => Some(session),
+        }
+    }
+
+    /// Whether `url` is on this server, so a request to it may carry the session.
+    pub fn serves(&self, url: &str) -> bool {
+        origin(url) == self.base
+    }
+
+    /// Whether it is this computer's own server (a loopback address), as the browser checks
+    /// `location.hostname`.
+    pub fn is_local(&self) -> bool {
+        let host = self.base.split("://").nth(1).unwrap_or_default();
+        let host = match host.strip_prefix('[') {
+            Some(rest) => rest.split(']').next().unwrap_or_default(),
+            None => host.split(':').next().unwrap_or_default(),
+        };
+        matches!(host, "localhost" | "127.0.0.1" | "::1")
+    }
+}
+
+/// `new URL(url).origin`, near enough: the scheme, host and port, without a path or a slash.
+pub fn origin(url: &str) -> String {
+    let url = url.trim();
+    let (scheme, rest) = url.split_once("://").unwrap_or(("http", url));
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    format!("{}://{}", scheme.to_lowercase(), host.to_lowercase())
 }
 
 /// The server's end of the same link.
@@ -60,12 +126,19 @@ impl Link {
             Link {
                 events: events_rx,
                 commands: commands_tx,
+                server: None,
             },
             ServerEnd {
                 events: events_tx,
                 commands: commands_rx,
             },
         )
+    }
+
+    /// The same link, with where its server answers HTTP.
+    pub fn with_server(mut self, server: ServerAddress) -> Link {
+        self.server = Some(server);
+        self
     }
 }
 
@@ -123,10 +196,11 @@ pub struct AppState {
     folder_request: u32,
     folder_replies: HashMap<u32, oneshot::Sender<OrError<FolderListing>>>,
     commands: UnboundedSender<ClientMessage>,
-    /// This computer's server, by its http(s) address; None when the window doesn't know it.
-    pub home: Option<String>,
+    /// This computer's server: the one the window opened on, which the computer menu asks for
+    /// the user's other computers and comes back to. None when the window doesn't know it.
+    pub home: Option<ServerAddress>,
     /// The server the link goes to now: `home`, or another computer's (see [`AppState::relink`]).
-    pub server: Option<String>,
+    pub server: Option<ServerAddress>,
     /// Folds the link's events into the state; replaced, and so stopped, by a new link.
     pump: Option<Task<()>>,
 }
@@ -136,7 +210,12 @@ impl EventEmitter<AppEvent> for AppState {}
 impl AppState {
     /// Makes the state entity and pumps the link's events into it on the foreground thread.
     pub fn new(link: Link, cx: &mut App) -> Entity<AppState> {
-        let Link { events, commands } = link;
+        let Link {
+            events,
+            commands,
+            server,
+        } = link;
+        crate::http::set_server(server.as_ref(), cx);
         let state = cx.new(|_| AppState {
             connected: false,
             ever_connected: false,
@@ -151,8 +230,8 @@ impl AppState {
             folder_request: 0,
             folder_replies: HashMap::new(),
             commands,
-            home: None,
-            server: None,
+            home: server.clone(),
+            server,
             pump: None,
         });
         state.update(cx, |state, cx| state.pump = Some(Self::pump(events, cx)));
@@ -169,10 +248,14 @@ impl AppState {
         })
     }
 
-    /// Puts the window on another link, such as another computer's server (`server` is its
-    /// address): what came over the old one is forgotten, as when the browser loads another page.
-    pub fn relink(&mut self, server: String, link: Link, cx: &mut Context<Self>) {
-        let Link { events, commands } = link;
+    /// Puts the window on another link, such as another computer's server (the link says where
+    /// it goes): what came over the old one is forgotten, as when the browser loads another page.
+    pub fn relink(&mut self, link: Link, cx: &mut Context<Self>) {
+        let Link {
+            events,
+            commands,
+            server,
+        } = link;
         for (_, reply) in self.folder_replies.drain() {
             let _ = reply.send(OrError::Error {
                 error: "Lost the connection to the Linker-Edit server.".into(),
@@ -180,7 +263,8 @@ impl AppState {
         }
         self.commands = commands;
         self.pump = Some(Self::pump(events, cx));
-        self.server = Some(server);
+        crate::http::set_server(server.as_ref(), cx);
+        self.server = server;
         self.connected = false;
         self.ever_connected = false;
         self.signed_out = false;
@@ -195,7 +279,7 @@ impl AppState {
     /// The window shows another computer's Linker-Edit, not this computer's.
     pub fn away(&self) -> bool {
         match (&self.home, &self.server) {
-            (Some(home), Some(server)) => origin(home) != origin(server),
+            (Some(home), Some(server)) => home.base != server.base,
             _ => false,
         }
     }
@@ -438,6 +522,17 @@ impl AppState {
         (Some(file.project_id.as_str()) == self.project_id()).then_some(file)
     }
 
+    /// A path on the server as a full address, for pictures and pages it serves.
+    pub fn server_url(&self, path: &str) -> Option<String> {
+        Some(self.server.as_ref()?.url(path))
+    }
+
+    /// Whether the server runs on this computer, as the browser asks of `location.hostname`. A
+    /// server in this process (no address yet) is.
+    pub fn on_this_computer(&self) -> bool {
+        self.server.as_ref().is_none_or(ServerAddress::is_local)
+    }
+
     pub fn project_id(&self) -> Option<&str> {
         self.app.as_ref()?.meta.project_id.as_deref()
     }
@@ -445,14 +540,6 @@ impl AppState {
     pub fn thread_id(&self) -> Option<&str> {
         self.app.as_ref()?.meta.thread_id.as_deref()
     }
-}
-
-/// `new URL(url).origin`, near enough: the scheme, host and port, without a path or a slash.
-pub fn origin(url: &str) -> String {
-    let url = url.trim();
-    let (scheme, rest) = url.split_once("://").unwrap_or(("http", url));
-    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    format!("{}://{}", scheme.to_lowercase(), host.to_lowercase())
 }
 
 /// Every chat item's id.

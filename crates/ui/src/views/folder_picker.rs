@@ -382,7 +382,7 @@ impl FolderPicker {
 impl Render for FolderPicker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::of(cx).clone();
-        let can_pick = !self.state.read(cx).away();
+        let can_pick = self.state.read(cx).on_this_computer();
         let directory = self.directory(cx);
         let filter = self.filter(cx);
         let reply = self.cache.get(&directory).cloned();

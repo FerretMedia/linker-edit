@@ -1,12 +1,13 @@
 //! The root view (+page.svelte's main layout): the sidebar, the chat column with its header,
-//! and at most one side panel; "Connecting…" until the server's first snapshot; the toasts.
-//! It owns what is only the window's business (which panel is open); everything else comes
-//! from [`AppState`].
+//! and at most one side panel; or the settings or library page in their place; "Connecting…"
+//! until the server's first snapshot; the toasts. It owns what is only the window's business
+//! (which page and panel are open); everything else comes from [`AppState`].
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, ModifiersChangedEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
+    IntoElement, KeyBinding, KeyDownEvent, ModifiersChangedEvent, ParentElement, Render,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions, div,
+    prelude::FluentBuilder, px,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Icon;
@@ -14,10 +15,16 @@ use linker_edit_protocol::{ClientMessage, Tone};
 
 use crate::components::HeaderButton;
 use crate::icons::IconName;
+use crate::library::LibraryTab;
+use crate::settings::SettingsSection;
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme, root_text};
 use crate::views::add_project::{AddProjectDialog, DialogClosed};
+use crate::views::history_panel::{HistoryEvent, HistoryPanel};
+use crate::views::library_page::{LibraryEvent, LibraryPage};
+use crate::views::project_file_panel::{ProjectFileEvent, ProjectFilePanel};
 use crate::views::project_settings::ProjectSettingsDialog;
+use crate::views::settings_page::{SettingsEvent, SettingsPage};
 use crate::views::{Chat, ChatEvent, Panel, SidePanel, Sidebar, SidebarEvent};
 use crate::window::{WindowControls, no_drag, title_bar};
 
@@ -27,13 +34,60 @@ pub enum OpenDialog {
     ProjectSettings(Entity<ProjectSettingsDialog>),
 }
 
+actions!(
+    workspace,
+    [
+        /// Ctrl+, (Cmd+, on macOS): opens the settings page, or closes it.
+        ToggleSettings,
+        /// Escape: leaves the settings or library page.
+        Back
+    ]
+);
+
+/// The keys +page.svelte's `onKeydown` listens for.
+pub fn bind_keys(cx: &mut gpui::App) {
+    cx.bind_keys([
+        KeyBinding::new(
+            if cfg!(target_os = "macos") {
+                "cmd-,"
+            } else {
+                "ctrl-,"
+            },
+            ToggleSettings,
+            None,
+        ),
+        KeyBinding::new("escape", Back, None),
+    ]);
+}
+
+/// A page that replaces the app while open, as `#settings/...` and `#library` do in the browser.
+pub enum Page {
+    Settings(Entity<SettingsPage>),
+    Library(Entity<LibraryPage>),
+}
+
+/// player.ts's PreviewTarget: a timeline (None: Resolve's current one) as it was in a save
+/// (None: as it is). The preview panel's port plays it; History's Play sets it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PreviewTarget {
+    pub id: Option<String>,
+    pub commit: Option<String>,
+}
+
 pub struct Workspace {
     state: Entity<AppState>,
     sidebar: Entity<Sidebar>,
     chat: Entity<Chat>,
     panel: Option<Panel>,
     dialog: Option<(OpenDialog, Subscription)>,
-    /// Holds the focus when nothing else does, so the sidebar's shortcuts work.
+    page: Option<Page>,
+    history: Option<Entity<HistoryPanel>>,
+    /// PROJECT.md's panel, made anew for each project.
+    file: Option<(Option<String>, Entity<ProjectFilePanel>)>,
+    /// The version picked in the history, with the project it belongs to.
+    preview_target: (Option<String>, PreviewTarget),
+    /// Holds the keyboard when nothing else does, so the shortcuts (Ctrl+, Escape, the
+    /// sidebar's) always arrive.
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -72,6 +126,10 @@ impl Workspace {
             state,
             panel: None,
             dialog: None,
+            page: None,
+            history: None,
+            file: None,
+            preview_target: (None, PreviewTarget::default()),
             focus,
             _subscriptions: subscriptions,
         }
@@ -108,9 +166,7 @@ impl Workspace {
                 self.dialog = Some((OpenDialog::ProjectSettings(dialog), subscription));
                 cx.notify();
             }
-            // The settings page (SettingsPage.svelte) opens here: at its general section, or at
-            // remote access for the computer menu's "Remote access…".
-            SidebarEvent::Settings | SidebarEvent::RemoteAccess => {}
+            SidebarEvent::Settings(section) => self.open_settings(*section, window, cx),
         }
     }
 
@@ -150,6 +206,90 @@ impl Workspace {
             .update(cx, |sidebar, cx| sidebar.on_modifiers_changed(event, cx));
     }
 
+    pub fn page(&self) -> Option<&Page> {
+        self.page.as_ref()
+    }
+
+    /// Opens the settings page at `section`, as `openSettings` does.
+    pub fn open_settings(
+        &mut self,
+        section: SettingsSection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(Page::Settings(page)) = &self.page {
+            page.update(cx, |page, cx| page.show(section, window, cx));
+            return;
+        }
+        let page = cx.new(|cx| SettingsPage::new(self.state.clone(), section, window, cx));
+        self._subscriptions.push(cx.subscribe_in(
+            &page,
+            window,
+            |this, _, event: &SettingsEvent, window, cx| match event {
+                SettingsEvent::Close => this.close_page(cx),
+                SettingsEvent::Library => this.open_library(LibraryTab::Universal, window, cx),
+            },
+        ));
+        self.page = Some(Page::Settings(page));
+        cx.notify();
+    }
+
+    /// Opens the library page at `tab`, as `openLibrary` does.
+    pub fn open_library(&mut self, tab: LibraryTab, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Page::Library(page)) = &self.page {
+            page.update(cx, |page, cx| page.show(tab, cx));
+            return;
+        }
+        let page = cx.new(|cx| LibraryPage::new(self.state.clone(), tab, window, cx));
+        self._subscriptions
+            .push(
+                cx.subscribe(&page, |this, page, event: &LibraryEvent, cx| match event {
+                    LibraryEvent::Close => this.close_page(cx),
+                    // The preview's port plugs its player in here. Until then nothing plays, so the
+                    // page hears at once that it stopped, as from a failed `audio.play()`.
+                    LibraryEvent::Play(_) => page.update(cx, |page, cx| page.stopped(cx)),
+                    LibraryEvent::Stop => {}
+                }),
+            );
+        self.page = Some(Page::Library(page));
+        cx.notify();
+    }
+
+    /// Escape: closes the library's folder dialog when it is open, else the page.
+    fn back(&mut self, cx: &mut Context<Self>) {
+        if let Some(Page::Library(page)) = &self.page
+            && page.read(cx).has_dialog()
+        {
+            page.update(cx, |page, cx| page.close_dialog(cx));
+            return;
+        }
+        self.close_page(cx);
+    }
+
+    /// Back to the app, as `closeSettings` does for both pages.
+    pub fn close_page(&mut self, cx: &mut Context<Self>) {
+        self.page = None;
+        cx.notify();
+    }
+
+    /// The version the preview shows: the one picked in the history, while its project is open.
+    pub fn preview_target(&self, cx: &gpui::App) -> PreviewTarget {
+        let (project, target) = &self.preview_target;
+        if project.as_deref() == self.state.read(cx).project_id() {
+            target.clone()
+        } else {
+            PreviewTarget::default()
+        }
+    }
+
+    /// Opens the preview on a version, as +page.svelte's `openPreview` does.
+    pub fn open_preview(&mut self, target: PreviewTarget, cx: &mut Context<Self>) {
+        let project = self.state.read(cx).project_id().map(String::from);
+        self.preview_target = (project, target);
+        self.panel = Some(Panel::Preview);
+        cx.notify();
+    }
+
     pub fn panel(&self) -> Option<Panel> {
         self.panel
     }
@@ -162,6 +302,70 @@ impl Workspace {
     pub fn toggle_panel(&mut self, panel: Panel, cx: &mut Context<Self>) {
         self.panel = (self.panel != Some(panel)).then_some(panel);
         cx.notify();
+    }
+
+    fn history_panel(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<HistoryPanel> {
+        if let Some(panel) = &self.history {
+            return panel.clone();
+        }
+        let panel = cx.new(|cx| HistoryPanel::new(self.state.clone(), cx));
+        self._subscriptions.push(cx.subscribe_in(
+            &panel,
+            window,
+            |this, _, event: &HistoryEvent, window, cx| {
+                match event {
+                    HistoryEvent::Close => this.panel = None,
+                    HistoryEvent::Restore(draft) => {
+                        let composer = this.chat.read(cx).composer().clone();
+                        composer.update(cx, |composer, cx| {
+                            composer.set_draft(draft, window, cx);
+                            composer.focus(window, cx);
+                        })
+                    }
+                    HistoryEvent::Preview {
+                        timeline_id,
+                        commit,
+                    } => this.open_preview(
+                        PreviewTarget {
+                            id: Some(timeline_id.clone()),
+                            commit: Some(commit.clone()),
+                        },
+                        cx,
+                    ),
+                }
+                cx.notify();
+            },
+        ));
+        self.history = Some(panel.clone());
+        panel
+    }
+
+    fn file_panel(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ProjectFilePanel> {
+        let project = self.state.read(cx).project_id().map(String::from);
+        if let Some((for_project, panel)) = &self.file
+            && *for_project == project
+        {
+            return panel.clone();
+        }
+        let panel = cx.new(|cx| ProjectFilePanel::new(self.state.clone(), window, cx));
+        self._subscriptions.push(
+            cx.subscribe(&panel, |this, _, event: &ProjectFileEvent, cx| {
+                match event {
+                    ProjectFileEvent::Close => this.panel = None,
+                }
+                cx.notify();
+            }),
+        );
+        self.file = Some((project, panel.clone()));
+        panel
     }
 
     fn toasts(&self, theme: &Theme, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -220,6 +424,9 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = Theme::of(cx).clone();
         let toasts = self.toasts(&theme, cx);
+        if window.focused(cx).is_none() {
+            self.focus.focus(window, cx);
+        }
         let state = self.state.read(cx);
 
         // Until the first snapshot: the whole window is the title bar, with one line in it.
@@ -249,6 +456,32 @@ impl Render for Workspace {
                 .into_any_element();
         }
 
+        // The settings or library page replaces the app while open.
+        if let Some(page) = &self.page {
+            let page = match page {
+                Page::Settings(page) => page.clone().into_any_element(),
+                Page::Library(page) => page.clone().into_any_element(),
+            };
+            return root_text(div(), &theme)
+                .id("workspace")
+                .relative()
+                .size_full()
+                .bg(theme.background)
+                .track_focus(&self.focus)
+                .on_action(
+                    cx.listener(|this, _: &ToggleSettings, window, cx| match &this.page {
+                        Some(Page::Settings(_)) => this.close_page(cx),
+                        _ => this.open_settings(SettingsSection::General, window, cx),
+                    }),
+                )
+                .on_action(cx.listener(|this, _: &Back, _, cx| this.back(cx)))
+                .child(page)
+                .child(WindowControls)
+                .children(toasts)
+                .test_support()
+                .into_any_element();
+        }
+
         let project = state.project();
         let setup = project.is_some_and(|project| project.setup);
         let panel = self.panel.filter(|_| !setup);
@@ -257,6 +490,7 @@ impl Render for Workspace {
         let badge = project.map(|project| (project.name.clone(), project.dir.clone()));
         let lost = !state.connected;
         let signed_out = state.signed_out;
+        let has_project = project.is_some();
 
         // The side panels show a Resolve project's timelines; a setup thread has none.
         let toggles = if setup { &[][..] } else { &Panel::ALL[..] };
@@ -309,10 +543,43 @@ impl Render for Workspace {
                     .gap_1p5()
                     .child(
                         HeaderButton::new("library", IconName::Library, "Library")
-                            .tooltip("Music, sound effects and graphics you reuse"),
+                            .tooltip("Music, sound effects and graphics you reuse")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                let tab = if has_project {
+                                    LibraryTab::Project
+                                } else {
+                                    LibraryTab::Universal
+                                };
+                                this.open_library(tab, window, cx)
+                            })),
                     )
                     .children(toggles),
             );
+
+        // History and the project file are views of their own, dropped while closed as the
+        // Svelte ones unmount (so they stop asking the server); the project file is made anew
+        // per project, as `{#key app.projectId}` does.
+        if panel != Some(Panel::History) {
+            self.history = None;
+        }
+        if panel != Some(Panel::File) {
+            self.file = None;
+        }
+        let side = match panel {
+            Some(Panel::History) => Some(self.history_panel(window, cx).into_any_element()),
+            Some(Panel::File) => Some(self.file_panel(window, cx).into_any_element()),
+            Some(panel) => Some(
+                SidePanel::new(
+                    panel,
+                    cx.listener(|this, _, _, cx| {
+                        this.panel = None;
+                        cx.notify();
+                    }),
+                )
+                .into_any_element(),
+            ),
+            None => None,
+        };
 
         let main = div()
             .flex()
@@ -363,17 +630,12 @@ impl Render for Workspace {
             .flex_row()
             .size_full()
             .bg(theme.background)
+            .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
+                this.open_settings(SettingsSection::General, window, cx)
+            }))
             .child(self.sidebar.clone())
             .child(main)
-            .when_some(panel, |this, panel| {
-                this.child(SidePanel::new(
-                    panel,
-                    cx.listener(|this, _, _, cx| {
-                        this.panel = None;
-                        cx.notify();
-                    }),
-                ))
-            })
+            .children(side)
             .children(dialog)
             .child(WindowControls)
             .children(toasts)
@@ -383,7 +645,7 @@ impl Render for Workspace {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
     use gpui::{
         AnyWindowHandle, AppContext, Bounds, TestAppContext, WindowBounds, WindowOptions, point,
@@ -396,22 +658,22 @@ mod tests {
 
     use crate::state::{Link, LinkEvent};
 
-    struct Server {
+    pub(crate) struct Server {
         events: UnboundedSender<LinkEvent>,
         commands: UnboundedReceiver<ClientMessage>,
     }
 
     impl Server {
-        fn send(&self, event: LinkEvent) {
+        pub(crate) fn send(&self, event: LinkEvent) {
             self.events.unbounded_send(event).unwrap();
         }
 
-        fn message(&self, message: ServerMessage) {
+        pub(crate) fn message(&self, message: ServerMessage) {
             self.send(LinkEvent::Message(message));
         }
 
         /// What the window sent since last asked.
-        fn received(&mut self) -> Vec<ClientMessage> {
+        pub(crate) fn received(&mut self) -> Vec<ClientMessage> {
             std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
         }
     }
@@ -422,7 +684,7 @@ mod tests {
         (window, server)
     }
 
-    fn open_workspace(
+    pub(crate) fn open_workspace(
         cx: &mut TestAppContext,
     ) -> (AnyWindowHandle, gpui::Entity<super::Workspace>, Server) {
         cx.update(gpui_kit::init);
@@ -468,7 +730,7 @@ mod tests {
         (window, server)
     }
 
-    fn render<R>(
+    pub(crate) fn render<R>(
         cx: &mut TestAppContext,
         window: AnyWindowHandle,
         f: impl FnOnce(&mut gpui::Window, &mut gpui::App) -> R,

@@ -38,8 +38,8 @@ unicode-normalization = "0.1"
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-# The computer menu asks this computer's server for the user's other computers, and a Linker
-# Connect computer for a session (computer_picker.rs): a few requests, blocking, off the UI thread.
+# The one HTTP client (http.rs): the server's pictures for GPUI's `img` (async, on a runtime of
+# its own), and a few blocking requests off the UI thread (the computer menu's list and sign-in).
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 

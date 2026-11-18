@@ -18,9 +18,8 @@ use linker_edit_protocol::{
 };
 
 use crate::sidebar::{iso, now_ms};
-use crate::state::{AppState, Link, LinkEvent, ServerEnd};
-use crate::transport::Auth;
-use crate::views::collection_editor::CollectionEditor;
+use crate::state::{AppState, Auth, Link, LinkEvent, ServerAddress, ServerEnd};
+use crate::views::collections_settings::CollectionEditor;
 use crate::views::computer_picker::{ComputerPicker, Connect, Http};
 use crate::workspace::{OpenDialog, Workspace};
 
@@ -715,7 +714,7 @@ fn an_empty_app_adds_its_first_project(cx: &mut TestAppContext) {
 struct FakeHttp;
 
 impl Http for FakeHttp {
-    fn computers(&self, _: &str) -> Result<Computers, String> {
+    fn computers(&self, _: &ServerAddress) -> Result<Computers, String> {
         Ok(Computers {
             name: "Edit rig".into(),
             version: Some("2026.1115.1200".into()),
@@ -739,8 +738,8 @@ impl Http for FakeHttp {
         })
     }
 
-    fn connect_session(&self, home: &str, url: &str) -> Result<String, String> {
-        assert_eq!(home, "http://127.0.0.1:4317");
+    fn connect_session(&self, home: &ServerAddress, url: &str) -> Result<String, String> {
+        assert_eq!(home.base, "http://127.0.0.1:4317");
         assert_eq!(url, "https://edit-0123456789abcdef.linker.cool");
         Ok("session-1".into())
     }
@@ -750,22 +749,20 @@ impl Http for FakeHttp {
 fn opens_another_computer_and_comes_back(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (link, end) = Link::pair();
+    let link = link.with_server(ServerAddress::new("http://127.0.0.1:4317", Auth::Local).unwrap());
     let home = Server::new(end);
     let links: Rc<RefCell<Vec<(String, Auth, ServerEnd)>>> = Rc::default();
     let made = links.clone();
-    let connect: Connect = Rc::new(move |url: &str, auth: Auth| {
+    let connect: Connect = Rc::new(move |server: &ServerAddress| {
         let (link, end) = Link::pair();
-        made.borrow_mut().push((url.to_string(), auth, end));
-        Ok(link)
+        made.borrow_mut()
+            .push((server.base.clone(), server.auth.clone(), end));
+        Ok(link.with_server(server.clone()))
     });
     let picker_cell = Rc::new(RefCell::new(None));
     let kept = picker_cell.clone();
     let window = cx.update(|cx| {
         let state = AppState::new(link, cx);
-        state.update(cx, |state, _| {
-            state.home = Some("http://127.0.0.1:4317".into());
-            state.server = state.home.clone();
-        });
         gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
             crate::theme::Theme::init(window, cx);
             let picker =
@@ -832,17 +829,9 @@ fn the_collection_editor_saves_its_name_switch_and_rules(cx: &mut TestAppContext
     cx.update(gpui_kit::init);
     let (link, end) = Link::pair();
     let mut server = Server::new(end);
-    let window = cx.update(|cx| {
-        let state = AppState::new(link, cx);
-        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
-            crate::theme::Theme::init(window, cx);
-            cx.new(|cx| CollectionEditor::new(state, "ferret".into(), window, cx))
-        })
-        .unwrap()
-        .0
-    });
-    let mut state = snapshot();
-    state.meta.collections = vec![CollectionSummary {
+    let state = cx.update(|cx| AppState::new(link, cx));
+    let mut snapshot = snapshot();
+    snapshot.meta.collections = vec![CollectionSummary {
         id: "ferret".into(),
         kind: CollectionKind::Workspace,
         name: "Ferret Media".into(),
@@ -862,7 +851,17 @@ fn the_collection_editor_saves_its_name_switch_and_rules(cx: &mut TestAppContext
     }];
     server.events.unbounded_send(LinkEvent::Connected).unwrap();
     server.message(ServerMessage::Snapshot {
-        state: Box::new(state),
+        state: Box::new(snapshot),
+    });
+    cx.run_until_parked();
+    // The settings page makes it for a collection that is there.
+    let window = cx.update(|cx| {
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            crate::theme::Theme::init(window, cx);
+            cx.new(|cx| CollectionEditor::new(state, "ferret".into(), window, cx))
+        })
+        .unwrap()
+        .0
     });
     steps(
         cx,
@@ -872,9 +871,9 @@ fn the_collection_editor_saves_its_name_switch_and_rules(cx: &mut TestAppContext
             Do::Press("end"),
             Do::Input(" Group"),
             Do::Press("enter"),
-            Do::Click("collection-autonomous"),
-            Do::Click("change-collection-icon"),
-            Do::Click("collection-color-teal"),
+            Do::Click("autonomous"),
+            Do::Click("change-icon"),
+            Do::Click("color-teal"),
             Do::Click("collection-rules"),
             Do::Press("ctrl-end"),
             Do::Input(" End on the logo."),

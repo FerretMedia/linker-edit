@@ -24,10 +24,11 @@ use gpui_kit::component::Icon;
 use linker_edit_protocol::release_name::{is_newer, release_name};
 use linker_edit_protocol::{ClientMessage, ComputerVia, Computers, RemoteAccess};
 
+use crate::http;
 use crate::icons::IconName;
-use crate::state::{AppState, origin};
+use crate::state::{AppState, Auth, ServerAddress, origin};
 use crate::theme::{TextSize, TextStyled, Theme};
-use crate::transport::{self, Auth};
+use crate::transport;
 
 /// main.ts's fetch timeouts: the list, and signing in to a Linker Connect computer.
 const LIST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -83,12 +84,12 @@ pub enum ComputerPickerEvent {
 
 /// How the window talks to servers over HTTP; a test answers instead.
 pub trait Http: Send + Sync + 'static {
-    fn computers(&self, home: &str) -> Result<Computers, String>;
+    fn computers(&self, home: &ServerAddress) -> Result<Computers, String>;
     /// A Linker Connect session on `url`, through this computer's server at `home`.
-    fn connect_session(&self, home: &str, url: &str) -> Result<String, String>;
+    fn connect_session(&self, home: &ServerAddress, url: &str) -> Result<String, String>;
 }
 
-/// The real thing: reqwest, blocking, on a background thread.
+/// The real thing: the window's HTTP client, blocking, on a background thread.
 pub struct Reqwest;
 
 #[derive(serde::Deserialize)]
@@ -98,15 +99,8 @@ struct Answer {
     error: Option<String>,
 }
 
-fn client(timeout: Duration) -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|error| error.to_string())
-}
-
 fn post(url: &str, body: serde_json::Value) -> Result<Answer, String> {
-    let response = client(SIGN_IN_TIMEOUT)?
+    let response = http::client(SIGN_IN_TIMEOUT)?
         .post(url)
         .json(&body)
         .send()
@@ -126,24 +120,16 @@ fn post(url: &str, body: serde_json::Value) -> Result<Answer, String> {
 }
 
 impl Http for Reqwest {
-    fn computers(&self, home: &str) -> Result<Computers, String> {
-        let response = client(LIST_TIMEOUT)?
-            .get(format!("{}/api/computers", origin(home)))
-            .send()
-            .map_err(|error| error.to_string())?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "Linker-Edit answered {}.",
-                response.status().as_u16()
-            ));
-        }
-        response.json().map_err(|error| error.to_string())
+    fn computers(&self, home: &ServerAddress) -> Result<Computers, String> {
+        http::get(home, "/api/computers", LIST_TIMEOUT)?
+            .json()
+            .map_err(|error| error.to_string())
     }
 
-    fn connect_session(&self, home: &str, url: &str) -> Result<String, String> {
+    fn connect_session(&self, home: &ServerAddress, url: &str) -> Result<String, String> {
         let computer = origin(url);
         let enter = post(
-            &format!("{}/api/connect/open", origin(home)),
+            &home.url("/api/connect/open"),
             serde_json::json!({ "url": computer }),
         )?
         .url
@@ -199,7 +185,7 @@ fn percent_decode(value: &str) -> String {
 }
 
 /// How the window reaches a server: a test makes in-process links instead.
-pub type Connect = std::rc::Rc<dyn Fn(&str, Auth) -> anyhow::Result<crate::state::Link>>;
+pub type Connect = std::rc::Rc<dyn Fn(&ServerAddress) -> anyhow::Result<crate::state::Link>>;
 
 pub struct ComputerPicker {
     state: Entity<AppState>,
@@ -221,7 +207,8 @@ impl EventEmitter<ComputerPickerEvent> for ComputerPicker {}
 
 impl ComputerPicker {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let connect: Connect = std::rc::Rc::new(transport::connect);
+        let connect: Connect =
+            std::rc::Rc::new(|server| transport::connect(&server.base, server.auth.clone()));
         Self::with(state, std::sync::Arc::new(Reqwest), connect, window, cx)
     }
 
@@ -236,7 +223,8 @@ impl ComputerPicker {
         let subscriptions = vec![cx.observe_in(&state, window, |this, state, window, cx| {
             let state = state.read(cx);
             if state.away() && state.signed_out {
-                let linker = this.via(state.server.as_deref()) == Some(ComputerVia::Linker);
+                let server = state.server.as_ref().map(|server| server.base.as_str());
+                let linker = this.via(server) == Some(ComputerVia::Linker);
                 this.go_home(
                     "That computer didn't let you in.",
                     if linker {
@@ -303,7 +291,12 @@ impl ComputerPicker {
             let result = task.await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(computers) => this.list = Some(ComputerList { computers, home }),
+                    Ok(computers) => {
+                        this.list = Some(ComputerList {
+                            computers,
+                            home: home.base,
+                        })
+                    }
                     Err(_) => this.failed = true,
                 }
                 this.loading = None;
@@ -333,8 +326,8 @@ impl ComputerPicker {
         let state = self.state.read(cx);
         let current = state
             .server
-            .as_deref()
-            .is_some_and(|server| origin(server) == origin(&entry.url));
+            .as_ref()
+            .is_some_and(|server| server.base == origin(&entry.url));
         let Some(home) = state.home.clone() else {
             return;
         };
@@ -342,11 +335,11 @@ impl ComputerPicker {
             return;
         }
         if entry.home {
-            self.relink(&home, Auth::Local, window, cx);
+            self.relink(Ok(home), window, cx);
             return;
         }
         if entry.via != Some(ComputerVia::Linker) {
-            self.relink(&origin(&entry.url), Auth::Local, window, cx);
+            self.relink(ServerAddress::new(&entry.url, Auth::Local), window, cx);
             self.watch(window, cx);
             return;
         }
@@ -360,7 +353,7 @@ impl ComputerPicker {
             let session = task.await;
             let _ = this.update_in(cx, |this, window, cx| match session {
                 Ok(session) => {
-                    this.relink(&url, Auth::Bearer(session), window, cx);
+                    this.relink(ServerAddress::new(&url, Auth::Bearer(session)), window, cx);
                     this.watch(window, cx);
                 }
                 Err(error) => {
@@ -377,13 +370,14 @@ impl ComputerPicker {
         .detach();
     }
 
-    fn relink(&mut self, url: &str, auth: Auth, window: &mut Window, cx: &mut Context<Self>) {
-        match (self.connect)(url, auth) {
-            Ok(link) => {
-                let url = url.to_string();
-                self.state
-                    .update(cx, |state, cx| state.relink(url, link, cx));
-            }
+    fn relink(
+        &mut self,
+        server: anyhow::Result<ServerAddress>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match server.and_then(|server| (self.connect)(&server)) {
+            Ok(link) => self.state.update(cx, |state, cx| state.relink(link, cx)),
             Err(error) => {
                 drop(window.prompt(
                     PromptLevel::Warning,
@@ -417,7 +411,7 @@ impl ComputerPicker {
     fn go_home(&mut self, title: &str, detail: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.reaching = None;
         if let Some(home) = self.state.read(cx).home.clone() {
-            self.relink(&home, Auth::Local, window, cx);
+            self.relink(Ok(home), window, cx);
         }
         drop(window.prompt(PromptLevel::Warning, title, Some(detail), &["OK"], cx));
     }
@@ -435,7 +429,7 @@ impl Render for ComputerPicker {
         let resolve_here = app.meta.resolve_here;
         let away = state.away();
         let desktop = state.home.is_some();
-        let here = state.server.as_deref().map(origin);
+        let here = state.server.as_ref().map(|server| server.base.clone());
 
         let accent = theme.accent;
         let toggle = div()

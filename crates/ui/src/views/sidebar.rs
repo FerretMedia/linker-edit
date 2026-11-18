@@ -32,6 +32,7 @@ use linker_edit_protocol::{
 
 use crate::components::LinkerLogo;
 use crate::icons::IconName;
+use crate::settings::SettingsSection;
 use crate::sidebar::{
     FOLDER_PREVIEW_COUNT, SETTLED_INITIAL_COUNT, SidebarLists, SidebarThread, is_unread, is_woke,
     next_thread_after, next_wake, now_ms, partition_sidebar, search_threads, snooze_presets, time,
@@ -54,8 +55,8 @@ pub enum SidebarEvent {
     NewThread(String),
     AddProject,
     ProjectSettings(String),
-    Settings,
-    RemoteAccess,
+    /// The settings page at a section: General from the gear, Remote access from the computer menu.
+    Settings(SettingsSection),
 }
 
 /// What a menu row does.
@@ -154,7 +155,9 @@ impl Sidebar {
             cx.subscribe(
                 &computer_picker,
                 |_, _, event: &ComputerPickerEvent, cx| match event {
-                    ComputerPickerEvent::RemoteAccess => cx.emit(SidebarEvent::RemoteAccess),
+                    ComputerPickerEvent::RemoteAccess => {
+                        cx.emit(SidebarEvent::Settings(SettingsSection::Remote))
+                    }
                 },
             ),
             cx.observe_window_activation(window, |this, window, cx| {

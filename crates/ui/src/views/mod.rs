@@ -2,18 +2,28 @@
 //! its own (scroll, a draft, a search query) is an entity, one without is a `RenderOnce`.
 
 pub mod add_project;
+pub mod app_update_card;
 pub mod approval_card;
 mod chat;
-pub mod collection_editor;
-pub mod collection_icon;
+pub mod choice_select;
+pub mod clip_strip;
+pub mod collections_settings;
 pub mod composer;
 pub mod computer_picker;
 pub mod context_menu;
 pub mod dialog;
 pub mod folder_picker;
+pub mod history_panel;
+pub mod library_folder_dialog;
+pub mod library_page;
+pub mod linker_connect;
 mod panel;
+pub mod project_file_panel;
 pub mod project_icon;
 pub mod project_settings;
+pub mod remote_access;
+pub mod settings_page;
+pub mod settings_parts;
 mod sidebar;
 mod sidebar_footer;
 mod sidebar_rows;
@@ -25,4 +35,3 @@ pub mod tool_row;
 pub use chat::{CHAT_MAX_WIDTH, Chat, ChatEvent, Row, rows};
 pub use panel::{Panel, SidePanel};
 pub use sidebar::{RowAction, SIDEBAR_WIDTH, Sidebar, SidebarAction, SidebarEvent, Variant};
-pub use sidebar_footer::{StatusLine, resolve_status_line};
