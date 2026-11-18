@@ -95,9 +95,13 @@ export async function download(item: Download, target: string, onPercent: (perce
   fs.renameSync(part, target);
 }
 
-function succeeds(file: string, args: string[]): Promise<boolean> {
-  return new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout: 10_000 }, (error) => resolve(!error)));
+function succeeds(file: string, args: string[], timeout = 10_000): Promise<boolean> {
+  return new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout }, (error) => resolve(!error)));
 }
+
+// The CUDA engine's zip is about 685 MB: unpacking it takes well over the 10 seconds a quick check gets, more on a
+// slow disk or with a virus scanner reading along.
+const UNPACK_TIMEOUT_MS = 15 * 60_000;
 
 export function findOnPath(name: string): string | null {
   const names = process.platform === "win32" ? [`${name}.exe`, name] : [name];
@@ -115,7 +119,7 @@ async function unpack(archive: string, home: string, tar: string, args: string[]
   const unpacking = `${home}.unpacking`;
   fs.rmSync(unpacking, { recursive: true, force: true });
   fs.mkdirSync(unpacking, { recursive: true });
-  if (!(await succeeds(tar, [...args, archive, "-C", unpacking]))) throw new Error(`Couldn't unpack ${archive}.`);
+  if (!(await succeeds(tar, [...args, archive, "-C", unpacking], UNPACK_TIMEOUT_MS))) throw new Error(`Couldn't unpack ${archive}.`);
   fs.renameSync(unpacking, home);
   fs.rmSync(archive, { force: true });
 }
