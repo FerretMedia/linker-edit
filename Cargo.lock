@@ -4381,6 +4381,7 @@ dependencies = [
  "http",
  "icu_collator",
  "indexmap",
+ "libc",
  "linker-edit-protocol",
  "percent-encoding",
  "regex",
