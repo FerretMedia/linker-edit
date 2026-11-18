@@ -1,4 +1,4 @@
-import { query, type Options, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
 import { CLAUDE_DISALLOWED_RESOLVE_TOOLS, decideToolCall, refusal, RESOLVE_RUN_SCRIPT } from "../policy.ts";
@@ -19,6 +19,14 @@ function toolResultText(content: unknown): string {
 
 /** The slice of the Agent SDK's query() a session uses; replays and tests stand in for it. */
 export type RunQuery = (params: { prompt: string; options: Options }) => AsyncIterable<SDKMessage>;
+
+/** The Agent SDK's query(), loaded with the first turn: loading the SDK was a third of the server's start. */
+const query: RunQuery = (params) => ({
+  async *[Symbol.asyncIterator]() {
+    const sdk = await import("@anthropic-ai/claude-agent-sdk");
+    yield* sdk.query(params);
+  },
+});
 
 export interface ClaudeSessionOptions {
   runQuery?: RunQuery;

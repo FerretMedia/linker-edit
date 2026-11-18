@@ -1,4 +1,3 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import * as path from "node:path";
 import { releaseName } from "#shared/release-name.ts";
 import type { DesktopToServer } from "#shared/protocol.ts";
@@ -80,7 +79,7 @@ const app = createApp({
     const projectConfig = { ...config, workspaceDir: dir };
     return provider === "codex"
       ? createCodexSession(projectConfig, approvalMode, resumeId)
-      : createClaudeSession(projectConfig, approvalMode, { runQuery: replay ? replayQuery(replay) : query, resumeId, rules });
+      : createClaudeSession(projectConfig, approvalMode, { runQuery: replay ? replayQuery(replay) : undefined, resumeId, rules });
   },
   checkResolve: () => checkResolve(resolve),
   // A replayed turn never touched Resolve, so there is nothing to save.

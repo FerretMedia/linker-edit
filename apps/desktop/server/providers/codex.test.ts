@@ -1,8 +1,8 @@
-import type { CodexOptions, ThreadEvent } from "@openai/codex-sdk";
+import type { ThreadEvent } from "@openai/codex-sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createCodexSession } from "./codex.ts";
+import { codexOptions, createCodexSession } from "./codex.ts";
 import { collectingSink, FIXTURES, testConfig } from "./testing.ts";
 
 const fake = vi.hoisted(() => ({ options: [] as unknown[], turns: [] as ThreadEvent[][], resumed: [] as string[], sandboxes: [] as string[] }));
@@ -71,6 +71,15 @@ describe("Codex session", () => {
     fake.resumed = [];
   });
 
+  it("loads the SDK with the first turn, with the session's options", async () => {
+    fake.turns = [[]];
+    fake.options = [];
+    const codex = createCodexSession(testConfig);
+    expect(fake.options).toEqual([]);
+    await codex.send("go", collectingSink().sink, new AbortController().signal);
+    expect(fake.options).toEqual([codexOptions(testConfig)]);
+  });
+
   it("continues a thread from before a restart", async () => {
     fake.turns = [[]];
     const codex = createCodexSession(testConfig, () => "auto", "thread-1");
@@ -106,8 +115,7 @@ describe("Codex session", () => {
   });
 
   it("gives Codex forward-slash paths, which its --config parsing needs, and only Resolve's read tools", () => {
-    createCodexSession(testConfig);
-    const options = fake.options.at(-1) as CodexOptions;
+    const options = codexOptions(testConfig);
     expect(JSON.stringify(options.config)).not.toContain("\\\\");
     expect(JSON.stringify(options.config)).not.toContain("launch_resolve");
     expect(options.config).toMatchObject({
@@ -122,8 +130,7 @@ describe("Codex session", () => {
   });
 
   it("leaves Resolve's own MCP server out when this computer has none", () => {
-    createCodexSession({ ...testConfig, resolveMcp: { command: null } });
-    const options = fake.options.at(-1) as CodexOptions;
+    const options = codexOptions({ ...testConfig, resolveMcp: { command: null } });
     expect(Object.keys((options.config as { mcp_servers: object }).mcp_servers)).toEqual(["linker"]);
   });
 });

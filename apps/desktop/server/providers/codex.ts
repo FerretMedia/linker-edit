@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Codex, type CodexOptions, type Thread, type ThreadItem, type ThreadOptions } from "@openai/codex-sdk";
+import type { Codex, CodexOptions, Thread, ThreadItem, ThreadOptions } from "@openai/codex-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
 import { CODEX_DISABLED_RESOLVE_TOOLS } from "../policy.ts";
@@ -113,18 +113,21 @@ export function codexThreadOptions(config: AppConfig, mode: ApprovalMode = "auto
 // No context meter or compaction: the SDK reports tokens summed over a turn, not the context size,
 // and runs no slash commands.
 export function createCodexSession(config: AppConfig, approvalMode: () => ApprovalMode = () => "auto", resumeId?: string): ProviderSession {
-  const codex = new Codex(codexOptions(config));
+  // The SDK is loaded with the first turn, not when the server starts.
+  let codex: Promise<Codex> | null = null;
   // The sandbox is set per thread, so a thread is picked up again with the other one when the mode changes.
   let threadMode = approvalMode();
-  let thread: Thread | undefined = resumeId ? codex.resumeThread(resumeId, codexThreadOptions(config, threadMode)) : undefined;
+  let thread: Thread | undefined;
 
   return {
-    resumeId: () => thread?.id ?? null,
+    resumeId: () => thread?.id ?? resumeId ?? null,
     async send(text, sink, signal) {
+      const sdk = await (codex ??= import("@openai/codex-sdk").then(({ Codex }) => new Codex(codexOptions(config))));
       const mode = approvalMode();
-      if (thread?.id && mode !== threadMode) thread = codex.resumeThread(thread.id, codexThreadOptions(config, mode));
+      if (!thread && resumeId) thread = sdk.resumeThread(resumeId, codexThreadOptions(config, mode));
+      else if (thread?.id && mode !== threadMode) thread = sdk.resumeThread(thread.id, codexThreadOptions(config, mode));
       threadMode = mode;
-      thread ??= codex.startThread(codexThreadOptions(config, mode));
+      thread ??= sdk.startThread(codexThreadOptions(config, mode));
       const turn = randomUUID();
       const { events } = await thread.runStreamed(text, { signal });
       for await (const event of events) {
