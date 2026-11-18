@@ -24,7 +24,7 @@ use url::Url;
 use crate::config::LinkerConfig;
 use crate::net::{
     Clock, Fetch, HttpFetch, Listener, Listeners, Request, Response, base64url, millis,
-    pretty_json, random_bytes, sha256, system_clock, text_field, write_private,
+    random_bytes, sha256, system_clock, text_field, write_private,
 };
 
 pub struct LinkerOptions {
@@ -220,7 +220,7 @@ impl Linker {
     }
 
     fn write(&self, saved: &Saved) -> anyhow::Result<()> {
-        write_private(&self.file, &pretty_json(saved))?;
+        write_private(&self.file, &crate::js::stringify_pretty(saved))?;
         Ok(())
     }
 

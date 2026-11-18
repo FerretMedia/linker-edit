@@ -176,11 +176,6 @@ pub fn write_private(file: &Path, text: &str) -> io::Result<()> {
     std::fs::write(file, text)
 }
 
-/// JSON.stringify(value, null, 2).
-pub fn pretty_json<T: serde::Serialize>(value: &T) -> String {
-    serde_json::to_string_pretty(value).expect("plain data serializes")
-}
-
 /// Random bytes from the system.
 pub fn random_bytes<const N: usize>() -> [u8; N] {
     let mut bytes = [0u8; N];
@@ -221,12 +216,6 @@ pub fn encode_uri_component(text: &str) -> String {
     utf8_percent_encode(text, COMPONENT).to_string()
 }
 
-/// text.slice(0, n): JavaScript counts UTF-16 units. A character cut in half becomes U+FFFD.
-pub fn slice_utf16(text: &str, n: usize) -> String {
-    let units: Vec<u16> = text.encode_utf16().take(n).collect();
-    String::from_utf16_lossy(&units)
-}
-
 /// A string field that isn't empty, as the TS's `typeof value === "string" && value`.
 pub fn text_field(value: &Value, key: &str) -> Option<String> {
     value
@@ -250,6 +239,5 @@ mod tests {
     fn encodes_like_javascript() {
         assert_eq!(encode_uri_component("a b/c?d=é"), "a%20b%2Fc%3Fd%3D%C3%A9");
         assert_eq!(encode_uri_component("-_.!~*'()"), "-_.!~*'()");
-        assert_eq!(slice_utf16("abc", 2), "ab");
     }
 }

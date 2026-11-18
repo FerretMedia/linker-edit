@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::net::{
-    Clock, Listener, Listeners, base64url, hex, millis, pretty_json, random_bytes, sha256,
-    slice_utf16, system_clock, write_private,
+    Clock, Listener, Listeners, base64url, hex, millis, random_bytes, sha256, system_clock,
+    write_private,
 };
 
 const CODE_LIFETIME: i64 = 60_000;
@@ -128,7 +128,7 @@ impl Sessions {
     }
 
     fn write(&self, sessions: &[Saved]) {
-        if let Err(error) = write_private(&self.file, &pretty_json(&sessions)) {
+        if let Err(error) = write_private(&self.file, &crate::js::stringify_pretty(&sessions)) {
             tracing::error!("Couldn't keep the Linker Connect sessions: {error}");
         }
     }
@@ -154,7 +154,7 @@ impl Sessions {
     pub fn issue_code(&self, name: &str) -> String {
         let now = self.now();
         let code = secret();
-        let name = slice_utf16(name, 64);
+        let name = crate::js::slice(name, 64).to_string();
         let mut state = self.state.lock().unwrap();
         state.codes.retain(|_, code| code.expires_at > now);
         state.codes.insert(

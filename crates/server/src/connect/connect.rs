@@ -26,8 +26,8 @@ use super::cloudflared::{
 use super::sessions::Sessions;
 use crate::linker::LinkerService;
 use crate::net::{
-    Clock, Fetch, HttpFetch, Listener, Listeners, Request, encode_uri_component, pretty_json,
-    slice_utf16, system_clock, write_private,
+    Clock, Fetch, HttpFetch, Listener, Listeners, Request, encode_uri_component, system_clock,
+    write_private,
 };
 
 pub const LIMIT: u32 = 3;
@@ -333,7 +333,7 @@ impl Connect {
 
     fn write(&self) -> anyhow::Result<()> {
         let saved = self.state.lock().unwrap().saved.clone();
-        write_private(&self.file, &pretty_json(&saved))?;
+        write_private(&self.file, &crate::js::stringify_pretty(&saved))?;
         Ok(())
     }
 
@@ -572,7 +572,7 @@ impl Connect {
                 state.saved.computer_id.clone()
             };
             self.changed();
-            let request = json!({ "name": slice_utf16(&self.name, 64), "port": self.port });
+            let request = json!({ "name": crate::js::slice(&self.name, 64), "port": self.port });
             match self
                 .relay(
                     "PUT",
@@ -1552,7 +1552,8 @@ mod tests {
         assert_eq!(saved.computer_id, "4b0c");
         assert!(saved.enabled);
         assert_eq!(saved.owner_id.as_deref(), Some("user_jane"));
-        let written: HashMap<String, Value> = serde_json::from_str(&pretty_json(&saved)).unwrap();
+        let written: HashMap<String, Value> =
+            serde_json::from_str(&crate::js::stringify_pretty(&saved)).unwrap();
         assert_eq!(written.len(), 5);
         assert!(!read(&dir.path().join("missing.json")).enabled);
     }
