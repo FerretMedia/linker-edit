@@ -14,4 +14,7 @@ linker-edit-protocol.workspace = true
 linker-edit-server.workspace = true
 linker-edit-ui.workspace = true
 anyhow.workspace = true
+# Whether another copy already runs (crates/ui single_instance's local socket), before a server starts.
+interprocess = "2"
 tokio.workspace = true
+tracing-subscriber.workspace = true

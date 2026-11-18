@@ -1,13 +1,18 @@
 //! The server: the port of apps/desktop/server. Its modules mirror that folder.
 
 pub mod agents;
+pub mod app;
 pub mod app_update;
 pub mod assets;
+pub mod cli;
 pub mod collections;
 pub mod config;
 pub mod connect;
 pub mod folders;
+pub mod handoff;
 pub mod history;
+pub mod http;
+pub mod index;
 pub mod js;
 pub mod library;
 pub mod linker;
@@ -23,5 +28,6 @@ pub mod resolve_status;
 pub mod rules;
 pub mod settings;
 pub mod study;
+pub mod thread;
 pub mod transcribe;
 pub mod updates;
