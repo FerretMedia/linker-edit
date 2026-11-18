@@ -14,9 +14,10 @@ use linker_edit_protocol::{ClientMessage, Tone};
 
 use crate::components::HeaderButton;
 use crate::icons::IconName;
+use crate::media::timeline::PreviewTarget;
 use crate::state::AppState;
 use crate::theme::{TextSize, TextStyled, Theme, root_text};
-use crate::views::{Chat, ChatEvent, Panel, SidePanel, Sidebar};
+use crate::views::{Chat, ChatEvent, Panel, PreviewEvent, PreviewPanel, SidePanel, Sidebar};
 use crate::window::{WindowControls, no_drag, title_bar};
 
 pub struct Workspace {
@@ -24,6 +25,10 @@ pub struct Workspace {
     sidebar: Entity<Sidebar>,
     chat: Entity<Chat>,
     panel: Option<Panel>,
+    /// The open preview panel; it plays video, so it goes when closed.
+    preview: Option<(Entity<PreviewPanel>, Subscription)>,
+    /// What the preview shows, kept while it's closed: the project it belongs to and the version.
+    preview_target: (Option<String>, PreviewTarget),
     _subscriptions: Vec<Subscription>,
 }
 
@@ -49,6 +54,8 @@ impl Workspace {
             chat,
             state,
             panel: None,
+            preview: None,
+            preview_target: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -59,6 +66,67 @@ impl Workspace {
 
     pub fn chat(&self) -> &Entity<Chat> {
         &self.chat
+    }
+
+    pub fn preview(&self) -> Option<&Entity<PreviewPanel>> {
+        self.preview.as_ref().map(|(preview, _)| preview)
+    }
+
+    /// Opens the preview on `target` of the project in view, as +page.svelte's openPreview.
+    pub fn open_preview(&mut self, target: PreviewTarget, cx: &mut Context<Self>) {
+        self.preview_target = (self.state.read(cx).project_id().map(str::to_string), target);
+        if let Some((preview, _)) = &self.preview {
+            let target = self.preview_target.clone();
+            preview.update(cx, |preview, cx| preview.set_target(target, cx));
+        }
+        self.panel = Some(Panel::Preview);
+        cx.notify();
+    }
+
+    /// The preview panel while it's open; made when it opens, let go of when it closes.
+    fn preview_panel(
+        &mut self,
+        open: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<PreviewPanel>> {
+        if !open {
+            if let Some((preview, _)) = self.preview.take() {
+                preview.update(cx, |preview, cx| preview.release(window, cx));
+            }
+            return None;
+        }
+        if self.preview.is_none() {
+            let (state, target) = (self.state.clone(), self.preview_target.clone());
+            let preview = cx.new(|cx| PreviewPanel::new(state, target, cx));
+            let subscription = cx.subscribe_in(
+                &preview,
+                window,
+                |this, _, event: &PreviewEvent, window, cx| {
+                    match event {
+                        PreviewEvent::Target(target) => this.open_preview(target.clone(), cx),
+                        PreviewEvent::Close => this.panel = None,
+                        PreviewEvent::Comment(place) => {
+                            // Feedback on the preview starts with where in the video it is about.
+                            let composer = this.chat.read(cx).composer().clone();
+                            composer.update(cx, |composer, cx| {
+                                let draft = composer.draft(cx);
+                                let text = if draft.trim().is_empty() {
+                                    format!("{place}: ")
+                                } else {
+                                    format!("{}\n{place}: ", draft.trim_end())
+                                };
+                                composer.set_draft(&text, window, cx);
+                                composer.focus(window, cx);
+                            });
+                        }
+                    }
+                    cx.notify();
+                },
+            );
+            self.preview = Some((preview, subscription));
+        }
+        self.preview.as_ref().map(|(preview, _)| preview.clone())
     }
 
     /// Opens `panel`, or closes it when it is the open one.
@@ -155,6 +223,9 @@ impl Render for Workspace {
         let project = state.project();
         let setup = project.is_some_and(|project| project.setup);
         let panel = self.panel.filter(|_| !setup);
+        let preview = self.preview_panel(panel == Some(Panel::Preview), window, cx);
+        let state = self.state.read(cx);
+        let project = state.project();
         let rendering = state.rendering();
         let title = SharedString::from(state.chat_title().to_string());
         let badge = project.map(|project| (project.name.clone(), project.dir.clone()));
@@ -259,15 +330,19 @@ impl Render for Workspace {
             .bg(theme.background)
             .child(self.sidebar.clone())
             .child(main)
-            .when_some(panel, |this, panel| {
-                this.child(SidePanel::new(
-                    panel,
-                    cx.listener(|this, _, _, cx| {
-                        this.panel = None;
-                        cx.notify();
-                    }),
-                ))
-            })
+            .when_some(preview, |this, preview| this.child(preview))
+            .when_some(
+                panel.filter(|panel| *panel != Panel::Preview),
+                |this, panel| {
+                    this.child(SidePanel::new(
+                        panel,
+                        cx.listener(|this, _, _, cx| {
+                            this.panel = None;
+                            cx.notify();
+                        }),
+                    ))
+                },
+            )
             .child(WindowControls)
             .children(toasts)
             .test_support()
@@ -386,6 +461,9 @@ mod tests {
             assert_eq!(window.find("preview-panel").bounds().size.width, px(512.));
 
             window.click("close-panel", cx);
+        });
+        // The preview says it closed; the workspace takes it away on the next frame.
+        render(cx, window, |window, _| {
             assert!(window.try_find("preview-panel").is_none());
         });
     }

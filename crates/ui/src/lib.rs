@@ -9,6 +9,7 @@ pub mod context;
 pub mod icons;
 pub mod labels;
 pub mod markdown;
+pub mod media;
 mod single_instance;
 pub mod state;
 pub mod theme;
@@ -20,7 +21,9 @@ pub mod workspace;
 use futures::StreamExt;
 use gpui::{AppContext, Entity, Window};
 
-pub use state::{AppEvent, AppState, ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
+pub use state::{
+    AppEvent, AppState, ClientMessage, Link, LinkEvent, ServerEnd, ServerHttp, ServerMessage,
+};
 pub use workspace::Workspace;
 
 /// Opens the window on `link` and runs until it closes. If another copy already runs on the

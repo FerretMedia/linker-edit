@@ -22,7 +22,7 @@ use tokio_tungstenite::tungstenite::{
     self, Message, client::IntoClientRequest, http::HeaderValue, http::StatusCode,
 };
 
-use crate::state::{ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
+use crate::state::{ClientMessage, Link, LinkEvent, ServerEnd, ServerHttp, ServerMessage};
 
 /// How long to wait before connecting again, as connection.svelte.ts's `setTimeout(…, 1000)`.
 const RECONNECT: Duration = Duration::from_secs(1);
@@ -55,10 +55,27 @@ pub fn ws_url(server: &str) -> anyhow::Result<String> {
     })
 }
 
+/// `ws://…/ws` or `http://…/` → `http://…`: where the server's files and `/api` are.
+pub fn http_base(server: &str) -> anyhow::Result<String> {
+    let url = ws_url(server)?;
+    let url = url.strip_suffix("/ws").unwrap_or(&url);
+    Ok(match url.strip_prefix("wss://") {
+        Some(rest) => format!("https://{rest}"),
+        None => format!("http://{}", url.trim_start_matches("ws://")),
+    })
+}
+
 /// A link to the server at `server` (its http(s) address), connecting in the background.
 pub fn connect(server: &str, auth: Auth) -> anyhow::Result<Link> {
     let url = ws_url(server)?;
-    let (link, end) = Link::pair();
+    let (mut link, end) = Link::pair();
+    link.http = Some(ServerHttp {
+        base: http_base(server)?,
+        bearer: match &auth {
+            Auth::Local => None,
+            Auth::Bearer(session) => Some(session.clone()),
+        },
+    });
     std::thread::Builder::new()
         .name("linker-edit-ws".into())
         .spawn(move || {
@@ -180,6 +197,15 @@ mod tests {
             ws_url("ws://localhost:1/ws").unwrap(),
             "ws://localhost:1/ws"
         );
+        // And where its files are.
+        assert_eq!(
+            http_base("http://127.0.0.1:4521/").unwrap(),
+            "http://127.0.0.1:4521"
+        );
+        assert_eq!(
+            http_base("wss://edit-0123456789abcdef.linker.cool/ws").unwrap(),
+            "https://edit-0123456789abcdef.linker.cool"
+        );
         assert!(ws_url("127.0.0.1:4521").is_err());
     }
 
@@ -231,6 +257,7 @@ mod tests {
         let Link {
             mut events,
             commands,
+            ..
         } = link;
         let mut seen = Vec::new();
         while let Some(event) = events.next().await {

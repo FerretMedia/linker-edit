@@ -15,8 +15,9 @@ building the server. `crates/app` calls [`run`](src/lib.rs).
 |---|---|
 | `src/lib.rs` | `run(link)`: single instance, assets, the window, quit on close |
 | `src/workspace.rs` | The root view: sidebar, chat column with its header, one side panel |
-| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter` |
-| `src/state.rs` | `AppState` and the `Link` to the server |
+| `src/views/` | One file per region of `+page.svelte`: `sidebar`, `chat`, `panel`; the chat's parts: `composer` (with the provider picker and context meter), `tool_row`, `approval_card`, `thread_starter`; the preview: `preview_panel`, `timeline_player`, `player_controls` |
+| `src/media/` | Video and sound for the preview: `timeline` (port of `player.ts`), `ffmpeg` (finding and running it), `video` (frames), `audio` (cpal, the mixer and clock), `player` (the engine both preview views use) |
+| `src/state.rs` | `AppState` and the `Link` to the server (with its HTTP address, `ServerHttp`) |
 | `src/transport.rs` | The `/ws` client: a `Link` to a server in another process |
 | `src/labels.rs`, `src/context.rs`, `src/markdown.rs` | Ports of src/lib's `labels.ts`, `context.ts`, `markdown.ts` |
 | `src/theme.rs` | `app.css`'s tokens, light and dark; text sizes and radii |
@@ -99,6 +100,17 @@ window (on Windows through the native caption, with Snap and double-click to max
 Wrap every control in a header in `window::no_drag()`, or pressing it drags the window.
 The rightmost header leaves room for the minimize/maximize/close buttons, which the
 workspace draws over the top right corner; the leftmost one clears macOS's traffic lights.
+
+## Video
+
+GPUI has no `<video>`, so `src/media` plays it: one ffmpeg process per clip on screen (or
+coming up within 3 s) decodes frames at the stage's size, with the clip's look applied, as raw
+BGRA on a pipe; each becomes a GPUI image. Another ffmpeg per audio clip decodes PCM for the
+mixer, which the sound card (cpal) pulls; what it has played is the clock the pictures follow.
+Media comes from the server over HTTP (`/media/<id>`, `/preview/<file>`), so it works for
+another computer's server too. ffmpeg is found next to the binary, on PATH, or in a checkout's
+`node_modules/ffmpeg-static`; packaging puts it next to the binary. Linux builds need ALSA's
+headers (`libasound2-dev`) for cpal.
 
 ## Testing
 

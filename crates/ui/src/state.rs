@@ -43,6 +43,25 @@ pub enum LinkEvent {
 pub struct Link {
     pub events: UnboundedReceiver<LinkEvent>,
     pub commands: UnboundedSender<ClientMessage>,
+    /// Where the server's files and `/api` are; None when nobody serves them (tests).
+    pub http: Option<ServerHttp>,
+}
+
+/// The server's HTTP address and how to get in: what the browser gets from its page's origin
+/// and cookie, for `/api/timeline`, `/media/…` and `/preview/…`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerHttp {
+    /// `http://127.0.0.1:4317`, without a trailing slash.
+    pub base: String,
+    /// A Linker Connect session, sent as `Authorization: Bearer`.
+    pub bearer: Option<String>,
+}
+
+impl ServerHttp {
+    /// `path` (starting with `/`) on the server.
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
 }
 
 /// The server's end of the same link.
@@ -60,6 +79,7 @@ impl Link {
             Link {
                 events: events_rx,
                 commands: commands_tx,
+                http: None,
             },
             ServerEnd {
                 events: events_tx,
@@ -119,6 +139,8 @@ pub struct AppState {
     /// The library page's library, while the page is open.
     pub library_view: Option<LibraryView>,
     pub toasts: Vec<Toast>,
+    /// The server's HTTP side, for what views load over HTTP (the preview's timeline and media).
+    pub http: Option<ServerHttp>,
     next_toast: u64,
     folder_request: u32,
     folder_replies: HashMap<u32, oneshot::Sender<OrError<FolderListing>>>,
@@ -133,6 +155,7 @@ impl AppState {
         let Link {
             mut events,
             commands,
+            http,
         } = link;
         let state = cx.new(|_| AppState {
             connected: false,
@@ -144,6 +167,7 @@ impl AppState {
             library: None,
             library_view: None,
             toasts: Vec::new(),
+            http,
             next_toast: 0,
             folder_request: 0,
             folder_replies: HashMap::new(),

@@ -36,6 +36,13 @@ pulldown-cmark = { version = "0.13", default-features = false }
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Video playback (src/media): ffmpeg runs as a process and pipes raw frames and samples; frames
+# become GPUI images (`image` and `smallvec` are the types RenderImage takes), samples go to the
+# sound card through cpal, whose clock the picture follows. ureq fetches /api/timeline.
+cpal = "0.18"
+image = { version = "0.25", default-features = false }
+smallvec = "1"
+ureq = "3"
 
 [target.'cfg(windows)'.dependencies]
 # Lets the first copy's window come to the front when a second copy hands over.
