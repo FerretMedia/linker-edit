@@ -33,7 +33,7 @@
             "snoozedUntil": null,
             "snoozedAt": null,
             "lastReadAt": null,
-            "lastSentAt": null,
+            "lastSentAt": "2026-11-17T09:00:00.000Z",
             "turnEndedAt": null,
             "archived": false,
             "busy": true,

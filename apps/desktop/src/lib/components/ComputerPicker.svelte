@@ -1,6 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Check, ChevronsUpDown, Globe, Monitor, Wrench } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
+  import Globe from "@lucide/svelte/icons/globe";
+  import Monitor from "@lucide/svelte/icons/monitor";
+  import Wrench from "@lucide/svelte/icons/wrench";
   import type { Computers, RemoteAccess } from "#shared/protocol.ts";
   import { isNewer, releaseName } from "#shared/release-name.ts";
   import { desktop } from "#lib/desktop.ts";

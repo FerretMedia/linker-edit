@@ -1,6 +1,8 @@
 <script lang="ts">
   // The sidebar's foot: Linker-Edit's own parts, in T3 Code's SidebarFooter spacing (MIT, see NOTICE).
-  import { AudioLines, RefreshCw, Settings } from "@lucide/svelte";
+  import AudioLines from "@lucide/svelte/icons/audio-lines";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Settings from "@lucide/svelte/icons/settings";
   import type { AppUpdate, LinkerAccount, ResolveStatus, TranscriptionStatus } from "#shared/protocol.ts";
   import { resolveStatusLine } from "#lib/settings.ts";
   import AppUpdateCard from "../AppUpdateCard.svelte";

@@ -10,7 +10,7 @@
 </script>
 
 <script lang="ts">
-  import { Ellipsis } from "@lucide/svelte";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
 
   let { items, label }: { items: MenuItem[]; label: string } = $props();
   let open = $state(false);

@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { Maximize, Minimize, Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "@lucide/svelte";
+  import Maximize from "@lucide/svelte/icons/maximize";
+  import Minimize from "@lucide/svelte/icons/minimize";
+  import Pause from "@lucide/svelte/icons/pause";
+  import Play from "@lucide/svelte/icons/play";
+  import SkipBack from "@lucide/svelte/icons/skip-back";
+  import SkipForward from "@lucide/svelte/icons/skip-forward";
+  import Volume2 from "@lucide/svelte/icons/volume-2";
+  import VolumeX from "@lucide/svelte/icons/volume-x";
   import type { PlayableTimeline } from "#shared/protocol.ts";
   import { formatTimecode } from "#lib/player.ts";
 

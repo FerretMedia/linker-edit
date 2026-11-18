@@ -23,6 +23,9 @@ describe("cloudflared", () => {
       state: "up",
     });
     expect(readLogLine("2026-11-16T10:00:00Z WRN Retrying connection in up to 2s")).toEqual({ state: "connecting" });
+    expect(readLogLine("2026-11-16T10:00:00Z INF Unregistered tunnel connection connIndex=0 event=0 ip=198.41.192.7")).toEqual({
+      state: "connecting",
+    });
     expect(readLogLine("2026-11-16T10:00:00Z INF Starting tunnel tunnelID=abc")).toBeNull();
   });
 });

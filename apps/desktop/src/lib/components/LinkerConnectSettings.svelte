@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Check, Copy, Monitor, X } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import Copy from "@lucide/svelte/icons/copy";
+  import Monitor from "@lucide/svelte/icons/monitor";
+  import X from "@lucide/svelte/icons/x";
   import type { LinkerConnect } from "#shared/protocol.ts";
   import SettingsGroup from "./SettingsGroup.svelte";
   import SettingsRow from "./SettingsRow.svelte";

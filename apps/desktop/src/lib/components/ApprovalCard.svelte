@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { GraduationCap, ShieldAlert } from "@lucide/svelte";
+  import GraduationCap from "@lucide/svelte/icons/graduation-cap";
+  import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import type { ApprovalRequest } from "#shared/protocol.ts";
   import { approvalDetail, briefRequest, isResolveTool, lineDiff, toolLabel } from "#lib/labels.ts";
 

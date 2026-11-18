@@ -23,6 +23,8 @@ function testClient() {
     histories,
     refused,
     toasts,
+    // Like the web UI: every test here also checks that the patches add up to the same state.
+    metaPatches: true,
     send(data: string) {
       const message = JSON.parse(data) as ServerMessage;
       if (message.type === "history") histories.push(message.entries);
@@ -117,7 +119,8 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
   const send = (message: ClientMessage) => app.handleMessage(client, message);
   const turnDone = () => client.until((state) => !state.busy);
   /** Every turn is over, including one in a thread the client moved away from or deleted. */
-  const allDone = () => client.until(() => !app.busy());
+  // Polled: a turn in a thread the client left ends without changing anything this client sees.
+  const allDone = () => vi.waitFor(() => expect(app.busy()).toBe(false), { timeout: 5000 });
   return { app, client, disconnect, send, turnDone, allDone, sessions, resumeIds, prompts, dirs, store };
 }
 
@@ -1107,5 +1110,46 @@ describe("app sidebar (T3 Code)", () => {
     send({ type: "update_project", projectId: "workspace", icon: { kind: "lucide", name: "Not An Icon", color: "violet" } as never, archived: true });
     expect(client.state.projects[0]).toMatchObject({ icon: null, pinned: true, archived: true });
     expect(store.projects.get("workspace")).toMatchObject({ icon: null, pinned: true, archived: true });
+  });
+});
+
+describe("meta broadcasts", () => {
+  /** A client that records what it gets, raw. */
+  function recorder(metaPatches: boolean) {
+    const messages: ServerMessage[] = [];
+    return { messages, metaPatches, send: (data: string) => void messages.push(JSON.parse(data) as ServerMessage), types: () => messages.map((message) => message.type) };
+  }
+
+  it("sends a meta only when it changed, and only the changed fields to clients that take patches", async () => {
+    const usage = { usedTokens: 1200, maxTokens: 200000, cacheExpiresAt: null };
+    const { app, send, turnDone } = setup(async (sink) => {
+      sink.context(usage);
+      // The same usage again changes nothing.
+      sink.context(usage);
+      sink.upsert({ id: "a1", kind: "assistant", text: "Done" });
+    });
+    const full = recorder(false);
+    const patched = recorder(true);
+    app.connect(full);
+    app.connect(patched);
+    expect(full.types()).toEqual(["snapshot"]);
+    expect(patched.types()).toEqual(["snapshot"]);
+
+    send({ type: "set_approval_mode", mode: "ask" });
+    send({ type: "set_approval_mode", mode: "ask" });
+    expect(full.types()).toEqual(["snapshot", "meta"]);
+    expect(full.messages[1]).toMatchObject({ type: "meta", meta: { approvalMode: "ask", projects: [{ id: "workspace" }] } });
+    expect(patched.messages.slice(1)).toEqual([{ type: "meta_patch", meta: { approvalMode: "ask" } }]);
+
+    send({ type: "send", text: "cut it" });
+    await turnDone();
+    const patches = patched.messages.filter((message) => message.type === "meta_patch").map((message) => message.meta);
+    expect(patches.filter((meta) => "context" in meta)).toEqual([{ context: usage }]);
+    // Each meta the full client got differs from the one before.
+    const metas = full.messages.filter((message) => message.type === "meta").map((message) => JSON.stringify(message.meta));
+    expect(new Set(metas).size).toBe(metas.length);
+    // Both end with the same state.
+    const fold = (messages: ServerMessage[]) => messages.reduce<AppState | null>((state, message) => applyServerMessage(state, message), null);
+    expect(fold(patched.messages)).toEqual(fold(full.messages));
   });
 });

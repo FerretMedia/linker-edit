@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { ChevronRight, History, RotateCcw, UserRound, X } from "@lucide/svelte";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import History from "@lucide/svelte/icons/rotate-ccw-clock";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import UserRound from "@lucide/svelte/icons/user-round";
+  import X from "@lucide/svelte/icons/x";
   import type { HistoryEntry } from "#shared/protocol.ts";
   import ClaudeIcon from "#lib/components/ClaudeIcon.svelte";
   import ClipStrip from "#lib/components/ClipStrip.svelte";

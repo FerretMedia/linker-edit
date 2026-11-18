@@ -1,7 +1,10 @@
 <script lang="ts">
   // T3 Code's sidebar thread header (apps/web/src/components/sidebar/SidebarThreadHeader.tsx; MIT, see NOTICE):
   // the search box, then Add project and New thread.
-  import { FolderPlus, Search, SquarePen, X } from "@lucide/svelte";
+  import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  import Search from "@lucide/svelte/icons/search";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
+  import X from "@lucide/svelte/icons/x";
 
   let {
     query = $bindable(""),

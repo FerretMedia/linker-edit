@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { FileText, X } from "@lucide/svelte";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import X from "@lucide/svelte/icons/x";
 
   let {
     file,

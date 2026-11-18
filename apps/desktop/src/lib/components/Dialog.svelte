@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { X } from "@lucide/svelte";
+  import X from "@lucide/svelte/icons/x";
 
   let { title, onClose, children }: { title: string; onClose: () => void; children: Snippet } = $props();
   let dialog: HTMLDialogElement;

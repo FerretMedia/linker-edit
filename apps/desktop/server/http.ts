@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import { WebSocketServer } from "ws";
+import type { Duplex } from "node:stream";
+import { promisify } from "node:util";
+import * as zlib from "node:zlib";
+import { WebSocketServer, type WebSocket } from "ws";
 import type { ClientMessage } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
 import type { LinkerService } from "./linker.ts";
@@ -22,6 +25,34 @@ const MIME: Record<string, string> = {
 };
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+const COMPRESSIBLE = new Set([".html", ".js", ".css", ".svg", ".json"]);
+
+// The built UI, gzipped once per file and kept: about a quarter of the size, for pages opened from another device.
+const gzipped = new Map<string, { mtimeMs: number; data: Promise<Buffer> }>();
+const gzip = promisify(zlib.gzip);
+function gzippedFile(file: string): Promise<Buffer> {
+  const { mtimeMs } = fs.statSync(file);
+  const cached = gzipped.get(file);
+  if (cached?.mtimeMs === mtimeMs) return cached.data;
+  const data = fs.promises.readFile(file).then((raw) => gzip(raw, { level: 9 }));
+  data.catch(() => gzipped.delete(file));
+  gzipped.set(file, { mtimeMs, data });
+  return data;
+}
+
+/** Whether an Accept-Encoding header takes gzip ("gzip;q=0" refuses it). */
+export const acceptsGzip = (header: string | undefined) =>
+  (header ?? "").split(",").some((part) => {
+    const [name = "", ...params] = part.split(";").map((piece) => piece.trim());
+    return name === "gzip" && !params.some((param) => /^q=0(\.0*)?$/.test(param));
+  });
+
+/**
+ * The UI's file names under _app/immutable change with their contents, so a browser keeps them; the page itself is
+ * always checked, so a new release shows at once.
+ */
+export const staticCacheControl = (urlPath: string) => (urlPath.startsWith("/_app/immutable/") ? "public, max-age=31536000, immutable" : "no-cache");
 
 /**
  * Browsers let any website open a WebSocket to localhost, and this socket drives an agent that runs
@@ -422,38 +453,60 @@ export function createServer(
       res.writeHead(404).end("UI not built. Use `npm run dev`, or `npm run build` then `npm start`.");
       return;
     }
-    res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+    const ext = path.extname(file);
+    const headers = {
+      "content-type": MIME[ext] ?? "application/octet-stream",
+      "cache-control": file.endsWith(`${path.sep}index.html`) ? "no-cache" : staticCacheControl(urlPath),
+      vary: "accept-encoding",
+    };
+    // This computer's own window reads the files straight from disk; other devices get them gzipped.
+    if (source !== "local" && COMPRESSIBLE.has(ext) && acceptsGzip(req.headers["accept-encoding"])) {
+      gzippedFile(file).then(
+        (data) => res.writeHead(200, { ...headers, "content-encoding": "gzip", "content-length": data.length }).end(req.method === "HEAD" ? undefined : data),
+        () => res.writeHead(500).end(),
+      );
+      return;
+    }
+    res.writeHead(200, headers);
     fs.createReadStream(file).pipe(res);
   });
 
-  const wss = new WebSocketServer({
-    server,
-    path: "/ws",
-    verifyClient: (info: { origin?: string; req: http.IncomingMessage }) => {
-      const current = gate();
-      switch (sourceOf(info.req)) {
-        case "local":
-          return isAllowedOrigin(info.origin, info.req.headers.host);
-        case "remote":
-          return info.origin === `https://${current!.host}`;
-        case "connect": {
-          // A page can't add an Authorization header to a WebSocket, so a Bearer token comes from a native app,
-          // which sends no Origin, or one naming this address. A cookie comes from a page: only this computer's own.
-          const own = info.origin === `https://${connectHost()}`;
-          const allowed = bearerToken(info.req) === null ? own : own || info.origin === undefined;
-          return allowed && sessionOf(info.req) !== null;
-        }
-        default:
-          return false;
+  const verifyClient = (info: { origin?: string; req: http.IncomingMessage }) => {
+    const current = gate();
+    switch (sourceOf(info.req)) {
+      case "local":
+        return isAllowedOrigin(info.origin, info.req.headers.host);
+      case "remote":
+        return info.origin === `https://${current!.host}`;
+      case "connect": {
+        // A page can't add an Authorization header to a WebSocket, so a Bearer token comes from a native app,
+        // which sends no Origin, or one naming this address. A cookie comes from a page: only this computer's own.
+        const own = info.origin === `https://${connectHost()}`;
+        const allowed = bearerToken(info.req) === null ? own : own || info.origin === undefined;
+        return allowed && sessionOf(info.req) !== null;
       }
-    },
+      default:
+        return false;
+    }
+  };
+  // Messages to other devices are compressed when they offer it: a long thread's snapshot is about a megabyte of
+  // JSON. This computer's own window skips the work.
+  const local = new WebSocketServer({ noServer: true, verifyClient });
+  const fromAfar = new WebSocketServer({ noServer: true, verifyClient, perMessageDeflate: { threshold: 1024 } });
+  server.on("upgrade", (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
+    if ((req.url ?? "/").split("?")[0] !== "/ws") {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    const wss = sourceOf(req) === "local" ? local : fromAfar;
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
   // A device signed out of Linker Connect is cut off at once, not when it next reconnects.
   const bySession = new Map<string, Set<{ close: () => void }>>();
   connect?.sessions.onRevoke((ids) => {
     for (const id of ids) for (const socket of bySession.get(id) ?? []) socket.close();
   });
-  wss.on("connection", (socket, req) => {
+  const onConnection = (socket: WebSocket, req: http.IncomingMessage) => {
     const session = sourceOf(req) === "connect" ? sessionOf(req) : null;
     if (session) {
       const sockets = bySession.get(session) ?? new Set();
@@ -464,7 +517,10 @@ export function createServer(
         if (sockets.size === 0) bySession.delete(session);
       });
     }
-    const client = { send: (data: string) => socket.send(data) };
+    const client = {
+      send: (data: string) => socket.send(data),
+      metaPatches: new URL(req.url ?? "/", "http://localhost").searchParams.get("meta") === "patch",
+    };
     const disconnect = app.connect(client);
     socket.on("message", (data) => {
       try {
@@ -476,7 +532,9 @@ export function createServer(
     socket.on("close", disconnect);
     // Without a listener, a reset connection would crash the server.
     socket.on("error", (error) => console.error("WebSocket error", error.message));
-  });
+  };
+  local.on("connection", onConnection);
+  fromAfar.on("connection", onConnection);
 
   return server;
 }

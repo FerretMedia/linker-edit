@@ -4,7 +4,7 @@ import type { AppState, ServerMessage } from "#shared/protocol.ts";
 export function applyServerMessage(state: AppState | null, message: ServerMessage): AppState | null {
   if (message.type === "snapshot") return message.state;
   if (!state) return state;
-  if (message.type === "meta") {
+  if (message.type === "meta" || message.type === "meta_patch") {
     Object.assign(state, message.meta);
     return state;
   }

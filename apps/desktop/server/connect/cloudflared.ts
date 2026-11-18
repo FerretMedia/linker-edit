@@ -84,8 +84,9 @@ export type TunnelEvent = { state: "connecting" } | { state: "up" } | { state: "
 
 /** What cloudflared's log line means for the tunnel; null for lines that change nothing. */
 export function readLogLine(line: string): TunnelEvent | null {
-  if (/Registered tunnel connection/i.test(line)) return { state: "up" };
+  // "Unregistered tunnel connection" ends in the words that mean up, so it is read first.
   if (/Unregistered tunnel connection|Connection terminated|Retrying connection|Serve tunnel error/i.test(line)) return { state: "connecting" };
+  if (/\bRegistered tunnel connection/i.test(line)) return { state: "up" };
   return null;
 }
 

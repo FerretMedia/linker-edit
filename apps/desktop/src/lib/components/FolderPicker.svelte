@@ -2,7 +2,11 @@
   // A path field that lists the folders of the server's computer as you type, like T3 Code's
   // "Add project": ↑/↓ choose, Enter or Tab goes into a folder, Enter on the path itself picks it.
   import { onMount, tick, untrack } from "svelte";
-  import { CornerLeftUp, Folder, FolderCheck, FolderSearch, House } from "@lucide/svelte";
+  import CornerLeftUp from "@lucide/svelte/icons/corner-left-up";
+  import Folder from "@lucide/svelte/icons/folder";
+  import FolderCheck from "@lucide/svelte/icons/folder-check";
+  import FolderSearch from "@lucide/svelte/icons/folder-search";
+  import House from "@lucide/svelte/icons/house";
   import type { FolderEntry, FolderListing } from "#shared/protocol.ts";
   import {
     appendSegment,

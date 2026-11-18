@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { ExternalLink, LogIn, LogOut } from "@lucide/svelte";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
+  import LogIn from "@lucide/svelte/icons/log-in";
+  import LogOut from "@lucide/svelte/icons/log-out";
   import type { LinkerAccount } from "#shared/protocol.ts";
   import RowMenu from "./RowMenu.svelte";
 

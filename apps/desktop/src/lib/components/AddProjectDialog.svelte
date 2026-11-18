@@ -1,6 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Cloud, FolderInput, HardDrive, MonitorUp } from "@lucide/svelte";
+  import Cloud from "@lucide/svelte/icons/cloud";
+  import FolderInput from "@lucide/svelte/icons/folder-input";
+  import HardDrive from "@lucide/svelte/icons/hard-drive";
+  import MonitorUp from "@lucide/svelte/icons/monitor-up";
   import type { FolderListing, ProjectSource, ResolveLibrary, ResolveStatus } from "#shared/protocol.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
   import { LIBRARY_LABEL } from "#lib/labels.ts";

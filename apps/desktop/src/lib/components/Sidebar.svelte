@@ -2,26 +2,24 @@
   // A copy of T3 Code's sidebar (apps/web/src/components/Sidebar.tsx and sidebar/*; MIT, see NOTICE), in its
   // project-folder layout: pinned threads, a folder per project, then the Snoozed and Settled shelves. Linker-Edit's
   // own parts (computer picker, Resolve, transcription, updates, Linker account) stay around it.
-  import {
-    Archive,
-    ArchiveRestore,
-    ChevronDown,
-    ChevronUp,
-    CircleCheck,
-    Clock,
-    Copy,
-    Folder,
-    Hash,
-    MailOpen,
-    MonitorUp,
-    Pencil,
-    Pin,
-    PinOff,
-    Plus,
-    Settings,
-    SquarePen,
-    Trash,
-  } from "@lucide/svelte";
+  import Archive from "@lucide/svelte/icons/archive";
+  import ArchiveRestore from "@lucide/svelte/icons/archive-arrow-up";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import ChevronUp from "@lucide/svelte/icons/chevron-up";
+  import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import Clock from "@lucide/svelte/icons/clock";
+  import Copy from "@lucide/svelte/icons/copy";
+  import Folder from "@lucide/svelte/icons/folder";
+  import Hash from "@lucide/svelte/icons/hash";
+  import MailOpen from "@lucide/svelte/icons/mail-open";
+  import MonitorUp from "@lucide/svelte/icons/monitor-up";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Pin from "@lucide/svelte/icons/pin";
+  import PinOff from "@lucide/svelte/icons/pin-off";
+  import Plus from "@lucide/svelte/icons/plus";
+  import Settings from "@lucide/svelte/icons/settings";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
+  import Trash from "@lucide/svelte/icons/trash";
   import type {
     AppUpdate,
     ClientMessage,

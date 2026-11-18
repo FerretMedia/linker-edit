@@ -1,7 +1,16 @@
 <script lang="ts">
   // T3 Code's sidebar thread row (apps/web/src/components/sidebar/SidebarThreadRow.tsx; MIT, see NOTICE):
   // "card" for pinned threads, "folder" inside a project folder, "slim" in the Snoozed and Settled shelves.
-  import { AlarmClock, AlarmClockOff, Check, CircleCheck, CircleDashed, Clock, Pin, PinOff, ShieldQuestion, Undo2 } from "@lucide/svelte";
+  import AlarmClock from "@lucide/svelte/icons/alarm-clock";
+  import AlarmClockOff from "@lucide/svelte/icons/alarm-clock-off";
+  import Check from "@lucide/svelte/icons/check";
+  import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import CircleDashed from "@lucide/svelte/icons/circle-dashed";
+  import Clock from "@lucide/svelte/icons/clock";
+  import Pin from "@lucide/svelte/icons/pin";
+  import PinOff from "@lucide/svelte/icons/pin-off";
+  import ShieldQuestion from "@lucide/svelte/icons/shield-question-mark";
+  import Undo2 from "@lucide/svelte/icons/undo-2";
   import {
     activityTimestamp,
     relativeTime,

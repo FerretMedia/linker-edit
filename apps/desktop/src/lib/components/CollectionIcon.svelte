@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Folder } from "@lucide/svelte";
+  import Folder from "@lucide/svelte/icons/folder";
   import type { CollectionIcon } from "#shared/protocol.ts";
   import { ICON_COLOR_CLASS, iconText, LUCIDE_ICONS } from "#lib/collectionIcons.ts";
 

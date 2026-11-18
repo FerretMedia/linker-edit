@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Check, Copy } from "@lucide/svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import Copy from "@lucide/svelte/icons/copy";
   import type { RemoteAccess } from "#shared/protocol.ts";
 
   let {

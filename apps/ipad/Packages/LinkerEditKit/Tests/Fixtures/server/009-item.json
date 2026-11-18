@@ -2,8 +2,8 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "00000000-0000-4000-8000-000000000001",
-    "kind": "user",
-    "text": "Cut the silences"
+    "id": "a1",
+    "kind": "assistant",
+    "text": "Looking at the timeline first."
   }
 }

@@ -1,34 +1,22 @@
 <script lang="ts">
-  import {
-    BookOpen,
-    ChevronRight,
-    Clapperboard,
-    FilePen,
-    FileText,
-    Globe,
-    ListTodo,
-    Search,
-    SquareTerminal,
-    Wrench,
-    X,
-  } from "@lucide/svelte";
   import type { ChatItem } from "#shared/protocol.ts";
   import { formatJson, isResolveTool, toolLabel, toolSummary } from "#lib/labels.ts";
+  import ToolIcon, { type ToolIconKind } from "./ToolIcon.svelte";
 
   let { item }: { item: Extract<ChatItem, { kind: "tool" }> } = $props();
   let expanded = $state(false);
 
-  const Icon = $derived.by(() => {
+  const icon = $derived.by((): ToolIconKind => {
     const name = item.name;
-    if (isResolveTool(name)) return Clapperboard;
-    if (name === "shell" || name === "Bash") return SquareTerminal;
-    if (name === "Read") return FileText;
-    if (name === "Edit" || name === "Write" || name === "edit files") return FilePen;
-    if (name === "Grep" || name === "Glob") return Search;
-    if (name === "WebSearch" || name === "WebFetch" || name === "web search") return Globe;
-    if (name === "TodoWrite") return ListTodo;
-    if (name === "ToolSearch") return BookOpen;
-    return Wrench;
+    if (isResolveTool(name)) return "resolve";
+    if (name === "shell" || name === "Bash") return "terminal";
+    if (name === "Read") return "read";
+    if (name === "Edit" || name === "Write" || name === "edit files") return "edit";
+    if (name === "Grep" || name === "Glob") return "search";
+    if (name === "WebSearch" || name === "WebFetch" || name === "web search") return "web";
+    if (name === "TodoWrite") return "todo";
+    if (name === "ToolSearch") return "schema";
+    return "tool";
   });
   const label = $derived(toolLabel(item.name, item.input));
   const summary = $derived(toolSummary(item.name, item.input));
@@ -46,7 +34,7 @@
         ? 'text-destructive'
         : 'text-muted-foreground'}"
     >
-      <Icon class="size-4" strokeWidth={2} />
+      <ToolIcon kind={icon} class="size-4" />
     </span>
     <span class="flex min-w-0 flex-1 items-baseline gap-1.5 truncate">
       <span class="shrink-0 {item.status === 'error' ? 'font-medium text-destructive' : 'text-foreground/80'}">
@@ -59,12 +47,11 @@
     {#if item.status === "running"}
       <span class="shrink-0 text-xs text-muted-foreground">Running</span>
     {:else if item.status === "error"}
-      <X class="size-3 shrink-0 text-destructive" />
+      <ToolIcon kind="x" class="size-3 shrink-0 text-destructive" />
     {/if}
-    <ChevronRight
-      class="size-3 shrink-0 text-muted-foreground opacity-70 transition-transform duration-200 {expanded
-        ? 'rotate-90'
-        : ''}"
+    <ToolIcon
+      kind="chevron"
+      class="size-3 shrink-0 text-muted-foreground opacity-70 transition-transform duration-200 {expanded ? 'rotate-90' : ''}"
     />
   </button>
   {#if expanded}

@@ -251,11 +251,14 @@ async function stopServer() {
   if (process.platform !== "win32") killServer(child, "SIGKILL");
 }
 
-/** Starts the server and shows it. Quits when it can't start, or when it stops without being asked to. */
-async function runServer(window: BrowserWindow, log: string): Promise<boolean> {
+/**
+ * Starts the server and shows it, or shows the one already starting. Quits when it can't start, or when it stops
+ * without being asked to.
+ */
+async function runServer(window: BrowserWindow, log: string, starting?: Promise<string>): Promise<boolean> {
   stoppingServer = false;
   try {
-    goHome(window, await startServer(log));
+    goHome(window, await (starting ?? startServer(log)));
   } catch (error) {
     dialog.showErrorBox(
       "Linker-Edit couldn't start",
@@ -338,6 +341,12 @@ async function keepUpToDate(window: BrowserWindow, serverLog: string) {
 const primary = app.requestSingleInstanceLock();
 if (!primary) app.quit();
 
+// The server starts while Electron gets ready and opens the window, rather than after.
+const serverLog = primary && !given ? path.join(app.getPath("logs"), "server.log") : null;
+const serverStarting = serverLog ? startServer(serverLog) : null;
+// Handled once the window is up (runServer); until then a failure mustn't count as unhandled.
+serverStarting?.catch(() => {});
+
 void app.whenReady().then(async () => {
   if (!primary) return;
   if (home) allowed.add(new URL(home).origin);
@@ -378,10 +387,9 @@ void app.whenReady().then(async () => {
     if (window.isMinimized()) window.restore();
     window.focus();
   });
-  if (given) return;
+  if (!serverLog) return;
 
-  const log = path.join(app.getPath("logs"), "server.log");
-  if (await runServer(window, log)) void keepUpToDate(window, log);
+  if (await runServer(window, serverLog, serverStarting ?? undefined)) void keepUpToDate(window, serverLog);
 });
 
 app.on("before-quit", () => {

@@ -2,8 +2,11 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "a1",
-    "kind": "assistant",
-    "text": "Looking at"
+    "id": "t1",
+    "kind": "tool",
+    "name": "mcp__linker__list_timelines",
+    "input": {},
+    "status": "done",
+    "output": "[\"Cut\"]"
   }
 }

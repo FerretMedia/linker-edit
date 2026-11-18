@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { Film, Play, Plus, X } from "@lucide/svelte";
+  import Film from "@lucide/svelte/icons/film";
+  import Play from "@lucide/svelte/icons/play";
+  import Plus from "@lucide/svelte/icons/plus";
+  import X from "@lucide/svelte/icons/x";
   import type { TimelineStrip } from "#shared/protocol.ts";
   import { CHANGE_STYLE } from "#lib/labels.ts";
 

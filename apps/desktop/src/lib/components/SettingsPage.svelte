@@ -1,21 +1,19 @@
 <script lang="ts">
-  import {
-    ArrowLeft,
-    AudioLines,
-    Check,
-    Clapperboard,
-    Copy,
-    ExternalLink,
-    Globe,
-    Info,
-    Layers,
-    Library,
-    LogIn,
-    LogOut,
-    RefreshCw,
-    Settings2,
-    UserRound,
-  } from "@lucide/svelte";
+  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+  import AudioLines from "@lucide/svelte/icons/audio-lines";
+  import Check from "@lucide/svelte/icons/check";
+  import Clapperboard from "@lucide/svelte/icons/clapperboard";
+  import Copy from "@lucide/svelte/icons/copy";
+  import ExternalLink from "@lucide/svelte/icons/external-link";
+  import Globe from "@lucide/svelte/icons/globe";
+  import Info from "@lucide/svelte/icons/info";
+  import Layers from "@lucide/svelte/icons/layers";
+  import Library from "@lucide/svelte/icons/library";
+  import LogIn from "@lucide/svelte/icons/log-in";
+  import LogOut from "@lucide/svelte/icons/log-out";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Settings2 from "@lucide/svelte/icons/settings-2";
+  import UserRound from "@lucide/svelte/icons/user-round";
   import type { AppMeta, ClientMessage } from "#shared/protocol.ts";
   import { RELEASES_URL, releaseName } from "#shared/release-name.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";

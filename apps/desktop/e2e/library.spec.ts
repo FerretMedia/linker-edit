@@ -14,7 +14,11 @@ test("a music folder is added to the library, read, played and starred", async (
 
   await page.getByRole("button", { name: "Add folder" }).first().click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("combobox", { name: "Library folder" }).fill(music + path.sep);
+  const field = dialog.getByRole("combobox", { name: "Library folder" });
+  // It fills itself in with the home folder once focused: typed before that arrives, the two would run together.
+  await field.focus();
+  await expect(field).not.toHaveValue("");
+  await field.fill(music + path.sep);
   await dialog.getByPlaceholder("Licensed for YouTube only. Use for intros.").fill("Royalty free");
   await dialog.getByRole("button", { name: "Add folder" }).click();
   await expect(dialog).toHaveCount(0);
