@@ -11,9 +11,9 @@ use serde_json::Value;
 use super::types::{BoxFuture, ItemKind, ItemPatch, ToolDecision, ToolGate, TurnSink};
 use crate::config::{AppConfig, ConnectConfig, LinkerConfig, ResolveMcpConfig};
 
-/// The recorded turns: apps/desktop/server/providers/fixtures.
+/// The recorded turns: crates/server/tests/fixtures.
 pub fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/server/providers/fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
 pub fn test_config() -> AppConfig {

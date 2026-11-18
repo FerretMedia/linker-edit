@@ -43,7 +43,7 @@ its PID:
 cd apps/desktop
 npm run build
 LINKER_EDIT_CONFIG=<tmp>/le-agent/linker-edit.config.json \
-LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl \
+LINKER_EDIT_REPLAY=../../crates/server/tests/fixtures/claude-turn.jsonl \
 node server/index.ts
 ```
 

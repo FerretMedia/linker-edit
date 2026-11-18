@@ -3,7 +3,7 @@ import type { ChatItem, ContextUsage } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
 import type { ItemPatch, TurnSink } from "./types.ts";
 
-export const FIXTURES = path.join(import.meta.dirname, "fixtures");
+export const FIXTURES = path.join(import.meta.dirname, "..", "..", "..", "..", "crates", "server", "tests", "fixtures");
 
 export const testConfig: AppConfig = {
   port: 0,

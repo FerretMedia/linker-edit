@@ -319,7 +319,7 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 
 - `npm test`: unit tests. Free and offline. With Python installed, they also run every Resolve script (`crates/server/src/resolve/scripts`; `cargo test -p linker-edit-server` runs them too) against a stand-in Resolve, and the frame and silence tools against media made with ffmpeg.
 - `npm run test:e2e`: drives the built app in a browser (`npx playwright install chromium` once). Claude is replaced by a recorded turn, so it costs nothing.
-- `LINKER_EDIT_REPLAY=server/providers/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
+- `LINKER_EDIT_REPLAY=../../crates/server/tests/fixtures/claude-turn.jsonl npm run dev`: the same replay, for UI work without spending tokens.
 - `npm run record-fixture -- <claude|codex> <out.jsonl> "<prompt>"`: records a real turn on the cheapest models, for new provider tests.
 - `node apps/desktop/scripts/update-smoke.ts`, after `npm run build && node apps/desktop/scripts/build-desktop.ts --dir`: starts the unpacked desktop app against an update feed on your computer and checks that it downloads the update, stops its server and quits to install it, and says so when the install didn't take. On Linux, run it under `xvfb-run`.
 - `npm run test:live -- --project "<scratch project>"`: runs real editing prompts against Resolve with approvals off, then checks that existing timelines and media are untouched. It then compacts the chat and continues it in a new session, as after a restart. It costs tokens; run it before releases and after Resolve updates. `--dry-run` only checks that it can see the project.
