@@ -2,6 +2,8 @@
 // and the built browser UI. The Rust server carries them inside its binary instead, so it runs from anywhere and
 // nothing depends on where it was installed. package.json's version is updates::VERSION.
 
+use std::borrow::Cow;
+
 /// The Python script a Resolve tool runs, by its file name in crates/server/src/resolve/scripts, such as
 /// "list_projects.py". None for a name that isn't one of them.
 pub fn resolve_script(name: &str) -> Option<&'static str> {
@@ -162,9 +164,45 @@ pub const RESOLVE_SCRIPTS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The built Svelte UI, inside the binary in a release build. A debug build reads the folder on disk each time, so
+/// `npm run build` shows without building the binary again; build.rs rebuilds a release when the folder changes.
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../../apps/desktop/build"]
+#[allow_missing = true]
+struct WebBuild;
+
 /// A file of the built Svelte UI (apps/desktop/build) by its path there, such as "index.html" or
-/// "_app/immutable/entry/start.js". None until the HTTP port embeds the build here.
-pub fn web_file(path: &str) -> Option<&'static [u8]> {
-    let _ = path;
-    None
+/// "_app/immutable/entry/start.js". None for a path that isn't one, and for every path while the UI isn't built.
+pub fn web_file(path: &str) -> Option<Cow<'static, [u8]>> {
+    // Only plain paths inside the build: no "..", no drive or root, no backslashes.
+    let safe = !path.is_empty()
+        && !path.contains('\\')
+        && !path.contains(':')
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..");
+    if !safe {
+        return None;
+    }
+    WebBuild::get(path).map(|file| file.data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serves_only_plain_paths_inside_the_build() {
+        for path in [
+            "",
+            "../Cargo.toml",
+            "_app/../../x",
+            "/etc/passwd",
+            "C:/Windows/win.ini",
+            "a\\b",
+            "a//b",
+        ] {
+            assert_eq!(web_file(path), None, "{path}");
+        }
+    }
 }

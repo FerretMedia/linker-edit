@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 linker-edit-protocol.workspace = true
 anyhow.workspace = true
+axum.workspace = true
 async-trait = "0.1"
 base64 = "0.22"
 chrono.workspace = true
@@ -20,6 +21,8 @@ indexmap = { version = "2", features = ["serde"] }
 percent-encoding = "2"
 regex = "1"
 reqwest.workspace = true
+# The built Svelte UI inside the binary (assets::web_file); read from disk in debug builds.
+rust-embed = "8"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -27,13 +30,15 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["io"] }
 tracing.workspace = true
 unicode-normalization = "0.1"
 url = "2"
 uuid.workspace = true
 
 [dev-dependencies]
+# The /ws client in http's tests.
+tokio-tungstenite = "0.28"
 tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(unix)'.dependencies]
