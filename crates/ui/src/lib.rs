@@ -5,10 +5,14 @@
 extern crate gpui_kit as gpui;
 
 pub mod components;
+pub mod context;
 pub mod icons;
+pub mod labels;
+pub mod markdown;
 mod single_instance;
 pub mod state;
 pub mod theme;
+pub mod transport;
 pub mod views;
 pub mod window;
 pub mod workspace;
@@ -16,7 +20,7 @@ pub mod workspace;
 use futures::StreamExt;
 use gpui::{AppContext, Entity, Window};
 
-pub use state::{AppState, ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
+pub use state::{AppEvent, AppState, ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
 pub use workspace::Workspace;
 
 /// Opens the window on `link` and runs until it closes. If another copy already runs on the
@@ -56,5 +60,5 @@ pub fn new_workspace(
     cx: &mut gpui::App,
 ) -> Entity<Workspace> {
     theme::Theme::init(window, cx);
-    cx.new(|cx| Workspace::new(state, cx))
+    cx.new(|cx| Workspace::new(state, window, cx))
 }
