@@ -241,7 +241,7 @@ impl Workspace {
                 SettingsEvent::Library => this.open_library(LibraryTab::Universal, window, cx),
             },
         );
-        self.show_page(Page::Settings(page), subscription, cx);
+        self.show_page(Page::Settings(page), subscription, window, cx);
     }
 
     /// Opens the library page at `tab`, as `openLibrary` does.
@@ -260,12 +260,21 @@ impl Workspace {
                 LibraryEvent::Stop => this.sound = None,
             },
         );
-        self.show_page(Page::Library(page), subscription, cx);
+        self.show_page(Page::Library(page), subscription, window, cx);
     }
 
-    fn show_page(&mut self, page: Page, subscription: Subscription, cx: &mut Context<Self>) {
+    /// The page takes the window; the keyboard comes back here, since what had it (the sidebar's
+    /// search, the computer menu) isn't drawn any more and Escape would reach nothing.
+    fn show_page(
+        &mut self,
+        page: Page,
+        subscription: Subscription,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.sound = None;
         self.page = Some((page, subscription));
+        self.focus.focus(window, cx);
         cx.notify();
     }
 
@@ -274,7 +283,7 @@ impl Workspace {
         if let Some(Page::Library(page)) = self.page()
             && page.read(cx).has_dialog()
         {
-            page.update(cx, |page, cx| page.close_dialog(cx));
+            page.update(cx, |page, cx| page.close_dialog(window, cx));
             return;
         }
         self.close_page(window, cx);

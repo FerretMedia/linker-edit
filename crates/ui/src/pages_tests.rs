@@ -54,7 +54,7 @@ fn shown(cx: &mut TestAppContext, window: AnyWindowHandle, id: &str) -> bool {
 
 #[gpui::test]
 fn settings_open_from_the_sidebar_and_send_what_they_change(cx: &mut TestAppContext) {
-    let (window, _, mut server) = open(cx);
+    let (window, workspace, mut server) = open(cx);
     click(cx, window, "settings");
     assert!(shown(cx, window, "settings-page"));
     assert!(!shown(cx, window, "sidebar"));
@@ -99,6 +99,18 @@ fn settings_open_from_the_sidebar_and_send_what_they_change(cx: &mut TestAppCont
     cx.dispatch_action(window, crate::workspace::ToggleSettings);
     assert!(shown(cx, window, "settings-page"));
     cx.dispatch_action(window, crate::workspace::ToggleSettings);
+    assert!(!shown(cx, window, "settings-page"));
+
+    // The computer menu's "Remote access…" opens that section, and Escape still leaves it,
+    // though the menu that had the keyboard is gone.
+    click(cx, window, "computer-picker");
+    click(cx, window, "remote-access");
+    let section = workspace.read_with(cx, |workspace, cx| match workspace.page() {
+        Some(Page::Settings(page)) => page.read(cx).section(),
+        _ => panic!("the settings are open"),
+    });
+    assert_eq!(section, crate::settings::SettingsSection::Remote);
+    render(cx, window, |window, cx| window.press("escape", cx));
     assert!(!shown(cx, window, "settings-page"));
 }
 

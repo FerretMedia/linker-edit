@@ -83,6 +83,8 @@ server ──LinkEvent──▶ AppState (Entity) ──notify──▶ views re
   `close_page`, `toggle_panel`, `open_preview(target)` (History's Play), `add_project`. Each page,
   side panel and dialog is a view made when it opens and dropped, with its subscription, when it
   closes, as the Svelte components unmount; the preview stops its video first.
+  When a page opens or a dialog closes, the keyboard goes back to the workspace (or the page):
+  focus left on something no longer drawn reaches nothing, and Escape and Ctrl+, stop working.
 
 ## Adding a view
 

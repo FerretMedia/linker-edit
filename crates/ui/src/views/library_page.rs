@@ -11,9 +11,9 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, App, AppContext, Context, Entity, EventEmitter, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    StyledImage, Subscription, Task, Window, div, img, prelude::FluentBuilder, px,
+    AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, InteractiveElement,
+    IntoElement, ObjectFit, ParentElement, Render, SharedString, StatefulInteractiveElement,
+    Styled, StyledImage, Subscription, Task, Window, div, img, prelude::FluentBuilder, px,
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::component::Icon;
@@ -83,6 +83,8 @@ pub struct LibraryPage {
     open: Option<String>,
     tags: Entity<InputState>,
     note: Entity<TextareaState>,
+    /// Takes the keyboard back when the folder dialog closes, so Escape still leaves the page.
+    focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -149,6 +151,7 @@ impl LibraryPage {
             open: None,
             tags,
             note,
+            focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
         page.ask(cx);
@@ -159,8 +162,9 @@ impl LibraryPage {
         self.dialog.is_some()
     }
 
-    pub fn close_dialog(&mut self, cx: &mut Context<Self>) {
+    pub fn close_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dialog = None;
+        self.focus.focus(window, cx);
         cx.notify();
     }
 
@@ -260,11 +264,12 @@ impl LibraryPage {
         let editing = folder.as_ref().map(|folder| folder.id.clone());
         let dialog =
             cx.new(|cx| LibraryFolderDialog::new(self.state.clone(), folder, where_, window, cx));
-        self._subscriptions.push(cx.subscribe(
+        self._subscriptions.push(cx.subscribe_in(
             &dialog,
-            move |this, _, event: &FolderDialogEvent, cx| {
+            window,
+            move |this, _, event: &FolderDialogEvent, window, cx| {
                 match event {
-                    FolderDialogEvent::Close => this.dialog = None,
+                    FolderDialogEvent::Close => this.close_dialog(window, cx),
                     FolderDialogEvent::Save(fields) => {
                         let Some(scope) = this.scope(cx) else { return };
                         let message = match &editing {
@@ -1028,6 +1033,7 @@ impl Render for LibraryPage {
         }
         .render(window, cx)
         .relative()
+        .track_focus(&self.focus)
         .children(self.dialog.clone())
         .test_support()
     }
