@@ -20,7 +20,7 @@ use futures::{
     },
     future::BoxFuture,
 };
-use gpui::{App, AppContext, Context, Entity, EventEmitter};
+use gpui::{App, AppContext, Context, Entity, EventEmitter, Task};
 use linker_edit_protocol::{
     self as protocol, ChatItem, CollectionSummary, FolderListing, HistoryEntry, LibraryView,
     OrError, PreviewState, ProjectSummary, ResolveLibrary, ThreadSummary, Tone,
@@ -123,6 +123,12 @@ pub struct AppState {
     folder_request: u32,
     folder_replies: HashMap<u32, oneshot::Sender<OrError<FolderListing>>>,
     commands: UnboundedSender<ClientMessage>,
+    /// This computer's server, by its http(s) address; None when the window doesn't know it.
+    pub home: Option<String>,
+    /// The server the link goes to now: `home`, or another computer's (see [`AppState::relink`]).
+    pub server: Option<String>,
+    /// Folds the link's events into the state; replaced, and so stopped, by a new link.
+    pump: Option<Task<()>>,
 }
 
 impl EventEmitter<AppEvent> for AppState {}
@@ -130,10 +136,7 @@ impl EventEmitter<AppEvent> for AppState {}
 impl AppState {
     /// Makes the state entity and pumps the link's events into it on the foreground thread.
     pub fn new(link: Link, cx: &mut App) -> Entity<AppState> {
-        let Link {
-            mut events,
-            commands,
-        } = link;
+        let Link { events, commands } = link;
         let state = cx.new(|_| AppState {
             connected: false,
             ever_connected: false,
@@ -148,17 +151,53 @@ impl AppState {
             folder_request: 0,
             folder_replies: HashMap::new(),
             commands,
+            home: None,
+            server: None,
+            pump: None,
         });
-        let weak = state.downgrade();
-        cx.spawn(async move |cx| {
+        state.update(cx, |state, cx| state.pump = Some(Self::pump(events, cx)));
+        state
+    }
+
+    fn pump(mut events: UnboundedReceiver<LinkEvent>, cx: &mut Context<Self>) -> Task<()> {
+        cx.spawn(async move |this, cx| {
             while let Some(event) = events.next().await {
-                if weak.update(cx, |state, cx| state.apply(event, cx)).is_err() {
+                if this.update(cx, |state, cx| state.apply(event, cx)).is_err() {
                     break;
                 }
             }
         })
-        .detach();
-        state
+    }
+
+    /// Puts the window on another link, such as another computer's server (`server` is its
+    /// address): what came over the old one is forgotten, as when the browser loads another page.
+    pub fn relink(&mut self, server: String, link: Link, cx: &mut Context<Self>) {
+        let Link { events, commands } = link;
+        for (_, reply) in self.folder_replies.drain() {
+            let _ = reply.send(OrError::Error {
+                error: "Lost the connection to the Linker-Edit server.".into(),
+            });
+        }
+        self.commands = commands;
+        self.pump = Some(Self::pump(events, cx));
+        self.server = Some(server);
+        self.connected = false;
+        self.ever_connected = false;
+        self.signed_out = false;
+        self.app = None;
+        self.history = None;
+        self.project_file = None;
+        self.library = None;
+        self.library_view = None;
+        cx.notify();
+    }
+
+    /// The window shows another computer's Linker-Edit, not this computer's.
+    pub fn away(&self) -> bool {
+        match (&self.home, &self.server) {
+            (Some(home), Some(server)) => origin(home) != origin(server),
+            _ => false,
+        }
     }
 
     /// Folds one event into the state, as connection.svelte.ts's onmessage and appState.ts's
@@ -406,6 +445,14 @@ impl AppState {
     pub fn thread_id(&self) -> Option<&str> {
         self.app.as_ref()?.meta.thread_id.as_deref()
     }
+}
+
+/// `new URL(url).origin`, near enough: the scheme, host and port, without a path or a slash.
+pub fn origin(url: &str) -> String {
+    let url = url.trim();
+    let (scheme, rest) = url.split_once("://").unwrap_or(("http", url));
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    format!("{}://{}", scheme.to_lowercase(), host.to_lowercase())
 }
 
 /// Every chat item's id.

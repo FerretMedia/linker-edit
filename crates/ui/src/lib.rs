@@ -4,11 +4,15 @@
 // gpui-kit re-exports GPUI; GPUI's macros expand to `gpui::…`, so it goes by that name too.
 extern crate gpui_kit as gpui;
 
+pub mod browse_path;
+pub mod collection_icons;
 pub mod components;
 pub mod context;
 pub mod icons;
 pub mod labels;
 pub mod markdown;
+pub mod project_icon_colors;
+pub mod sidebar;
 mod single_instance;
 pub mod state;
 pub mod theme;
@@ -23,9 +27,11 @@ use gpui::{AppContext, Entity, Window};
 pub use state::{AppEvent, AppState, ClientMessage, Link, LinkEvent, ServerEnd, ServerMessage};
 pub use workspace::Workspace;
 
-/// Opens the window on `link` and runs until it closes. If another copy already runs on the
-/// same data folder, brings its window forward and returns at once.
-pub fn run(link: Link) -> anyhow::Result<()> {
+/// Opens the window on `link` and runs until it closes. `home` is the http(s) address of the
+/// server `link` goes to, this computer's: the computer menu asks it for the user's other
+/// computers and comes back to it. If another copy already runs on the same data folder, brings
+/// its window forward and returns at once.
+pub fn run(link: Link, home: Option<String>) -> anyhow::Result<()> {
     let mut focus_requests = match single_instance::claim()? {
         single_instance::Instance::Primary(requests) => requests,
         single_instance::Instance::Secondary => return Ok(()),
@@ -36,6 +42,10 @@ pub fn run(link: Link) -> anyhow::Result<()> {
         .run(move |cx| {
             gpui_kit::init(cx);
             let state = AppState::new(link, cx);
+            state.update(cx, |state, _| {
+                state.server = home.clone();
+                state.home = home;
+            });
             let (window, _) = gpui_kit::open_window(window::options(cx), cx, |window, cx| {
                 new_workspace(state, window, cx)
             })
