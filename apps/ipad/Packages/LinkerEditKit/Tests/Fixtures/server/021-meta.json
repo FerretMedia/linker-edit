@@ -103,10 +103,18 @@
     "appUpdate": null,
     "workspaceDir": "/work",
     "preview": {
-      "state": "idle"
+      "state": "rendering",
+      "timeline": {
+        "id": "timeline-1",
+        "name": "AI - Cut"
+      },
+      "percent": 40
     },
     "context": null,
-    "blocked": null,
+    "blocked": {
+      "message": "Resolve is rendering a preview. Send when it's done, or stop it in the preview panel.",
+      "canOpen": false
+    },
     "opening": null,
     "applying": null,
     "transcription": {

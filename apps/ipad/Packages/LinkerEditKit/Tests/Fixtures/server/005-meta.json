@@ -36,7 +36,7 @@
             "lastSentAt": null,
             "turnEndedAt": null,
             "archived": false,
-            "busy": false,
+            "busy": true,
             "waiting": false
           }
         ],
@@ -82,8 +82,8 @@
     "projectId": "project-1",
     "provider": "claude",
     "defaultProvider": "claude",
-    "approvalMode": "auto",
-    "busy": false,
+    "approvalMode": "ask",
+    "busy": true,
     "approvals": [],
     "resolve": {
       "state": "connected",

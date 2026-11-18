@@ -2,11 +2,14 @@
   "type": "item",
   "threadId": "thread-1",
   "item": {
-    "id": "t1",
+    "id": "t2",
     "kind": "tool",
-    "name": "mcp__linker__list_timelines",
-    "input": {},
+    "name": "mcp__linker__create_timeline",
+    "input": {
+      "name": "AI - Cut",
+      "from": "Cut"
+    },
     "status": "done",
-    "output": "[\"Cut\"]"
+    "output": "Created AI - Cut with 41 clips."
   }
 }

@@ -103,7 +103,14 @@
     "appUpdate": null,
     "workspaceDir": "/work",
     "preview": {
-      "state": "idle"
+      "state": "ready",
+      "timeline": {
+        "id": "timeline-1",
+        "name": "AI - Cut"
+      },
+      "url": "/preview/preview-1.mp4",
+      "renderedAt": "2026-11-17T09:00:00.000Z",
+      "outdated": false
     },
     "context": null,
     "blocked": null,
