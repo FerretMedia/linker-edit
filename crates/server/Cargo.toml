@@ -17,9 +17,12 @@ reqwest.workspace = true
 getrandom = "0.3"
 async-trait = "0.1"
 chrono.workspace = true
+icu_collator = "2.4"
 indexmap = { version = "2", features = ["serde"] }
 regex = "1"
 # Fresh folders for view_frames, as fs.mkdtemp.
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-util = "0.7"
+unicode-normalization = "0.1"
+uuid.workspace = true
