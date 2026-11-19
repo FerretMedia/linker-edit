@@ -13,9 +13,11 @@ import type { Sessions } from "./sessions.ts";
  * other computers reach it from anywhere, without Tailscale. Linker only makes and removes the tunnels
  * (app.linker.cool/api/edit/computers); the traffic goes straight through the tunnel to this computer.
  *
- * Getting in (server/http.ts): your other Linker-Edit, or the iPad app, shows this computer your Linker token, this
- * computer asks Linker whose it is, and only the account signed in here gets a one-time code for a session
- * (sessions.ts): a cookie for Linker-Edit's window, a Bearer token for the iPad app (redeem).
+ * Getting in (server/http.ts): your other Linker-Edit, the iPad app or a page on your own web address shows this
+ * computer your Linker token, this computer asks Linker whose it is, and only the account signed in here gets a
+ * one-time code for a session (sessions.ts): a cookie for Linker-Edit's window, a Bearer token for the others
+ * (redeem). That works through the tunnel and over Tailscale; "Use the tunnel" off links this computer for
+ * Tailscale only, with no tunnel at all.
  */
 
 export const LIMIT = 3;
@@ -42,6 +44,10 @@ interface Saved {
   enabled: boolean;
   url?: string;
   tunnelToken?: string;
+  /** "Use the tunnel"; missing in files from before it, which all did. */
+  tunnel?: boolean;
+  /** The Tailscale address last sent to Linker. */
+  tailnetUrl?: string | null;
   /** The Linker account that linked this computer, the only one let in. */
   ownerId?: string;
 }
@@ -58,6 +64,11 @@ export interface ConnectOptions {
   /** Finds or downloads cloudflared; answers the file to run. */
   prepare: (onPercent: (percent: number) => void) => Promise<string>;
   startTunnel?: StartTunnel;
+  /**
+   * This computer's Tailscale remote access address while it's on, which Linker lists for your web address;
+   * null while it's off, undefined while not known yet.
+   */
+  tailnetUrl?: () => string | null | undefined;
   fetch?: typeof fetch;
   name?: string;
   now?: () => number;
@@ -82,10 +93,18 @@ function relayMessage(status: number, body: Record<string, unknown>): string {
   return `Linker answered ${status}.`;
 }
 
-function isComputer(value: unknown): value is LinkedComputer {
-  const c = value as LinkedComputer | null;
-  return !!c && typeof c.id === "string" && typeof c.name === "string" && typeof c.url === "string" && /^https:\/\//.test(c.url);
+const httpsOrNull = (value: unknown) => (typeof value === "string" && /^https:\/\//.test(value) ? value : null);
+
+/** A computer from Linker's answer, or null when it isn't one; url is null for a computer linked without a tunnel. */
+function toComputer(value: unknown): LinkedComputer | null {
+  const c = value as Record<string, unknown> | null;
+  if (!c || typeof c.id !== "string" || typeof c.name !== "string") return null;
+  const url = httpsOrNull(c.url);
+  if (url === null && c.url !== null) return null;
+  return { ...(c as unknown as LinkedComputer), url, tailnetUrl: httpsOrNull(c.tailnetUrl) };
 }
+
+const toComputers = (list: unknown): LinkedComputer[] | null => (Array.isArray(list) ? list.flatMap((entry) => toComputer(entry) ?? []) : null);
 
 export type ConnectService = ReturnType<typeof createConnect>;
 
@@ -132,11 +151,15 @@ export function createConnect(options: ConnectOptions) {
   options.sessions.onChange(changed);
 
   const signedIn = () => options.linker.status().state === "signed_in";
+  const useTunnel = () => saved.tunnel !== false;
+  /** Linked and on: with the tunnel running, or for Tailscale only. */
+  const on = () => tunnel !== null || (saved.enabled && !useTunnel() && !!saved.ownerId);
 
   function status(): LinkerConnect {
-    const state = !signedIn() && !tunnel ? "signed_out" : starting ? "starting" : tunnel ? "on" : "off";
+    const state = !signedIn() && !tunnel ? "signed_out" : starting ? "starting" : on() ? "on" : "off";
     return {
       state,
+      tunnel: useTunnel(),
       url: saved.url ?? null,
       connected: state === "on" && connected,
       step: starting ? step : null,
@@ -165,7 +188,7 @@ export function createConnect(options: ConnectOptions) {
 
   async function listComputers(): Promise<LinkedComputer[]> {
     const body = await relay("GET", "");
-    computers = Array.isArray(body.computers) ? body.computers.filter(isComputer) : [];
+    computers = toComputers(body.computers) ?? [];
     listedAt = now();
     return computers;
   }
@@ -233,9 +256,17 @@ export function createConnect(options: ConnectOptions) {
     }
     step = "Linking this computer";
     changed();
+    // Not known yet (Tailscale still being checked): what Linker was told last.
+    const known = options.tailnetUrl?.();
+    const tailnetUrl = known === undefined ? (saved.tailnetUrl ?? null) : known;
     let body: Record<string, unknown>;
     try {
-      body = await relay("PUT", `/${encodeURIComponent(saved.computerId)}`, { name: name.slice(0, 64), port: options.port });
+      body = await relay("PUT", `/${encodeURIComponent(saved.computerId)}`, {
+        name: name.slice(0, 64),
+        port: options.port,
+        tailnetUrl,
+        tunnel: useTunnel(),
+      });
     } catch (error) {
       if (error instanceof RelayError && error.status === 409 && error.body.error === "taken") {
         // Someone else's computer has this id, however unlikely: take a new one.
@@ -245,16 +276,29 @@ export function createConnect(options: ConnectOptions) {
       }
       if (error instanceof RelayError && error.status === 409 && error.body.error === "limit") {
         atLimit = true;
-        computers = Array.isArray(error.body.computers) ? error.body.computers.filter(isComputer) : computers;
+        computers = toComputers(error.body.computers) ?? computers;
         problem = `Your Linker account already has ${LIMIT} computers linked. Remove one below to link this one.`;
         return false;
       }
       throw error;
     }
-    const computer = body.computer;
-    if (!isComputer(computer) || typeof body.tunnelToken !== "string") throw new Error("Linker's answer was missing the tunnel.");
-    saved.url = computer.url;
-    saved.tunnelToken = body.tunnelToken;
+    const computer = toComputer(body.computer);
+    if (!computer) throw new Error("Linker's answer was missing this computer.");
+    if (useTunnel()) {
+      if (!computer.url || typeof body.tunnelToken !== "string") throw new Error("Linker's answer was missing the tunnel.");
+      // Linker gave the tunnel a new token: cloudflared starts again with it.
+      const restart = tunnel !== null && saved.tunnelToken !== body.tunnelToken;
+      saved.url = computer.url;
+      saved.tunnelToken = body.tunnelToken;
+      if (restart) {
+        stopTunnel();
+        void runTunnel().catch(() => {});
+      }
+    } else {
+      delete saved.url;
+      delete saved.tunnelToken;
+    }
+    saved.tailnetUrl = tailnetUrl;
     saved.ownerId = userId;
     atLimit = false;
     write();
@@ -263,7 +307,7 @@ export function createConnect(options: ConnectOptions) {
   }
 
   async function turnOn() {
-    if (starting || tunnel) return;
+    if (starting || on()) return;
     starting = true;
     problem = null;
     changed();
@@ -273,7 +317,8 @@ export function createConnect(options: ConnectOptions) {
         linked = await link();
       } catch (error) {
         // Offline at start: a computer linked before still opens its tunnel; Linker's side is unchanged.
-        if (!(error instanceof RelayError) && saved.tunnelToken && saved.ownerId === options.linker.userId()) linked = true;
+        const linkedBefore = useTunnel() ? !!saved.tunnelToken : !!saved.ownerId;
+        if (!(error instanceof RelayError) && linkedBefore && saved.ownerId === options.linker.userId()) linked = true;
         problem = error instanceof Error ? error.message : String(error);
       }
       if (!linked) {
@@ -283,7 +328,7 @@ export function createConnect(options: ConnectOptions) {
       }
       saved.enabled = true;
       write();
-      await runTunnel();
+      if (useTunnel()) await runTunnel();
     } catch (error) {
       problem = error instanceof Error ? error.message : String(error);
       stopTunnel();
@@ -292,6 +337,17 @@ export function createConnect(options: ConnectOptions) {
       step = null;
       changed();
     }
+    // Tailscale's remote access may have changed while this was linking.
+    tailnetChanged();
+  }
+
+  /** Tells Linker this computer's Tailscale address again when remote access was turned on or off while linked. */
+  function tailnetChanged() {
+    const next = options.tailnetUrl?.();
+    if (next === undefined || next === (saved.tailnetUrl ?? null) || !saved.enabled || starting || !signedIn()) return;
+    link()
+      .catch((error: unknown) => void (problem = error instanceof Error ? error.message : String(error)))
+      .finally(changed);
   }
 
   function turnOff(reason: string | null) {
@@ -326,6 +382,35 @@ export function createConnect(options: ConnectOptions) {
       if (enabled) await turnOn();
       else turnOff(null);
     },
+
+    /**
+     * "Use the tunnel": off links this computer for Tailscale only, and Linker removes its tunnel. Devices signed in
+     * stay signed in; they come in over Tailscale now.
+     */
+    async setTunnel(value: boolean) {
+      if (useTunnel() === value || starting) return;
+      saved.tunnel = value;
+      write();
+      if (!saved.enabled) {
+        changed();
+        return;
+      }
+      if (!value) stopTunnel();
+      starting = true;
+      problem = null;
+      changed();
+      try {
+        if ((await link()) && value) await runTunnel();
+      } catch (error) {
+        problem = error instanceof Error ? error.message : String(error);
+      } finally {
+        starting = false;
+        step = null;
+        changed();
+      }
+    },
+
+    tailnetChanged,
 
     /** Looks up your linked computers again, for the settings page. */
     async refresh() {
@@ -376,11 +461,11 @@ export function createConnect(options: ConnectOptions) {
     },
 
     /**
-     * Someone at the tunnel shows a Linker token. Only the account that linked this computer gets a one-time
-     * code for a session.
+     * Someone at the tunnel or on Tailscale shows a Linker token (a web token from your own web address too).
+     * Only the account that linked this computer gets a one-time code for a session.
      */
     async admit(token: string, device: string): Promise<{ code: string } | { status: number; error: string }> {
-      if (!tunnel || !saved.ownerId) return { status: 503, error: "Linker Connect is off on this computer." };
+      if (!on() || !saved.ownerId) return { status: 503, error: "Linker Connect is off on this computer." };
       if (!admitting()) return { status: 429, error: "Too many tries. Wait a minute." };
       let who: string | null;
       try {
@@ -400,7 +485,7 @@ export function createConnect(options: ConnectOptions) {
      * The code only exists on this computer, so it can't be used at another.
      */
     redeem(code: string): { session: string; expiresAt: string } | { status: number; error: string } {
-      if (!tunnel || !saved.ownerId) return { status: 503, error: "Linker Connect is off on this computer." };
+      if (!on() || !saved.ownerId) return { status: 503, error: "Linker Connect is off on this computer." };
       if (!redeeming()) return { status: 429, error: "Too many tries. Wait a minute." };
       const entered = code ? options.sessions.enter(code, "native") : null;
       if (!entered) return { status: 401, error: "That code ran out or was used already. Sign in again." };
@@ -425,7 +510,7 @@ export function createConnect(options: ConnectOptions) {
      */
     async open(url: string): Promise<string> {
       const origin = new URL(url).origin;
-      const find = (list: LinkedComputer[] | null) => list?.find((computer) => new URL(computer.url).origin === origin);
+      const find = (list: LinkedComputer[] | null) => list?.find((computer) => computer.url !== null && new URL(computer.url).origin === origin);
       const computer = find(computers) ?? find(await listComputers());
       if (!computer) throw new Error("That computer isn't linked to your Linker account.");
       const token = await options.linker.accessToken();

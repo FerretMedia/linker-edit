@@ -6,12 +6,12 @@ import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
 import * as zlib from "node:zlib";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage } from "../shared/protocol.ts";
+import { PROTOCOL_VERSION, type ClientMessage, type Computer, type Hello, type LinkedComputer } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
 import type { LinkerService } from "./linker.ts";
-import type { Computer } from "../shared/protocol.ts";
 import type { ConnectService } from "./connect/connect.ts";
 import type { Sessions } from "./connect/sessions.ts";
+import type { WebOrigins } from "./connect/webOrigins.ts";
 import { probeLinkerEdit, requestSource, type Probe, type RemoteGate } from "./remote.ts";
 
 const MIME: Record<string, string> = {
@@ -358,9 +358,11 @@ export function createServer(
     if (urlPath === "/api/computers") {
       const probe = connect?.probe ?? probeLinkerEdit;
       // Your other computers linked with Linker Connect, each asked its name and version through its tunnel.
+      // One linked for Tailscale only has no address at Linker; Tailscale lists it already when it's yours.
+      const reachable = (computer: LinkedComputer): computer is LinkedComputer & { url: string } => computer.url !== null;
       const linked = async (): Promise<Computer[]> =>
         Promise.all(
-          (connect ? await connect.others() : []).map(async (computer) => {
+          (connect ? await connect.others() : []).filter(reachable).map(async (computer) => {
             const origin = new URL(computer.url).origin;
             const hello = computer.online === false ? null : await probe(origin);
             return { name: hello?.name || computer.name, url: origin, version: hello?.version ?? "", via: "linker" as const, online: hello !== null };

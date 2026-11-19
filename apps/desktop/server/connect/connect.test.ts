@@ -16,7 +16,7 @@ function fakeLinker() {
   const fake = {
     state: "signed_in" as LinkerAccount["state"],
     userId: "user_jane" as string | null,
-    tokens: { "token-jane": "user_jane", "token-bob": "user_bob" } as Record<string, string>,
+    tokens: { "token-jane": "user_jane", "token-bob": "user_bob", lew_jane: "user_jane", lew_bob: "user_bob" } as Record<string, string>,
     offline: false,
     signOut() {
       fake.state = "signed_out";
@@ -44,6 +44,8 @@ function fakeLinker() {
 function fakeRelay() {
   const computers = new Map<string, LinkedComputer & { owner: string; port: number }>();
   const calls: string[] = [];
+  /** What each PUT sent. */
+  const links: { tailnetUrl: string | null; tunnel: boolean }[] = [];
   let down = false;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   const mine = () => [...computers.values()].filter((c) => c.owner === "user_jane").map(({ owner: _o, port: _p, ...c }) => c);
@@ -60,24 +62,29 @@ function fakeRelay() {
     const id = decodeURIComponent(url.pathname.replace("/api/edit/computers", "").replace(/^\//, ""));
     if (method === "GET") return json({ limit: LIMIT, computers: mine() });
     if (method === "PUT") {
-      const body = JSON.parse(String(init?.body)) as { name: string; port: number };
+      const body = JSON.parse(String(init?.body)) as { name: string; port: number; tailnetUrl: string | null; tunnel: boolean };
+      links.push({ tailnetUrl: body.tailnetUrl, tunnel: body.tunnel });
       const existing = computers.get(id);
       if (existing && existing.owner !== "user_jane") return json({ error: "taken" }, 409);
       if (!existing && mine().length >= LIMIT) return json({ error: "limit", limit: LIMIT, computers: mine() }, 409);
+      const tunnelUrl = `https://edit-${String(computers.size + 1).padStart(16, "0")}.linker.example`;
       const computer = existing ?? {
         id,
         owner: "user_jane",
-        url: `https://edit-${String(computers.size + 1).padStart(16, "0")}.linker.example`,
+        url: tunnelUrl,
+        tailnetUrl: null,
         online: true,
         linkedAt: "2026-11-16T10:00:00.000Z",
         lastSeenAt: null,
         name: body.name,
         port: body.port,
       };
-      Object.assign(computer, { name: body.name, port: body.port });
+      // Without a tunnel Linker removes it, and the computer has no address there.
+      const url = body.tunnel ? (computer.url ?? tunnelUrl) : null;
+      Object.assign(computer, { name: body.name, port: body.port, tailnetUrl: body.tailnetUrl, url });
       computers.set(id, computer);
       const { owner: _o, port: _p, ...shown } = computer;
-      return json({ computer: shown, tunnelToken: `tunnel-${id}` });
+      return json({ computer: shown, tunnelToken: body.tunnel ? `tunnel-${id}` : null });
     }
     if (method === "DELETE") return computers.delete(id) ? new Response(null, { status: 204 }) : json({ error: "not_found" }, 404);
     return json({ error: "?" }, 405);
@@ -85,6 +92,7 @@ function fakeRelay() {
   return {
     computers,
     calls,
+    links,
     fetchFn,
     setDown: (value: boolean) => void (down = value),
     addOther(owner: string, id: string) {
@@ -94,6 +102,7 @@ function fakeRelay() {
         owner,
         name: `PC ${n}`,
         url: `https://edit-${String(n).padStart(16, "0")}.linker.example`,
+        tailnetUrl: null,
         online: true,
         linkedAt: "2026-11-15T10:00:00.000Z",
         lastSeenAt: null,
@@ -120,6 +129,8 @@ beforeEach(() => {
 });
 
 function setup() {
+  /** Tailscale's remote access here: its address while on, null while off, undefined while not known yet. */
+  const tailscale = { url: null as string | null | undefined };
   const linker = fakeLinker();
   const relay = fakeRelay();
   const tunnels = fakeTunnels();
@@ -136,10 +147,11 @@ function setup() {
         return "cloudflared";
       },
       startTunnel: tunnels.start,
+      tailnetUrl: () => tailscale.url,
       fetch: relay.fetchFn,
       name: "Studio",
     });
-  return { linker, relay, tunnels, sessions, make, connect: make() };
+  return { linker, relay, tunnels, sessions, tailscale, make, connect: make() };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -195,6 +207,9 @@ describe("Linker Connect", () => {
     expect(admitted).toEqual({ code: expect.any(String) });
     expect(sessions.enter((admitted as { code: string }).code)).not.toBeNull();
     expect(await connect.admit("token-bob", "Bob's")).toEqual({ status: 403, error: expect.stringContaining("another Linker account") });
+    // A web token from a page on your own web address counts the same way.
+    expect(await connect.admit("lew_jane", "Browser")).toEqual({ code: expect.any(String) });
+    expect(await connect.admit("lew_bob", "Bob's browser")).toEqual({ status: 403, error: expect.stringContaining("another Linker account") });
     expect(await connect.admit("stolen", "?")).toEqual({ status: 401, error: expect.any(String) });
     linker.fake.offline = true;
     expect(await connect.admit("token-jane", "Laptop")).toEqual({ status: 502, error: expect.any(String) });
@@ -268,6 +283,74 @@ describe("Linker Connect", () => {
       "https://edit-0000000000000002.linker.example/api/connect/enter?code=one-time",
     );
     await expect(connect.open("https://edit-0000000000000003.linker.example")).rejects.toThrow("isn't linked");
+  });
+
+  it("links for Tailscale only without a tunnel, and lets the owner in there", async () => {
+    const { connect, relay, tunnels, tailscale, sessions } = setup();
+    tailscale.url = "https://studio.tail1234.ts.net:8443";
+    await connect.setTunnel(false);
+    expect(connect.status()).toMatchObject({ state: "off", tunnel: false });
+    await connect.setEnabled(true);
+    expect(relay.links).toEqual([{ tailnetUrl: "https://studio.tail1234.ts.net:8443", tunnel: false }]);
+    expect(tunnels.runs).toHaveLength(0);
+    expect(connect.status()).toMatchObject({ state: "on", tunnel: false, url: null });
+    expect(connect.host()).toBeNull();
+    expect(connect.status().computers).toEqual([expect.objectContaining({ url: null, tailnetUrl: "https://studio.tail1234.ts.net:8443" })]);
+    // Signing in works without the tunnel: over Tailscale, still only for the account that linked it.
+    const admitted = await connect.admit("token-jane", "Browser on Windows");
+    expect(admitted).toEqual({ code: expect.any(String) });
+    expect(connect.redeem((admitted as { code: string }).code)).toEqual({ session: expect.any(String), expiresAt: expect.any(String) });
+    expect(await connect.admit("token-bob", "Bob's")).toMatchObject({ status: 403 });
+    // Turning the tunnel back on runs it, and devices stay signed in.
+    await connect.setTunnel(true);
+    expect(relay.links.at(-1)).toEqual({ tailnetUrl: "https://studio.tail1234.ts.net:8443", tunnel: true });
+    expect(tunnels.runs).toHaveLength(1);
+    expect(connect.status()).toMatchObject({ state: "on", tunnel: true, url: expect.stringMatching(/^https:\/\/edit-/) });
+    expect(sessions.list()).toHaveLength(1);
+    // And off again stops it.
+    await connect.setTunnel(false);
+    expect(tunnels.runs[0]!.stopped).toBe(true);
+    expect(connect.status()).toMatchObject({ state: "on", url: null });
+    await connect.setEnabled(false);
+    expect(await connect.admit("token-jane", "Browser")).toMatchObject({ status: 503 });
+  });
+
+  it("tells Linker its Tailscale address again when remote access changes while linked", async () => {
+    const { connect, relay, tailscale } = setup();
+    // Not known yet at start: nothing is sent for it until it is.
+    tailscale.url = undefined;
+    await connect.setEnabled(true);
+    expect(relay.links).toEqual([{ tailnetUrl: null, tunnel: true }]);
+    connect.tailnetChanged();
+    expect(relay.links).toHaveLength(1);
+    tailscale.url = "https://studio.tail1234.ts.net:8443";
+    connect.tailnetChanged();
+    await settle();
+    await settle();
+    expect(relay.links.at(-1)).toEqual({ tailnetUrl: "https://studio.tail1234.ts.net:8443", tunnel: true });
+    // Unchanged: nothing sent.
+    connect.tailnetChanged();
+    expect(relay.links).toHaveLength(2);
+    tailscale.url = null;
+    connect.tailnetChanged();
+    await settle();
+    await settle();
+    expect(relay.links.at(-1)).toEqual({ tailnetUrl: null, tunnel: true });
+    // Off: Linker hears it at the next link.
+    await connect.setEnabled(false);
+    tailscale.url = "https://studio.tail1234.ts.net:8443";
+    connect.tailnetChanged();
+    expect(relay.links).toHaveLength(3);
+  });
+
+  it("opens only computers with an address at Linker", async () => {
+    const { connect, relay } = setup();
+    await connect.setEnabled(true);
+    relay.addOther("user_jane", "office");
+    relay.computers.get("office")!.url = null;
+    await connect.refresh();
+    expect((await connect.others()).map((c) => [c.id, c.url])).toEqual([["office", null]]);
+    await expect(connect.open("https://edit-0000000000000002.linker.example")).rejects.toThrow("isn't linked");
   });
 
   it("unlinking this computer turns it off and forgets its address", async () => {

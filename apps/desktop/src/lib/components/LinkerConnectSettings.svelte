@@ -16,6 +16,7 @@
     computer,
     onRefresh,
     onSetEnabled,
+    onSetTunnel,
     onUnlink,
     onSignOutDevice,
     onSignIn,
@@ -25,6 +26,8 @@
     computer: string;
     onRefresh: () => void;
     onSetEnabled: (enabled: boolean) => void;
+    /** "Use the tunnel": off links this computer for Tailscale only. */
+    onSetTunnel: (tunnel: boolean) => void;
     onUnlink: (computerId: string) => void;
     onSignOutDevice: (deviceId: string) => void;
     /** Opens the Linker account settings, to sign in. */
@@ -50,6 +53,14 @@
     if (!enabled && throughTunnel && !confirm("You're connected through Linker Connect. Turning it off disconnects this window.")) return;
     onSetEnabled(enabled);
   }
+
+  function setTunnel(tunnel: boolean) {
+    if (!tunnel && throughTunnel && !confirm("You're connected through the tunnel. Turning it off disconnects this window.")) return;
+    onSetTunnel(tunnel);
+  }
+
+  // Linked for Tailscale only: on, with no tunnel to connect.
+  const ready = $derived(connect.state === "on" && (connect.connected || !connect.tunnel));
 
   function unlink(id: string, name: string) {
     const here = id === connect.computerId;
@@ -78,8 +89,10 @@
       description={connect.state === "starting"
         ? (connect.step ?? "Starting…")
         : connect.state === "on"
-          ? connect.connected
-            ? "On. Reachable while Linker-Edit runs here."
+          ? ready
+            ? connect.tunnel
+              ? "On. Reachable while Linker-Edit runs here."
+              : "On, over Tailscale only. Turn on remote access below."
             : "Connecting to Cloudflare…"
           : `Gives ${computer} its own address at Linker. One account links up to ${connect.limit} computers.`}
     >
@@ -89,7 +102,7 @@
         {/if}
       {/snippet}
       <span
-        class="size-2 rounded-full {connect.state === 'on' && connect.connected
+        class="size-2 rounded-full {ready
           ? 'bg-success'
           : connect.state === 'off'
             ? 'bg-muted-foreground'
@@ -100,6 +113,12 @@
         checked={connect.state === "on" || connect.state === "starting"}
         onChange={(checked) => connect.state !== "starting" && setEnabled(checked)}
       />
+    </SettingsRow>
+    <SettingsRow
+      label="Use the tunnel"
+      description="Gives {computer} an address at Linker that works from anywhere. Off, your other devices reach it over Tailscale only."
+    >
+      <Switch label="Use the tunnel" checked={connect.tunnel} onChange={(checked) => connect.state !== "starting" && setTunnel(checked)} />
     </SettingsRow>
     {#if connect.url && connect.state === "on"}
       <SettingsRow label="Address" description="On your other computer, pick {computer} in Linker-Edit's computer menu.">

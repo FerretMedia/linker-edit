@@ -346,6 +346,7 @@
             computer={app.computer}
             onRefresh={() => send({ type: "refresh_connect" })}
             onSetEnabled={(enabled) => send({ type: "set_connect", enabled })}
+            onSetTunnel={(tunnel) => send({ type: "set_connect_tunnel", tunnel })}
             onUnlink={(computerId) => send({ type: "connect_unlink", computerId })}
             onSignOutDevice={(deviceId) => send({ type: "connect_sign_out_device", deviceId })}
             onSignIn={() => onSection("account")}

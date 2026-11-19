@@ -14,6 +14,7 @@ import { createLinker } from "./linker.ts";
 import { prepareCloudflared } from "./connect/cloudflared.ts";
 import { createConnect } from "./connect/connect.ts";
 import { createSessions } from "./connect/sessions.ts";
+import { createWebOrigins } from "./connect/webOrigins.ts";
 import { createPreviewRenderer } from "./preview/preview.ts";
 import { fileProjectStore } from "./projects/store.ts";
 import { createClaudeSession } from "./providers/claude.ts";
@@ -54,7 +55,15 @@ const connect = createConnect({
   appUrl: config.linker.appUrl,
   sessions: connectSessions,
   prepare: (onPercent) => prepareCloudflared(config.toolsDir, config.connect.cloudflared, onPercent),
+  // Linker lists it for your own web address, which tries Tailscale before the tunnel.
+  tailnetUrl: () => {
+    const status = remote.status();
+    return status.state === "on" ? status.url : status.state === "off" || status.state === "unavailable" ? null : undefined;
+  },
 });
+remote.onStatus(() => connect.tailnetChanged());
+// The web addresses where you put Linker-Edit's UI yourself and allowed them at Linker.
+const webOrigins = createWebOrigins({ linker, appUrl: config.linker.appUrl });
 
 // The desktop app started this server and talks to it over IPC: its own updates go through here.
 const appUpdates =
