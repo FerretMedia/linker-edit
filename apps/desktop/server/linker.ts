@@ -402,8 +402,16 @@ export function createLinker(options: LinkerOptions) {
     /**
      * Who a Linker token belongs to, as Linker's id for them: null when Linker says the token isn't valid.
      * Throws when Linker can't be reached, so being offline isn't taken for a wrong token.
+     * A web token (lew_…, from signing in on your own Linker-Edit web address) only Linker itself knows.
      */
     async whoIs(token: string): Promise<string | null> {
+      if (token.startsWith("lew_")) {
+        const res = await call(`${appUrl}/api/edit/whoami`, { headers: { authorization: `Bearer ${token}`, accept: "application/json" } });
+        if (res.status === 401) return null;
+        if (!res.ok) throw new Error(`Linker didn't say who that is (${res.status}).`);
+        const sub = ((await res.json()) as { sub?: unknown }).sub;
+        return typeof sub === "string" && sub ? sub : null;
+      }
       const meta = await serverMetadata();
       const res = await call(meta.userinfo_endpoint ?? `${authServer}/oauth/userinfo`, {
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },

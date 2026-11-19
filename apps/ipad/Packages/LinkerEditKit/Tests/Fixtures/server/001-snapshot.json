@@ -104,6 +104,7 @@
     },
     "connect": {
       "state": "signed_out",
+      "tunnel": true,
       "url": null,
       "connected": false,
       "step": null,

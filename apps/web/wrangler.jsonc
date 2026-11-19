@@ -1,0 +1,14 @@
+// Your own Linker-Edit web address: Cloudflare serves the UI's files from public/, which get-ui.mjs fills from the
+// newest Linker-Edit release on every deploy. No Worker code runs; the UI talks to your edit computer directly.
+{
+  "name": "linker-edit-web",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    // A single-page app: every address that isn't a file gets index.html.
+    "not_found_handling": "single-page-application"
+  },
+  "build": {
+    "command": "node get-ui.mjs"
+  }
+}

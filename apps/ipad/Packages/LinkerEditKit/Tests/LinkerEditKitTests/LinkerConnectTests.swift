@@ -191,6 +191,7 @@ final class LinkerConnectTests: XCTestCase {
           {"id":"0b4e7a52-0000-4000-8000-000000000002","name":"Laptop","url":"https://edit-fedcba9876543210.linker.cool","online":null,
            "linkedAt":"2026-11-15T10:00:00.000Z","lastSeenAt":"2026-11-16T10:00:00.000Z"},
           {"id":"0b4e7a52-0000-4000-8000-000000000003","name":"Elsewhere","url":"https://edit-0123456789abcdef.linker.cool.evil.example"},
+          {"id":"0b4e7a52-0000-4000-8000-000000000004","name":"Den","url":null,"tailnetUrl":"https://den.tail1234.ts.net:8443"},
           {"name":"broken"}]}
         """)
         let linker = client()

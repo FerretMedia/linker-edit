@@ -53,8 +53,8 @@ public struct LinkerOAuthConfig: Sendable, Equatable {
 public struct LinkedComputer: Decodable, Hashable, Identifiable, Sendable {
     public var id: String
     public var name: String
-    /// https://edit-….linker.cool
-    public var url: String
+    /// https://edit-….linker.cool; nil for a computer linked for Tailscale only, which this app leaves out.
+    public var url: String?
     /// Whether its tunnel is connected now; nil when Linker couldn't tell.
     public var online: Bool?
     public var linkedAt: String?
@@ -64,13 +64,13 @@ public struct LinkedComputer: Decodable, Hashable, Identifiable, Sendable {
         let c = try decoder.keyed()
         id = try c.required("id")
         name = c.value("name", "Edit computer")
-        url = try c.required("url")
+        url = c.optional("url")
         online = c.optional("online")
         linkedAt = c.optional("linkedAt")
         lastSeenAt = c.optional("lastSeenAt")
     }
 
-    public var endpoint: HostEndpoint? { HostEndpoint(string: url) }
+    public var endpoint: HostEndpoint? { url.flatMap { HostEndpoint(string: $0) } }
 }
 
 /// A Linker Connect session on one host.

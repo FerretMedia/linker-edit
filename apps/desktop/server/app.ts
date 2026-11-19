@@ -141,6 +141,7 @@ const LIBRARY_PAGE = 300;
 /** Linker Connect in builds and tests without it. */
 const NO_CONNECT: LinkerConnect = {
   state: "signed_out",
+  tunnel: true,
   url: null,
   connected: false,
   step: null,
@@ -1227,6 +1228,9 @@ export function createApp(options: AppOptions) {
         break;
       case "set_connect":
         if (typeof message.enabled === "boolean") void options.connect?.setEnabled(message.enabled);
+        break;
+      case "set_connect_tunnel":
+        if (typeof message.tunnel === "boolean") void options.connect?.setTunnel(message.tunnel);
         break;
       case "connect_unlink":
         if (typeof message.computerId === "string" && message.computerId) void options.connect?.unlink(message.computerId);
