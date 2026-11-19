@@ -1,5 +1,6 @@
 import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
+import { host } from "./host.ts";
 
 export interface Toast {
   id: number;
@@ -9,7 +10,7 @@ export interface Toast {
 
 const TOAST_MS = 6000;
 
-/** One WebSocket to the local server, reconnecting; the server owns all state. */
+/** One WebSocket to the server, reconnecting; the server owns all state. */
 class ServerConnection {
   state = $state<AppState | null>(null);
   connected = $state(false);
@@ -33,7 +34,8 @@ class ServerConnection {
 
   connect() {
     if (this.#socket && this.#socket.readyState !== WebSocket.CLOSED) return;
-    const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws?meta=patch`);
+    const { url, protocols } = host.ws("/ws?meta=patch");
+    const socket = new WebSocket(url, protocols);
     this.#socket = socket;
     socket.onopen = () => (this.connected = true);
     socket.onclose = () => {

@@ -13,6 +13,7 @@
   import type { PlayableTimeline, PreviewState, ResolveStatus } from "#shared/protocol.ts";
   import PlayerControls from "#lib/components/PlayerControls.svelte";
   import TimelinePlayer from "#lib/components/TimelinePlayer.svelte";
+  import { host } from "#lib/host.ts";
   import { nearestCut, type PreviewTarget } from "#lib/player.ts";
 
   let {
@@ -88,7 +89,7 @@
     const controller = new AbortController();
     loading = true;
     loadError = null;
-    fetch(`/api/timeline?${params}`, { signal: controller.signal })
+    host.api(`/api/timeline?${params}`, { signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as PlayableTimeline | { error: string };
         if ("error" in body) throw new Error(body.error);
@@ -308,7 +309,7 @@
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
             bind:this={video}
-            src={rendered.url}
+            src={host.url(rendered.url)}
             bind:currentTime={time}
             bind:paused={() => !playing, (paused) => (playing = !paused)}
             {muted}
