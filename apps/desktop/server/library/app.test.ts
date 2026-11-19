@@ -113,6 +113,51 @@ describe("the library page", () => {
     // Removing a folder forgets it; its files stay.
     expect(fs.existsSync(path.join(music, "Upbeat.wav"))).toBe(true);
   });
+
+  it("sorts an assets folder for the user to check, then adds the folders they chose at once", async () => {
+    const assets = temp("assets");
+    write(path.join(assets, "Music", "Song.wav"));
+    write(path.join(assets, "SoundEffects", "Whoosh.wav"));
+    write(path.join(assets, "Misc", "notes.txt"));
+    const { app, send, view, toasts } = setup();
+    const replies: ServerMessage[] = [];
+    const client = { send: (data: string) => void replies.push(JSON.parse(data) as ServerMessage) };
+    app.connect(client);
+
+    app.handleMessage(client, { type: "library_sort_folder", requestId: 7, path: assets });
+    await until(() => replies.some((reply) => reply.type === "library_sorted"));
+    const sorted = replies.find((reply) => reply.type === "library_sorted")!;
+    expect(sorted).toMatchObject({ requestId: 7, sort: { root: path.resolve(assets), rootKind: null } });
+    const sort = (sorted as Extract<ServerMessage, { type: "library_sorted" }>).sort;
+    if ("error" in sort) throw new Error(sort.error);
+    expect(sort.folders.map((folder) => [folder.name, folder.kind])).toEqual([
+      ["Misc", null],
+      ["Music", "music"],
+      ["SoundEffects", "sfx"],
+    ]);
+
+    send({ type: "library_open", scope: { kind: "universal" }, query: {} });
+    send({
+      type: "library_add_folders",
+      scope: { kind: "universal" },
+      folders: [
+        { kind: "music", label: "Music", path: path.join(assets, "Music"), note: "" },
+        { kind: "sfx", label: "SoundEffects", path: path.join(assets, "SoundEffects"), note: "" },
+        { kind: "sfx", label: "Again", path: path.join(assets, "SoundEffects"), note: "" },
+      ],
+    });
+    // The two new ones are added together; the one already there is said, not added twice.
+    expect(view().folders.map((folder) => [folder.label, folder.kind])).toEqual([
+      ["Music", "music"],
+      ["SoundEffects", "sfx"],
+    ]);
+    expect(toasts.at(-1)).toContain('already in this library as "SoundEffects"');
+    await until(() => view().files.length === 2);
+
+    app.handleMessage(client, { type: "library_sort_folder", requestId: 8, path: path.join(assets, "missing") });
+    await until(() => replies.some((reply) => reply.type === "library_sorted" && reply.requestId === 8));
+    expect(replies.find((reply) => reply.type === "library_sorted" && reply.requestId === 8)).toMatchObject({ sort: { error: expect.stringContaining("There is no folder") } });
+  });
 });
 
 describe.skipIf(!hasPython)("the library's agent tools with the stand-in Resolve", () => {

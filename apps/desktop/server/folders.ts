@@ -13,6 +13,8 @@ const ROOTS_TTL_MS = 30_000;
 const DRIVE_TIMEOUT_MS = 1500;
 // Folders Windows keeps at the root of every drive, of no use for a project.
 const WINDOWS_SYSTEM = new Set(["$recycle.bin", "system volume information", "$windows.~ws", "$windows.~bt", "config.msi"]);
+// Files Windows and macOS leave in folders by themselves, which nobody means to see in a folder of footage.
+const SYSTEM_FILES = new Set(["desktop.ini", "thumbs.db", "pagefile.sys", "hiberfil.sys", "swapfile.sys", "dumpstack.log.tmp"]);
 
 /** ~ and ~/… as the home folder, like a shell; anything else as given. */
 export function expandHome(value: string, home = os.homedir()): string {
@@ -87,10 +89,18 @@ export async function browseFolders(dir: string, home = os.homedir()): Promise<F
   }
   const windows = process.platform === "win32";
   const candidates = dirents.filter((entry) => !(windows && WINDOWS_SYSTEM.has(entry.name.toLowerCase())));
-  const folders = (await Promise.all(candidates.map(async (entry) => ((await isFolder(entry, resolved)) ? entry.name : null))))
-    .filter((name): name is string => name !== null)
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }))
+  const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  const kinds = await Promise.all(candidates.map(async (entry) => ((await isFolder(entry, resolved)) ? "folder" : entry.isFile() ? "file" : null)));
+  const folders = candidates
+    .filter((_, index) => kinds[index] === "folder")
+    .map((entry) => entry.name)
+    .sort(byName)
+    .slice(0, MAX_ENTRIES);
+  const files = candidates
+    .filter((entry, index) => kinds[index] === "file" && !SYSTEM_FILES.has(entry.name.toLowerCase()))
+    .map((entry) => entry.name)
+    .sort(byName)
     .slice(0, MAX_ENTRIES);
   const entries: FolderEntry[] = await Promise.all(folders.map(async (name) => ({ name, isProject: await isProject(path.join(resolved, name)) })));
-  return { dir: resolved, isProject: await isProject(resolved), entries, roots: await listRoots(), home: withSeparator(home) };
+  return { dir: resolved, isProject: await isProject(resolved), entries, files, roots: await listRoots(), home: withSeparator(home) };
 }

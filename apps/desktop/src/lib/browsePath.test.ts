@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { appendSegment, browseDirectory, browseFilter, filterEntries, parentDirectory, tabCompletion, trimSeparators } from "./browsePath.ts";
+import {
+  appendSegment,
+  browseDirectory,
+  browseFilter,
+  fileKind,
+  filterEntries,
+  filterFiles,
+  parentDirectory,
+  tabCompletion,
+  trimSeparators,
+} from "./browsePath.ts";
 
 const entries = (...names: string[]) => names.map((name) => ({ name, isProject: false }));
 /** A Windows path written with forward slashes, to spare the backslash escapes. */
@@ -52,5 +62,24 @@ describe("filtering and Tab", () => {
     expect(tabCompletion(entries("Promo final", "Promo draft"), "pr")).toEqual({ name: "Promo ", complete: false });
     expect(tabCompletion(entries("Promo", "Prores"), "pro")).toBeNull();
     expect(tabCompletion([], "x")).toBeNull();
+  });
+});
+
+describe("files", () => {
+  it("filters files like folders, hiding dotfiles until a dot is typed", () => {
+    const files = ["A001.mov", "a002.MOV", ".DS_Store", "notes.txt"];
+    expect(filterFiles(files, "a0")).toEqual(["A001.mov", "a002.MOV"]);
+    expect(filterFiles(files, "")).toEqual(["A001.mov", "a002.MOV", "notes.txt"]);
+    expect(filterFiles(files, ".")).toEqual([".DS_Store"]);
+  });
+
+  it("tells video, audio and images apart by extension, ignoring case", () => {
+    expect(fileKind("A001.MOV")).toBe("video");
+    expect(fileKind("clip.braw")).toBe("video");
+    expect(fileKind("Tone.wav")).toBe("audio");
+    expect(fileKind("logo.PNG")).toBe("image");
+    expect(fileKind("notes.txt")).toBe("other");
+    expect(fileKind(".mov")).toBe("other");
+    expect(fileKind("README")).toBe("other");
   });
 });

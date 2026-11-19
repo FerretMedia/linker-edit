@@ -108,3 +108,22 @@ export function tabCompletion(visible: readonly FolderEntry[], filter: string): 
   const name = prefix.join("");
   return name.length > filter.length ? { name, complete: false } : null;
 }
+
+/** The file names that start with the filter, ignoring case; dotfiles only once a dot is typed. */
+export function filterFiles(files: readonly string[], filter: string): string[] {
+  const lower = filter.toLowerCase();
+  const showHidden = filter.startsWith(".");
+  return files.filter((name) => name.toLowerCase().startsWith(lower) && (showHidden || !name.startsWith(".")));
+}
+
+const FILE_KINDS: Record<string, "video" | "audio" | "image"> = Object.fromEntries([
+  ...["mp4", "mov", "mxf", "mkv", "avi", "m4v", "webm", "braw", "r3d", "ari", "mts", "m2ts", "wmv", "mpg", "mpeg", "3gp"].map((ext) => [ext, "video"]),
+  ...["wav", "mp3", "aac", "m4a", "flac", "aif", "aiff", "ogg", "opus", "wma"].map((ext) => [ext, "audio"]),
+  ...["png", "jpg", "jpeg", "gif", "webp", "tif", "tiff", "bmp", "heic", "svg", "psd", "exr", "dpx"].map((ext) => [ext, "image"]),
+]);
+
+/** What a file holds by its extension, for its icon in the folder picker. */
+export function fileKind(name: string): "video" | "audio" | "image" | "other" {
+  const dot = name.lastIndexOf(".");
+  return (dot > 0 && FILE_KINDS[name.slice(dot + 1).toLowerCase()]) || "other";
+}

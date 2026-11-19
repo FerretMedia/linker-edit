@@ -135,6 +135,11 @@ export interface FolderListing {
   dir: string;
   isProject: boolean;
   entries: FolderEntry[];
+  /**
+   * The names of the files in it, shown greyed out so you can see what a folder holds before choosing it.
+   * Missing from older servers.
+   */
+  files?: string[];
   /** The drives on Windows, or / elsewhere: where to jump from the picker. */
   roots: string[];
   home: string;
@@ -644,18 +649,57 @@ export interface LibraryView {
   total: number;
 }
 
+/** How many of each kind of file a folder holds, counted up to a few thousand. */
+export interface LibraryFileCounts {
+  audio: number;
+  video: number;
+  image: number;
+  lut: number;
+  other: number;
+}
+
+/** One folder inside an assets folder, with the kind Linker-Edit guessed for it. */
+export interface LibrarySortedFolder {
+  /** Its path inside the assets folder, with / between folders: "Music", or "Audio/SFX". */
+  name: string;
+  path: string;
+  /** Null when neither its name nor its files say. */
+  kind: LibraryKind | null;
+  /** What the guess is from. */
+  reason: "name" | "files" | null;
+  counts: LibraryFileCounts;
+  /** It holds more files than were counted. */
+  more: boolean;
+}
+
+/** An assets folder such as video-editing/ sorted into library folders, for the user to check before adding. */
+export interface LibrarySort {
+  root: string;
+  /** The kind the assets folder's own name says, such as for Music/ with only Epidemic/ and Artlist/ in it. */
+  rootKind: LibraryKind | null;
+  folders: LibrarySortedFolder[];
+  /** More folders than are listed. */
+  more: boolean;
+}
+
 export type LibraryClientMessage =
   /** Shows a library, and keeps sending it while it changes, until library_close. */
   | { type: "library_open"; scope: LibraryScope; query: LibraryQuery }
   | { type: "library_close" }
   | { type: "library_add_folder"; scope: LibraryScope; folder: Omit<LibraryFolder, "id"> }
+  /** Several at once, such as the folders of an assets folder; any that can't be added are said in a toast. */
+  | { type: "library_add_folders"; scope: LibraryScope; folders: Omit<LibraryFolder, "id">[] }
+  /** Guesses the kind of each folder inside path; the answer is a library_sorted with the same requestId. */
+  | { type: "library_sort_folder"; requestId: number; path: string }
   | { type: "library_update_folder"; scope: LibraryScope; folderId: string; changes: Partial<Omit<LibraryFolder, "id">> }
   /** Forgets the folder. The folder and its files stay where they are. */
   | { type: "library_remove_folder"; scope: LibraryScope; folderId: string }
   | { type: "library_rescan"; folderId: string }
   | { type: "library_update_file"; folderId: string; rel: string; star?: boolean; tags?: string[]; note?: string };
 
-export type LibraryServerMessage = { type: "library_view"; view: LibraryView };
+export type LibraryServerMessage =
+  | { type: "library_view"; view: LibraryView }
+  | { type: "library_sorted"; requestId: number; sort: LibrarySort | { error: string } };
 
 // --- Workspaces & series ---
 

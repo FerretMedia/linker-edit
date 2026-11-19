@@ -8,11 +8,18 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-folders-"));
 for (const dir of ["Promo", "b-roll", ".git", "Clip 10", "Clip 9"]) fs.mkdirSync(path.join(root, dir));
 fs.writeFileSync(path.join(root, "Promo", "linker-edit.json"), "{}");
 fs.writeFileSync(path.join(root, "notes.txt"), "");
+fs.writeFileSync(path.join(root, "Take 10.mov"), "");
+fs.writeFileSync(path.join(root, "Take 9.mov"), "");
+fs.writeFileSync(path.join(root, "desktop.ini"), "");
 fs.writeFileSync(path.join(root, "linker-edit.json"), "{}");
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe("browseFolders", () => {
-  it("lists only folders, sorted the way people count, marking project folders", async () => {
+  it("lists the files apart, sorted the same way, without the ones Windows leaves around", async () => {
+    expect((await browseFolders(root)).files).toEqual(["linker-edit.json", "notes.txt", "Take 9.mov", "Take 10.mov"]);
+  });
+
+  it("lists folders, sorted the way people count, marking project folders", async () => {
     const listing = await browseFolders(root);
     expect(listing.dir).toBe(root + path.sep);
     expect(listing.isProject).toBe(true);
