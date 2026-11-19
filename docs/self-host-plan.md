@@ -11,7 +11,7 @@
 3. Open that address and click **Sign in with Linker**. The first time, Linker asks *"Let linker-edit-web.jane.workers.dev reach your edit computers?"* → **Allow**.
 4. Pick a computer. They're in.
 
-**Updating:** click **Sync fork** on GitHub. Cloudflare redeploys by itself.
+**Updating:** redeploy in Cloudflare. The deploy always fetches the newest UI. The page also shows a hint when your computer runs a newer Linker-Edit than the page.
 
 On the edit computer, nothing new: Linker-Edit runs, it's signed in with Linker, and Tailscale and/or Linker Connect is on, as today.
 
@@ -36,24 +36,28 @@ It's the iPad app's way in (`docs/sync-plan.md` → Native clients), opened up t
 
 ## Decisions
 
-### 1. A tiny template repo with the UI already built
+### 1. The fork fetches the UI from the app's own release
 
-`FerretMedia/linker-edit-web` holds only:
-- `public/`: the built UI (`index.html`, `_app/…`)
-- `wrangler.jsonc`: a Worker with static assets only and no code, with `"not_found_handling": "single-page-application"`
-- a README with the 4 steps above
+The release workflow already uploads the installers to GitHub Releases. It also uploads **`Linker-Edit-<version>-web.tar.gz`**: just the app's built UI folder (`apps/desktop/build`), a few MB, plus its `.sha256`. These are the same files the Electron app ships and serves, with no Electron and no server.
 
-The forker doesn't build anything, so the deploy can't fail on Node versions or the monorepo. The release workflow in this repo builds the web UI and pushes it to `linker-edit-web` with the same tag as the desktop release. Static-only Workers are free and don't count against request limits.
+The template repo `FerretMedia/linker-edit-web` holds no UI at all, only:
+- **`get-ui.mjs`:** about 40 lines with no dependencies. It asks GitHub for the latest release (or `LINKER_EDIT_VERSION`, if set in Cloudflare's build variables), downloads the web tarball, checks its SHA-256 and unpacks it into `public/`.
+- **`wrangler.jsonc`:** static assets from `public/` only, no Worker code, `"not_found_handling": "single-page-application"`, and `build.command: "node get-ui.mjs"`. Cloudflare runs that command on every deploy, so the forker fills in nothing.
+- **A README** with the 4 steps above.
 
-**Why not fork the monorepo:** forking Electron, the iPad app and the server just to serve files is heavy, and a build in the forker's Cloudflare account is one more thing that can break.
+The fork almost never changes, so there's nothing to sync. Redeploying is the update. Static-only Workers are free and don't count against request limits.
 
-### 2. Same UI code, one more build mode
+**Why not fork the monorepo:** forking Electron, the iPad app and the server just to serve files is heavy, and building in the forker's Cloudflare account is one more thing that can break. Downloading a finished tarball can't break that way.
 
-`LINKER_EDIT_TARGET=web vite build` makes the same Svelte app with two differences:
-- **A start screen:** Sign in with Linker, then a list of your computers. The last one picked opens again the next time.
-- **A server address:** today the UI uses `location.host` (`src/lib/connection.svelte.ts`) and relative `/api`, `/preview`, `/media` and `/library` URLs in about 9 places. They all go through one `server.url(path)` and `server.ws()`. In the host-served build that's still the page's own origin, so nothing changes there.
+### 2. Same UI, the same build
 
-The host keeps serving its own UI, so the desktop app, Tailscale in a browser and the computer menu work as today.
+There's no separate web build. The UI decides when it starts:
+- If the page's own origin answers `GET /api/hello` as Linker-Edit, a computer is serving it, and it works exactly as today.
+- If not, it's on a web address, and it shows **a start screen:** Sign in with Linker, then a list of your computers. The last one picked opens again the next time.
+
+For that to work, the UI stops assuming the server is the page's own address. Today it uses `location.host` (`src/lib/connection.svelte.ts`) and relative `/api`, `/preview`, `/media` and `/library` URLs in about 9 places. They all go through one `server.url(path)` and `server.ws()`.
+
+The host keeps serving the same files, so the desktop app, Tailscale in a browser and the computer menu work as today.
 
 ### 3. Sign in with Linker for web addresses: Linker's own small sign-in
 
@@ -101,15 +105,16 @@ Tokens are kept as SHA-256 hashes, with rate limits on `/token` and `/whoami`.
 - **Media tickets:** `<video>` and `<img>` can't send headers, so the host sends a short-lived signed `?t=` ticket over `/ws` for `/preview`, `/media` and `/library`. It's renewed before it runs out. The session itself never goes in a URL.
 - **`linker.whoIs`** sends `lew_…` tokens to Linker's `/api/edit/whoami` and others to Clerk userinfo, as today.
 - **Linking** sends the Tailscale Serve address, and lets you link without a tunnel.
-- **`/api/hello`** adds `protocol: <number>`, raised only for a breaking change. The page shows *"Update your web address (Sync fork)"* or *"Update Linker-Edit on Studio-PC"*.
+- **`/api/hello`** adds `protocol: <number>`, raised only for a breaking change. The page shows *"Redeploy your web address in Cloudflare"* or *"Update Linker-Edit on Studio-PC"*.
 
 ### The UI (`apps/desktop/src`)
 
-`server.url` / `server.ws`, the web start screen, the web token and sessions kept in `localStorage` per computer, and a `401` → sign in to that computer again.
+`server.url` / `server.ws`, the check at start for whether a computer is serving the page, the web start screen, the web token and sessions kept in `localStorage` per computer, and a `401` → sign in to that computer again.
 
-### The template (`templates/web/` here → `FerretMedia/linker-edit-web`)
+### The release and the template
 
-`wrangler.jsonc`, the README, and a release step that builds with `LINKER_EDIT_TARGET=web` and pushes `public/` plus a tag.
+- **`release.yml`** packs `apps/desktop/build` as `Linker-Edit-<version>-web.tar.gz` plus `.sha256` next to the installers.
+- **`templates/web/`** here (`get-ui.mjs`, `wrangler.jsonc`, README) is copied by hand to `FerretMedia/linker-edit-web` whenever it changes, which is rarely. `get-ui.mjs` gets a unit test here against a fake release.
 
 ## Order
 
@@ -118,8 +123,8 @@ Tokens are kept as SHA-256 hashes, with rate limits on `/token` and `/whoami`.
 | **0. Live checks** (below) | none | Linker Connect prerequisites |
 | **1. Web sign-in, tokens, origins, `tailnetUrl`** | Linker | none |
 | **2. Host: CORS, Bearer on Tailscale, WS subprotocol, media tickets, `protocol`** | linker-edit | none (in parallel with 1) |
-| **3. UI web mode + start screen** | linker-edit | 2 |
-| **4. Template repo + release step** | linker-edit + new repo | 3 |
+| **3. UI: `server.url`, the start check, the start screen** | linker-edit | 2 |
+| **4. Web tarball in releases + `get-ui.mjs` template repo** | linker-edit + new repo | 3 (the release step can land any time) |
 
 Subagents in their own worktrees, as usual.
 
@@ -128,7 +133,7 @@ Subagents in their own worktrees, as usual.
 1. Linker Connect's own prerequisites (`docs/sync-plan.md`): Linker sign-in working in production, and #219 deployed.
 2. A test page on `*.workers.dev` opening `wss://<pc>.ts.net:8443/ws` from Chrome, Edge and Safari/iPad: does the Local Network Access prompt show, and does it work after Allow?
 3. Tailscale Serve and the Cloudflare tunnel both pass `OPTIONS`, `Origin` and `Sec-WebSocket-Protocol` through unchanged.
-4. Cloudflare's **Import a repository** deploys an assets-only `wrangler.jsonc` with empty build settings.
+4. Cloudflare's **Import a repository** runs `build.command` from an assets-only `wrangler.jsonc`, with nothing filled in in the dashboard, and can reach `api.github.com` and the release downloads during the build.
 
 ## Not in this plan
 
