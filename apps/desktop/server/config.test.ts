@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "./config.ts";
+import { LINKER_AUTH_SERVER, LINKER_CLIENT_ID, loadConfig } from "./config.ts";
 
 function configFile(contents: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-config-"));
@@ -23,6 +23,16 @@ describe("loadConfig", () => {
     expect(() => loadConfig(configFile(JSON.stringify({ port: "4317" })))).toThrow("port in");
     expect(() => loadConfig(configFile(JSON.stringify({ port: 70000 })))).toThrow("must be a port number");
     expect(loadConfig(configFile(JSON.stringify({ port: 5000 }))).port).toBe(5000);
+  });
+
+  it("signs in to Linker with Linker-Edit's own client, only on Linker's own Clerk", () => {
+    const none = () => null;
+    expect(loadConfig(configFile("{}"), none).linker).toMatchObject({ authServer: LINKER_AUTH_SERVER, clientId: LINKER_CLIENT_ID });
+    expect(loadConfig(configFile(JSON.stringify({ linkerClientId: "mine" })), none).linker.clientId).toBe("mine");
+    // A production client id means nothing to staging's Clerk: there it's the published document or registering.
+    const staging = configFile(JSON.stringify({ linkerAuthServer: "https://normal-giraffe-32.clerk.accounts.dev" }));
+    expect(loadConfig(staging, none).linker.clientId).toBeUndefined();
+    expect(loadConfig(configFile(JSON.stringify({ linkerAuthServer: `${LINKER_AUTH_SERVER}/` })), none).linker.clientId).toBe(LINKER_CLIENT_ID);
   });
 
   it("names the file when it isn't valid JSON", () => {
