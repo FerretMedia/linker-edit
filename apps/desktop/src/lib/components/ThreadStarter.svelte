@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { FolderListing } from "#shared/protocol.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
-  import FolderPicker from "./FolderPicker.svelte";
+  import PathField from "./PathField.svelte";
 
   // How an empty thread starts when the agent needs folders rather than a question: a setup thread's example
   // videos, or the footage of a video it edits on its own. It writes the first message for the user.
@@ -61,7 +61,12 @@
         {field.label}
         {#if !field.required}<span class="text-xs text-muted-foreground">· optional</span>{/if}
       </span>
-      <FolderPicker bind:value={() => folders[field.key] ?? "", (value) => (folders[field.key] = value)} browse={browseFolders} listOnFocus label={field.label} />
+      <PathField
+        bind:value={() => folders[field.key] ?? "", (value) => (folders[field.key] = value)}
+        label={field.label}
+        clearable={!field.required}
+        browse={browseFolders}
+      />
       <span class="text-xs text-muted-foreground">{field.hint}</span>
     </div>
   {/each}

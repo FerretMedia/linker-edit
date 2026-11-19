@@ -1,4 +1,4 @@
-import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
+import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibrarySort, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
 import { host } from "./host.ts";
 
@@ -9,6 +9,7 @@ export interface Toast {
 }
 
 const TOAST_MS = 6000;
+const LOST = "Lost the connection to the Linker-Edit server.";
 
 /** One WebSocket to the server, reconnecting; the server owns all state. */
 class ServerConnection {
@@ -33,6 +34,7 @@ class ServerConnection {
   #toastId = 0;
   #folderRequest = 0;
   #folderReplies = new Map<number, (listing: FolderListing | { error: string }) => void>();
+  #sortReplies = new Map<number, (sort: LibrarySort | { error: string }) => void>();
 
   connect() {
     if (this.#socket && this.#socket.readyState !== WebSocket.CLOSED) return;
@@ -44,8 +46,7 @@ class ServerConnection {
       // Closed by disconnect(): nothing to reconnect.
       if (this.#socket !== socket) return;
       this.connected = false;
-      for (const reply of this.#folderReplies.values()) reply({ error: "Lost the connection to the Linker-Edit server." });
-      this.#folderReplies.clear();
+      this.#failReplies();
       setTimeout(() => {
         if (this.#socket !== socket) return;
         void (this.beforeReconnect?.() ?? Promise.resolve()).finally(() => this.#socket === socket && this.connect());
@@ -61,6 +62,9 @@ class ServerConnection {
       else if (message.type === "folders") {
         this.#folderReplies.get(message.requestId)?.(message.listing);
         this.#folderReplies.delete(message.requestId);
+      } else if (message.type === "library_sorted") {
+        this.#sortReplies.get(message.requestId)?.(message.sort);
+        this.#sortReplies.delete(message.requestId);
       }
       else if (message.type === "refused") this.onRefused?.(message.threadId, message.text);
       else if (message.type === "toast") this.toast(message.text, message.tone);
@@ -84,8 +88,7 @@ class ServerConnection {
     const socket = this.#socket;
     this.#socket = null;
     socket?.close();
-    for (const reply of this.#folderReplies.values()) reply({ error: "Lost the connection to the Linker-Edit server." });
-    this.#folderReplies.clear();
+    this.#failReplies();
     this.connected = false;
     this.#version = null;
     this.state = null;
@@ -109,6 +112,16 @@ class ServerConnection {
     });
   }
 
+  /** The folders inside an assets folder on the server's computer, each with the kind it looks like. */
+  sortLibraryFolder(path: string): Promise<LibrarySort | { error: string }> {
+    if (this.#socket?.readyState !== WebSocket.OPEN) return Promise.resolve({ error: "Not connected to the Linker-Edit server." });
+    const requestId = ++this.#folderRequest;
+    return new Promise((resolve) => {
+      this.#sortReplies.set(requestId, resolve);
+      this.send({ type: "library_sort_folder", requestId, path });
+    });
+  }
+
   toast(text: string, tone: "info" | "error") {
     const id = ++this.#toastId;
     this.toasts = [...this.toasts.filter((toast) => toast.text !== text), { id, text, tone }];
@@ -117,6 +130,14 @@ class ServerConnection {
 
   dismiss(id: number) {
     this.toasts = this.toasts.filter((toast) => toast.id !== id);
+  }
+
+  /** Answers every folder request still waiting, as no reply will come on a closed socket. */
+  #failReplies() {
+    for (const reply of this.#folderReplies.values()) reply({ error: LOST });
+    this.#folderReplies.clear();
+    for (const reply of this.#sortReplies.values()) reply({ error: LOST });
+    this.#sortReplies.clear();
   }
 }
 

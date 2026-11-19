@@ -1,4 +1,4 @@
-import type { LibraryKind, LibraryScope } from "#shared/protocol.ts";
+import type { LibraryFileCounts, LibraryKind, LibraryScope } from "#shared/protocol.ts";
 import { host } from "./host.ts";
 
 /** The library page's tabs. Workspaces and series will add theirs. */
@@ -54,3 +54,26 @@ export const parseTags = (text: string) =>
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean);
+
+/** "124 audio · 3 videos · 1 other", or "No files" — what an assets folder's folder holds. */
+export function describeCounts(counts: LibraryFileCounts, more = false): string {
+  const parts = [
+    [counts.audio, "audio", "audio"],
+    [counts.video, "video", "videos"],
+    [counts.image, "image", "images"],
+    [counts.lut, "LUT", "LUTs"],
+    [counts.other, "other", "other"],
+  ] as const;
+  const text = parts
+    .filter(([count]) => count > 0)
+    .map(([count, one, many]) => `${count}${more ? "+" : ""} ${count === 1 ? one : many}`)
+    .join(" · ");
+  return text || (more ? "Only folders, deep down" : "No files");
+}
+
+/** Whether two paths on the server's computer are the same folder; Windows paths ignore case. */
+export function samePath(a: string, b: string): boolean {
+  const clean = (value: string) => value.trim().replace(/[\\/]+$/, "");
+  const windows = /^[a-zA-Z]:|^\\\\/.test(a);
+  return windows ? clean(a).toLowerCase() === clean(b).toLowerCase() : clean(a) === clean(b);
+}

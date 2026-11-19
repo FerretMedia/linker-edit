@@ -10,6 +10,16 @@ export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 /** Config and workspace live here, outside the app folder npx replaces. */
 export const HOME_DIR = path.join(os.homedir(), "LinkerEdit");
 
+/** Linker's own sign-in (production Clerk). */
+export const LINKER_AUTH_SERVER = "https://clerk.linker.cool";
+
+/**
+ * Linker-Edit's OAuth application in Linker's production Clerk: a public client (PKCE, no secret) whose redirect
+ * addresses are http://127.0.0.1:4317 and http://localhost:4317 /api/linker/callback. Client ids are public. Clerk
+ * can't read the Client ID Metadata Document Linker publishes (`invalid_client`), so this is the default.
+ */
+export const LINKER_CLIENT_ID = "okxg8tSdwQEu1rbv";
+
 /** Optional overrides, read from linker-edit.config.json in HOME_DIR. */
 interface UserConfig {
   port?: number;
@@ -35,7 +45,7 @@ interface UserConfig {
   linkerAuthServer?: string;
   /** Linker's dashboard and API, for testing against staging. */
   linkerAppUrl?: string;
-  /** An OAuth client id for signing in with Linker, instead of the one Linker publishes for Linker-Edit. */
+  /** An OAuth client id for signing in with Linker, instead of Linker-Edit's own (LINKER_CLIENT_ID). */
   linkerClientId?: string;
   /** Your own cloudflared for Linker Connect, instead of one on PATH or the one Linker-Edit downloads. */
   cloudflared?: string;
@@ -97,6 +107,10 @@ export function loadConfig(
   if (!(Number.isInteger(port) && port > 0 && port < 65536)) {
     throw new Error(`port in ${file} must be a port number.`);
   }
+  const authServer = user.linkerAuthServer ?? LINKER_AUTH_SERVER;
+  // Linker-Edit's own client exists only in production Clerk; against another Clerk (staging), the published
+  // document or registering itself still applies unless linkerClientId says otherwise.
+  const clientId = user.linkerClientId ?? (authServer.replace(/\/$/, "") === LINKER_AUTH_SERVER ? LINKER_CLIENT_ID : undefined);
   const tailscalePort = user.tailscalePort ?? 8443;
   if (!(Number.isInteger(tailscalePort) && tailscalePort > 0 && tailscalePort < 65536)) {
     throw new Error(`tailscalePort in ${file} must be a port number.`);
@@ -115,9 +129,9 @@ export function loadConfig(
     libraryFile: path.join(path.dirname(file), "library.json"),
     libraryCacheDir: path.join(path.dirname(file), "cache", "library"),
     linker: {
-      authServer: user.linkerAuthServer ?? "https://clerk.linker.cool",
+      authServer,
       appUrl: user.linkerAppUrl ?? "https://app.linker.cool",
-      ...(user.linkerClientId ? { clientId: user.linkerClientId } : {}),
+      ...(clientId ? { clientId } : {}),
       file: path.join(path.dirname(file), "linker-account.json"),
     },
     connect: {

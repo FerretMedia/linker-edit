@@ -10,10 +10,10 @@ import type { LinkerAccount } from "../shared/protocol.ts";
  * is OAuth's authorization code flow with PKCE, for an app on the user's own computer (RFC 8252): the browser
  * signs in at Linker and comes back to this server on 127.0.0.1, which swaps the code for tokens.
  *
- * Clerk has to know the app asking. Linker serves a Client ID Metadata Document for Linker-Edit at
- * app.linker.cool/oauth/linker-edit.json, which Clerk reads (its client_id is that address). Until that is
- * live, or when this server's address isn't in it, Linker-Edit registers itself once (Dynamic Client
- * Registration) if Clerk allows it. `linkerClientId` in the config overrides both.
+ * Clerk has to know the app asking. Linker-Edit has its own OAuth application in production Clerk, whose client id
+ * is built in (LINKER_CLIENT_ID in config.ts; `linkerClientId` in the config overrides it). Without one, for
+ * another Clerk such as staging: Linker's Client ID Metadata Document at app.linker.cool/oauth/linker-edit.json
+ * when it lists this server's address, else registering once (Dynamic Client Registration) if Clerk allows it.
  */
 
 export interface LinkerOptions {

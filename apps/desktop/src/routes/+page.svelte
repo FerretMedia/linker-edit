@@ -332,6 +332,7 @@
     onTab={showLibraryTab}
     send={(message) => server.send(message)}
     browseFolders={(path) => server.browseFolders(path)}
+    sortFolder={(path) => server.sortLibraryFolder(path)}
     onClose={closeSettings}
   />
 {:else}

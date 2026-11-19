@@ -71,7 +71,11 @@ test("a workspace is set up with AI in a thread of its own, and can be set to wo
 
   // It starts from a folder of finished videos. Not sent here: chat.spec.ts has the one turn that may run.
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
-  await expect(page.getByRole("combobox", { name: "Finished videos" })).toBeVisible();
+  await page.getByRole("button", { name: "Finished videos: choose a folder" }).click();
+  const picker = page.getByRole("dialog", { name: "Choose: Finished videos" });
+  await expect(picker.getByRole("combobox", { name: "Finished videos" })).not.toHaveValue("");
+  await picker.getByRole("button", { name: "Cancel" }).click();
+  await expect(picker).toHaveCount(0);
 
   // The setup thread is found again from the workspace, which can be set to work on its own. No project is put
   // in it here: chat.spec.ts expects the shared "workspace" project to start threads the usual way.
