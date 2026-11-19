@@ -1,4 +1,4 @@
-﻿# Your own Linker-Edit web address
+# Your own Linker-Edit web address
 
 **Goal:** anyone can put Linker-Edit's UI on their own Cloudflare account, open it in any browser, sign in with Linker, and drive one of their own edit computers over Tailscale or the Linker Connect tunnel. The edit computer still does all the work and keeps all the state; the web address only serves the UI's files.
 
@@ -10,7 +10,7 @@
 2. Cloudflare asks them to sign in to Cloudflare and GitHub, copies just that folder into a new small repo in their GitHub, and deploys it. There's nothing to fill in. They get `https://linker-edit-web.<name>.workers.dev`, and can add their own domain if they want.
 
    *Prefer a fork?* Fork `FerretMedia/linker-edit`, then in Cloudflare use **Import a repository** with root directory `apps/web`.
-3. Open that address and click **Sign in with Linker**. The first time, Linker asks *"Let linker-edit-web.jane.workers.dev reach your edit computers?"* â†’ **Allow**.
+3. Open that address and click **Sign in with Linker**. The first time, Linker asks *"Let linker-edit-web.jane.workers.dev reach your edit computers?"* → **Allow**.
 4. Pick a computer. They're in.
 
 **Updating:** redeploy in Cloudflare. The deploy always fetches the newest UI. The page also shows a hint when your computer runs a newer Linker-Edit than the page.
@@ -21,20 +21,20 @@ On the edit computer, nothing new: Linker-Edit runs, it's signed in with Linker,
 
 ```
 Browser (your address, e.g. edit.jane.com)          files only: HTML/JS/CSS from Cloudflare
-  â”‚
-  â”œâ”€ Sign in with Linker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¶ app.linker.cool/edit/web/authorize
-  â”‚    â—€ web token (only for addresses your account allowed)
-  â”‚
-  â”œâ”€ GET app.linker.cool/api/edit/computers â”€â–¶ [{ name, url (tunnel), tailnetUrl, online }]
-  â”‚
-  â”œâ”€ try tailnetUrl first (https://pc.tailnet.ts.net:8443), else the tunnel (https://edit-â€¦.linker.cool)
-  â”‚    POST /api/connect/session   Bearer <web token>  â†’ host asks Linker who it is â†’ one-time code
-  â”‚    POST /api/connect/native    { code }            â†’ session (Bearer, 30 days)
-  â”‚
-  â””â”€ /ws and /api/* go straight to that computer with the session. Linker never sees the traffic.
+  │
+  ├─ Sign in with Linker ──────────────▶ app.linker.cool/edit/web/authorize
+  │    ◀ web token (only for addresses your account allowed)
+  │
+  ├─ GET app.linker.cool/api/edit/computers ─▶ [{ name, url (tunnel), tailnetUrl, online }]
+  │
+  ├─ try tailnetUrl first (https://pc.tailnet.ts.net:8443), else the tunnel (https://edit-….linker.cool)
+  │    POST /api/connect/session   Bearer <web token>  → host asks Linker who it is → one-time code
+  │    POST /api/connect/native    { code }            → session (Bearer, 30 days)
+  │
+  └─ /ws and /api/* go straight to that computer with the session. Linker never sees the traffic.
 ```
 
-It's the iPad app's way in (`docs/sync-plan.md` â†’ Native clients), opened up to browsers. The only differences are how the browser gets its Linker token, and that every request is cross-origin.
+It's the iPad app's way in (`docs/sync-plan.md` → Native clients), opened up to browsers. The only differences are how the browser gets its Linker token, and that every request is cross-origin.
 
 ## Decisions
 
@@ -65,11 +65,11 @@ The host keeps serving the same files, so the desktop app, Tailscale in a browse
 
 A Clerk OAuth app needs every redirect address registered up front, and every copy has its own address. So Linker hands out its own **web token**:
 
-1. The page opens `app.linker.cool/edit/web/authorize?origin=â€¦&state=â€¦&code_challenge=â€¦` (PKCE S256).
+1. The page opens `app.linker.cool/edit/web/authorize?origin=…&state=…&code_challenge=…` (PKCE S256).
 2. Linker uses its normal Clerk sign-in. The first time for that address, it asks to allow it, and remembers the address on the account.
-3. Linker sends the page back to `<origin>/#code=â€¦&state=â€¦`. The page posts `{ code, code_verifier }` to `app.linker.cool/api/edit/web/token`, which allows CORS only for that origin, and gets `{ token: "lew_â€¦", expiresAt }`. The token is good for 30 days.
+3. Linker sends the page back to `<origin>/#code=…&state=…`. The page posts `{ code, code_verifier }` to `app.linker.cool/api/edit/web/token`, which allows CORS only for that origin, and gets `{ token: "lew_…", expiresAt }`. The token is good for 30 days.
 
-The web token can **only** list your computers and prove who you are to them. It doesn't work for the AI connector, the page tools or anything else on Linker. **Linker â†’ Settings â†’ Linker-Edit â†’ Web addresses** lists the allowed addresses. Removing one ends its tokens.
+The web token can **only** list your computers and prove who you are to them. It doesn't work for the AI connector, the page tools or anything else on Linker. **Linker → Settings → Linker-Edit → Web addresses** lists the allowed addresses. Removing one ends its tokens.
 
 The consent screen says to allow only addresses you deployed yourself. Someone else's copy is code they control, just like any site you sign in to.
 
@@ -77,11 +77,11 @@ The consent screen says to allow only addresses you deployed yourself. Someone e
 
 - **The host tells Linker its Tailscale address when it links.** `PUT /api/edit/computers/:id` gets `{ tailnetUrl, tunnel: boolean }`. A computer can link **without a tunnel** (Tailscale only) and still shows in the list and counts toward the 3.
 - **The page tries `tailnetUrl` first**, with `GET /api/hello` and a 2-second timeout. It's direct, fast and stays on your own network. If that fails, it uses the tunnel `url`.
-- **Chrome asks once** on Tailscale, because 100.x addresses count as "local network" (Local Network Access, Chrome 142+): *"Allow â€¦ to access other apps and services on this device / local network"* â†’ Allow. The start screen explains this before the prompt shows. If it's refused, the page uses the tunnel.
+- **Chrome asks once** on Tailscale, because 100.x addresses count as "local network" (Local Network Access, Chrome 142+): *"Allow … to access other apps and services on this device / local network"* → Allow. The start screen explains this before the prompt shows. If it's refused, the page uses the tunnel.
 
 ### 5. The same way in on both routes
 
-One handshake for Tailscale and the tunnel: web token â†’ code â†’ Bearer session, as in the native flow that's already built. On Tailscale the host also still checks that `Tailscale-User-Login` is the owner. Because it's one flow, there's no second auth path to keep safe.
+One handshake for Tailscale and the tunnel: web token → code → Bearer session, as in the native flow that's already built. On Tailscale the host also still checks that `Tailscale-User-Login` is the owner. Because it's one flow, there's no second auth path to keep safe.
 
 ## What changes where
 
@@ -90,12 +90,12 @@ One handshake for Tailscale and the tunnel: web token â†’ code â†’ Bea
 | Route | What it does |
 |---|---|
 | `GET /edit/web/authorize` | The sign-in page and the consent for a new address, then sends you back with a code. |
-| `POST /api/edit/web/token` | Code + verifier â†’ web token. CORS for that origin only. |
-| `GET /api/edit/whoami` | `Bearer lew_â€¦` â†’ `{ sub }`. The host uses it to check web tokens, like Clerk userinfo for normal ones. |
-| `GET /api/edit/web/origins` | The host's own Linker sign-in â†’ your allowed addresses, so the host knows which origins to trust. |
+| `POST /api/edit/web/token` | Code + verifier → web token. CORS for that origin only. |
+| `GET /api/edit/whoami` | `Bearer lew_…` → `{ sub }`. The host uses it to check web tokens, like Clerk userinfo for normal ones. |
+| `GET /api/edit/web/origins` | The host's own Linker sign-in → your allowed addresses, so the host knows which origins to trust. |
 | `GET /api/edit/computers` | Also takes web tokens, adds `tailnetUrl`, and allows CORS for your allowed addresses. |
 | `PUT /api/edit/computers/:id` | Takes `tailnetUrl` and `tunnel: false`. |
-| Settings â†’ Web addresses | List and remove addresses. |
+| Settings → Web addresses | List and remove addresses. |
 
 Tokens are kept as SHA-256 hashes, with rate limits on `/token` and `/whoami`.
 
@@ -105,13 +105,13 @@ Tokens are kept as SHA-256 hashes, with rate limits on `/token` and `/whoami`.
 - **Bearer sessions on Tailscale too,** not only through the tunnel, for those origins.
 - **The `/ws` session goes in `Sec-WebSocket-Protocol`** (`linker-edit, bearer.<session>`), because a browser can't set headers on a WebSocket. The Origin must be one of your allowed addresses.
 - **Media tickets:** `<video>` and `<img>` can't send headers, so the host sends a short-lived signed `?t=` ticket over `/ws` for `/preview`, `/media` and `/library`. It's renewed before it runs out. The session itself never goes in a URL.
-- **`linker.whoIs`** sends `lew_â€¦` tokens to Linker's `/api/edit/whoami` and others to Clerk userinfo, as today.
+- **`linker.whoIs`** sends `lew_…` tokens to Linker's `/api/edit/whoami` and others to Clerk userinfo, as today.
 - **Linking** sends the Tailscale Serve address, and lets you link without a tunnel.
 - **`/api/hello`** adds `protocol: <number>`, raised only for a breaking change. The page shows *"Redeploy your web address in Cloudflare"* or *"Update Linker-Edit on Studio-PC"*.
 
 ### The UI (`apps/desktop/src`)
 
-`server.url` / `server.ws`, the check at start for whether a computer is serving the page, the web start screen, the web token and sessions kept in `localStorage` per computer, and a `401` â†’ sign in to that computer again.
+`server.url` / `server.ws`, the check at start for whether a computer is serving the page, the web start screen, the web token and sessions kept in `localStorage` per computer, and a `401` → sign in to that computer again.
 
 ### The release and the template
 
@@ -135,7 +135,7 @@ Subagents in their own worktrees, as usual.
 1. Linker Connect's own prerequisites (`docs/sync-plan.md`): Linker sign-in working in production, and #219 deployed.
 2. A test page on `*.workers.dev` opening `wss://<pc>.ts.net:8443/ws` from Chrome, Edge and Safari/iPad: does the Local Network Access prompt show, and does it work after Allow?
 3. Tailscale Serve and the Cloudflare tunnel both pass `OPTIONS`, `Origin` and `Sec-WebSocket-Protocol` through unchanged.
-4. Cloudflare's **Deploy button** with `â€¦/tree/main/apps/web` copies only that folder. Both it and **Import a repository** with root directory `apps/web` must:
+4. Cloudflare's **Deploy button** with `…/tree/main/apps/web` copies only that folder. Both it and **Import a repository** with root directory `apps/web` must:
    - run `build.command` from an assets-only `wrangler.jsonc`
    - not try to install the monorepo's packages
    - reach `api.github.com` and the release downloads during the build
