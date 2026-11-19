@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeManifests } from "./release-assets.ts";
+import { isReleaseAsset, mergeManifests } from "./release-assets.ts";
 
 const manifest = (arch: string) => `version: 2026.1111.0
 files:
@@ -38,5 +38,18 @@ releaseDate: '2026-11-11T12:00:00.000Z'
 
   it("leaves a single manifest as it is", () => {
     expect(mergeManifests([manifest("x64").replace(/\n/g, "\r\n")])).toBe(manifest("x64"));
+  });
+});
+
+describe("isReleaseAsset", () => {
+  it.each([
+    ["Linker-Edit-2026.11.19-win-x64.exe", true],
+    ["Linker-Edit-2026.11.19-mac-arm64.zip.blockmap", true],
+    ["Linker-Edit-2026.11.19-web.tar.gz", true],
+    ["Linker-Edit-2026.11.19-web.tar.gz.sha256", true],
+    ["builder-debug.yml", false],
+    ["Linker-Edit-2026.11.19-web.tar.gz.tmp", false],
+  ])("%s → %s", (name, expected) => {
+    expect(isReleaseAsset(name)).toBe(expected);
   });
 });

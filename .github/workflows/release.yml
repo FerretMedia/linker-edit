@@ -83,6 +83,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # The built UI on its own, for people's own web addresses (apps/web/get-ui.mjs): the same on every platform.
+      - name: Pack the web UI
+        if: matrix.artifact == 'linux-x64'
+        working-directory: apps/desktop
+        env:
+          FILE: Linker-Edit-${{ needs.version.outputs.name }}-web.tar.gz
+        run: |
+          mkdir -p release
+          tar -czf "release/$FILE" -C build .
+          (cd release && sha256sum "$FILE" > "$FILE.sha256")
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.artifact }}
@@ -93,6 +103,8 @@ jobs:
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest*.yml
+            apps/desktop/release/*-web.tar.gz
+            apps/desktop/release/*-web.tar.gz.sha256
           if-no-files-found: error
           retention-days: 7
 

@@ -4,6 +4,7 @@ Each release ships Linker-Edit two ways:
 
 - **Desktop installers** on the GitHub release: Windows (NSIS `.exe`), macOS (`.dmg`, plus the `.zip` updates use) for Apple silicon and Intel, and Linux (`.AppImage`). Installed apps update themselves from the newest GitHub release.
 - **The npm package** `linker-edit`, which users run with `npx linker-edit@latest`.
+- **The web UI** on its own, `Linker-Edit-<name>-web.tar.gz` with its `.sha256`, packed from `apps/desktop/build` by the Linux build. People's own web addresses (`apps/web`) download it from the newest release each time they deploy.
 
 Both are built from `apps/desktop`, the app's npm workspace.
 

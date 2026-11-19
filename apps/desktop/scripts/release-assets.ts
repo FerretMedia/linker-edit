@@ -26,7 +26,8 @@ export function mergeManifests(manifests: string[]): string {
   return [...first.slice(0, end), ...added, ...first.slice(end)].join("\n") + "\n";
 }
 
-const ASSET = /\.(exe|dmg|zip|AppImage|blockmap)$/;
+/** The installers, and the web UI for people's own web addresses (apps/web) with its checksum. */
+export const isReleaseAsset = (name: string) => /\.(exe|dmg|zip|AppImage|blockmap)$|-web\.tar\.gz(\.sha256)?$/.test(name);
 
 if (import.meta.main) {
   const [from, to] = process.argv.slice(2);
@@ -42,7 +43,7 @@ if (import.meta.main) {
     const name = path.basename(file);
     if (/^latest(-\w+)?\.yml$/.test(name)) {
       manifests.set(name, [...(manifests.get(name) ?? []), fs.readFileSync(source, "utf8")]);
-    } else if (ASSET.test(name)) {
+    } else if (isReleaseAsset(name)) {
       if (fs.existsSync(path.join(to, name))) throw new Error(`Two builds made ${name}.`);
       fs.copyFileSync(source, path.join(to, name));
     }
