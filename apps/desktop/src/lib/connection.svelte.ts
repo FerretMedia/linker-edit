@@ -25,6 +25,8 @@ class ServerConnection {
   toasts = $state<Toast[]>([]);
   /** A message the server didn't send to the agent, to put back in the composer. */
   onRefused: ((threadId: string, text: string) => void) | null = null;
+  /** Web mode: checks the session before connecting again, as a browser hides why a socket was refused. */
+  beforeReconnect: (() => Promise<void>) | null = null;
   #socket: WebSocket | null = null;
   /** The server's version when this page connected; a restart into a new release reloads the page. */
   #version: string | null = null;
@@ -39,12 +41,18 @@ class ServerConnection {
     this.#socket = socket;
     socket.onopen = () => (this.connected = true);
     socket.onclose = () => {
+      // Closed by disconnect(): nothing to reconnect.
+      if (this.#socket !== socket) return;
       this.connected = false;
       for (const reply of this.#folderReplies.values()) reply({ error: "Lost the connection to the Linker-Edit server." });
       this.#folderReplies.clear();
-      setTimeout(() => this.connect(), 1000);
+      setTimeout(() => {
+        if (this.#socket !== socket) return;
+        void (this.beforeReconnect?.() ?? Promise.resolve()).finally(() => this.#socket === socket && this.connect());
+      }, 1000);
     };
     socket.onmessage = (event) => {
+      if (this.#socket !== socket) return;
       const message = JSON.parse(event.data as string) as ServerMessage;
       if (message.type === "history") this.history = { projectId: message.projectId, entries: message.entries };
       else if (message.type === "project_file") this.projectFile = { projectId: message.projectId, file: message.file, text: message.text };
@@ -58,8 +66,9 @@ class ServerConnection {
       else if (message.type === "toast") this.toast(message.text, message.tone);
       else {
         if (message.type === "snapshot") {
-          // This page's code came from the old version, as when another computer restarted to update.
-          if (this.#version !== null && message.state.version !== this.#version) {
+          // This page's code came from the old version, as when another computer restarted to update. A web
+          // address's page doesn't come from the computer, so reloading wouldn't update it.
+          if (this.#version !== null && message.state.version !== this.#version && !host.web) {
             location.reload();
             return;
           }
@@ -68,6 +77,22 @@ class ServerConnection {
         this.state = applyServerMessage(this.state, message);
       }
     };
+  }
+
+  /** Web mode, leaving a computer: closes the socket for good and forgets that computer's state. */
+  disconnect() {
+    const socket = this.#socket;
+    this.#socket = null;
+    socket?.close();
+    for (const reply of this.#folderReplies.values()) reply({ error: "Lost the connection to the Linker-Edit server." });
+    this.#folderReplies.clear();
+    this.connected = false;
+    this.#version = null;
+    this.state = null;
+    this.history = null;
+    this.projectFile = null;
+    this.library = null;
+    this.libraryView = null;
   }
 
   send(message: ClientMessage) {
