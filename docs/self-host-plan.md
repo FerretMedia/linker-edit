@@ -2,7 +2,7 @@
 
 **Goal:** anyone can put Linker-Edit's UI on their own Cloudflare account, open it in any browser, sign in with Linker, and drive one of their own edit computers over Tailscale or the Linker Connect tunnel. The edit computer still does all the work and keeps all the state; the web address only serves the UI's files.
 
-**Status (2026-11-19):** a plan. Nothing is built yet. It builds on Linker Connect (`docs/sync-plan.md`) and needs its prerequisites first.
+**Status (2026-11-19):** built in `feat/self-host-web` (this repo) and `feat/edit-web` (FerretMedia/Linker). Nothing has run live yet: step 0 below is still open. It builds on Linker Connect (`docs/sync-plan.md`) and needs its prerequisites first.
 
 ## What the person does
 
@@ -104,7 +104,7 @@ Tokens are kept as SHA-256 hashes, with rate limits on `/token` and `/whoami`.
 - **CORS for your allowed addresses:** the host fetches them from Linker (cached 5 minutes) and answers preflight `OPTIONS` without a session. It never allows credentials: Bearer only, no cookies.
 - **Bearer sessions on Tailscale too,** not only through the tunnel, for those origins.
 - **The `/ws` session goes in `Sec-WebSocket-Protocol`** (`linker-edit, bearer.<session>`), because a browser can't set headers on a WebSocket. The Origin must be one of your allowed addresses.
-- **Media tickets:** `<video>` and `<img>` can't send headers, so the host sends a short-lived signed `?t=` ticket over `/ws` for `/preview`, `/media` and `/library`. It's renewed before it runs out. The session itself never goes in a URL.
+- **Media tickets:** `<video>` and `<img>` can't send headers, so the page gets a short-lived signed ticket from `POST /api/connect/media-ticket` and adds it as `?t=` on `/preview`, `/media`, `/library` and `/api/timeline`. It's renewed before it runs out. The session itself never goes in a URL.
 - **`linker.whoIs`** sends `lew_â€¦` tokens to Linker's `/api/edit/whoami` and others to Clerk userinfo, as today.
 - **Linking** sends the Tailscale Serve address, and lets you link without a tunnel.
 - **`/api/hello`** adds `protocol: <number>`, raised only for a breaking change. The page shows *"Redeploy your web address in Cloudflare"* or *"Update Linker-Edit on Studio-PC"*.

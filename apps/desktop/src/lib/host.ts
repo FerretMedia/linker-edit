@@ -4,17 +4,13 @@
  * with a Bearer session; see web.svelte.ts. Every server address in the UI goes through `host`.
  */
 
-/** Raised only on a breaking change between the page and the host; the host's /api/hello says its own. */
-export const PROTOCOL = 1;
+import { PROTOCOL_VERSION, type Hello as HostHello } from "#shared/protocol.ts";
 
-/** What GET /api/hello answers. */
-// TODO(shared): `protocol` belongs on the hello answer in shared/; older hosts leave it out.
-export interface Hello {
-  app: "linker-edit";
-  name: string;
-  version: string;
-  protocol?: number;
-}
+/** Raised only on a breaking change between the page and the host; the host's /api/hello says its own. */
+export const PROTOCOL = PROTOCOL_VERSION;
+
+/** What GET /api/hello answers; hosts older than the web address leave `protocol` out. */
+export type Hello = Omit<HostHello, "protocol"> & { protocol?: number };
 
 export function isHello(value: unknown): value is Hello {
   const hello = value as Partial<Hello> | null;

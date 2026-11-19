@@ -5,6 +5,7 @@
   import Monitor from "@lucide/svelte/icons/monitor";
   import X from "@lucide/svelte/icons/x";
   import type { LinkerConnect } from "#shared/protocol.ts";
+  import { host } from "#lib/host.ts";
   import SettingsGroup from "./SettingsGroup.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import Switch from "./Switch.svelte";
@@ -38,7 +39,7 @@
 
   const button = "h-8 rounded-md border px-3 text-xs whitespace-nowrap transition-colors hover:bg-accent disabled:opacity-50";
   // Opened through this computer's own tunnel, turning it off or unlinking it cuts this window off.
-  const throughTunnel = $derived(connect.url !== null && location.origin === new URL(connect.url).origin);
+  const throughTunnel = $derived(connect.url !== null && host.base === new URL(connect.url).origin);
   const linkedHere = $derived(connect.computers?.some((entry) => entry.id === connect.computerId) ?? false);
   const count = $derived(connect.computers?.length ?? 0);
 

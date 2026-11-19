@@ -3,6 +3,7 @@
  * getting a session on one. Linker's side is FerretMedia/Linker's /edit/web routes; the host's is
  * /api/connect/session and /api/connect/native, the iPad app's way in. web.svelte.ts drives these.
  */
+import type { LinkedComputer } from "#shared/protocol.ts";
 import { helloAt, type Hello } from "./host.ts";
 
 export const DEFAULT_LINKER_URL = "https://app.linker.cool";
@@ -14,18 +15,8 @@ const TOKEN_KEY = "linker-edit:web-token";
 const SESSIONS_KEY = "linker-edit:web-sessions";
 const LAST_KEY = "linker-edit:web-last";
 
-/** A computer as Linker lists it. */
-// TODO(shared): LinkedComputer in shared/protocol.ts with `url: string | null` and `tailnetUrl`.
-export interface WebComputer {
-  id: string;
-  name: string;
-  /** Its Linker Connect tunnel; null when it's linked for Tailscale only. */
-  url: string | null;
-  /** Its Tailscale Serve address, when remote access is on. */
-  tailnetUrl: string | null;
-  /** Whether its tunnel is connected now; null when Linker couldn't tell. */
-  online: boolean | null;
-}
+/** A computer as Linker lists it: the parts the start screen uses. */
+export type WebComputer = Pick<LinkedComputer, "id" | "name" | "url" | "tailnetUrl" | "online">;
 
 /** Refused: by Linker, which wants a new sign-in, or by the host, which wants a new session. */
 export class Unauthorized extends Error {
