@@ -34,7 +34,7 @@ if (!process.env.TEST_WORKER_INDEX) {
   fs.mkdirSync(path.join(dir, "music"), { recursive: true });
   fs.writeFileSync(path.join(dir, "music", "Tone.wav"), toneWav());
   // An editor's assets folder, with a folder for each kind of file, for the library to sort.
-  for (const [folder, file] of [["Music", "Song.wav"], ["SoundEffects", "Whoosh.wav"], ["VideoFX", "Light leak.mov"], ["Images", "Logo.png"], ["Misc", "notes.txt"]]) {
+  for (const [folder, file] of [["Music", "Song.wav"], ["SoundEffects", "Whoosh.wav"], ["VideoFX", "Light leak.mov"], ["Images", "Logo.png"], ["Misc", "notes.txt"]] as const) {
     fs.mkdirSync(path.join(dir, "video-editing", folder), { recursive: true });
     fs.writeFileSync(path.join(dir, "video-editing", folder, file), file.endsWith(".wav") ? toneWav() : "");
   }
