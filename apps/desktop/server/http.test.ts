@@ -12,7 +12,7 @@ import { memoryLibraryStore } from "./library/folders.ts";
 import { createLibrary } from "./library/library.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import { createSessions } from "./connect/sessions.ts";
-import { byteRange, createServer, isAllowedOrigin, staticFile, type ConnectRoutes } from "./http.ts";
+import { byteRange, createServer, isAllowedOrigin, staticFile, subprotocolSession, type ConnectRoutes } from "./http.ts";
 import type { RemoteGate } from "./remote.ts";
 
 describe("isAllowedOrigin", () => {
@@ -31,6 +31,22 @@ describe("isAllowedOrigin", () => {
     ["file://", "127.0.0.1:4317", false],
   ])("%s on %s → %s", (origin, host, expected) => {
     expect(isAllowedOrigin(origin, host)).toBe(expected);
+  });
+});
+
+describe("subprotocolSession", () => {
+  it.each([
+    ["linker-edit, bearer.abc", "abc"],
+    ["bearer.abc,linker-edit", "abc"],
+    [undefined, null],
+    ["linker-edit", null],
+    ["bearer.abc", null],
+    ["linker-edit, bearer.", null],
+    ["linker-edit, bearer.abc, bearer.def", null],
+    ["linker-edit, bearer.abc, chat", null],
+    ["chat, bearer.abc", null],
+  ])("%s → %s", (header, expected) => {
+    expect(subprotocolSession(header)).toBe(expected);
   });
 });
 
@@ -258,11 +274,18 @@ describe("server", () => {
 describe("Linker Connect", () => {
   const TUNNEL = "edit-0123456789abcdef.linker.example";
   const viaTunnel = { host: TUNNEL, "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "203.0.113.9" };
+  const TAILNET = "studio.tail1234.ts.net:8443";
+  const viaTailscale = { host: TAILNET, "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
+  /** Jane's own web address, allowed at Linker. */
+  const WEB = "https://linker-edit-web.jane.workers.dev";
   let server: http.Server;
   let port: number;
   let on = true;
+  let gate: RemoteGate | null = null;
+  /** Moves the sessions' clock, for tickets that ran out. */
+  let later = 0;
   const connectDir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-http-connect-"));
-  const sessions = createSessions({ file: path.join(connectDir, "sessions.json") });
+  const sessions = createSessions({ file: path.join(connectDir, "sessions.json"), now: () => Date.now() + later });
   const opened: string[] = [];
   fs.writeFileSync(path.join(connectDir, "Song.mp3"), "0123456789");
 
@@ -277,7 +300,8 @@ describe("Linker Connect", () => {
     });
     const connect: ConnectRoutes = {
       host: () => (on ? TUNNEL : null),
-      admit: async (token, device) => (token === "jane" ? { code: sessions.issueCode(device) } : { status: 403, error: "Not yours." }),
+      admit: async (token, device) =>
+        token === "jane" || token === "lew_jane" ? { code: sessions.issueCode(device) } : { status: 403, error: "Not yours." },
       redeem: (code) => {
         const entered = sessions.enter(code, "native");
         return entered ? { session: entered.token, expiresAt: new Date(entered.expiresAt).toISOString() } : { status: 401, error: "Ran out." };
@@ -287,13 +311,16 @@ describe("Linker Connect", () => {
         return `${url}/api/connect/enter?code=x`;
       },
       others: async () => [
-        { id: "office", name: "Office", url: "https://edit-1111111111111111.linker.example", online: true, linkedAt: "", lastSeenAt: null },
-        { id: "away", name: "Away", url: "https://edit-2222222222222222.linker.example", online: false, linkedAt: "", lastSeenAt: null },
+        { id: "office", name: "Office", url: "https://edit-1111111111111111.linker.example", tailnetUrl: null, online: true, linkedAt: "", lastSeenAt: null },
+        { id: "away", name: "Away", url: "https://edit-2222222222222222.linker.example", tailnetUrl: null, online: false, linkedAt: "", lastSeenAt: null },
+        // Linked for Tailscale only: no address at Linker, so not in the computer menu.
+        { id: "den", name: "Den", url: null, tailnetUrl: "https://den.tail1234.ts.net:8443", online: null, linkedAt: "", lastSeenAt: null },
       ],
       sessions,
+      webOrigins: { allows: async (origin) => origin === WEB },
       probe: async (url) => (url.includes("1111") ? { name: "Office PC", version: "2026.1114.1" } : null),
     };
-    server = createServer(app, dist, "secret", { gate: () => null, computers: async () => [] }, undefined, connect);
+    server = createServer(app, dist, "secret", { gate: () => gate, computers: async () => [] }, undefined, connect);
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     port = (server.address() as AddressInfo).port;
@@ -336,7 +363,8 @@ describe("Linker Connect", () => {
   it("lets nothing through the tunnel without a session but the way in", async () => {
     expect((await request("GET", "/", viaTunnel)).status).toBe(401);
     expect((await request("GET", "/media/x", viaTunnel)).status).toBe(401);
-    expect((await request("GET", "/api/hello", viaTunnel)).status).toBe(200);
+    const hello = await request("GET", "/api/hello", viaTunnel);
+    expect(JSON.parse(hello.body)).toEqual({ app: "linker-edit", name: expect.any(String), version: "0.0.0", protocol: 1 });
     expect((await request("POST", "/api/connect/session", viaTunnel, {})).status).toBe(401);
     expect((await request("POST", "/api/connect/session", { ...viaTunnel, authorization: "Bearer bob" }, {})).status).toBe(403);
     expect((await request("GET", "/api/connect/enter?code=guess", viaTunnel)).status).toBe(401);
@@ -429,9 +457,9 @@ describe("Linker Connect", () => {
     expect((await request("POST", "/api/connect/native", viaTunnel, {})).status).toBe(401);
   });
 
-  it("takes a Bearer session only through the tunnel", async () => {
+  it("takes a Bearer session only through the tunnel or Tailscale", async () => {
     const bearer = { authorization: `Bearer ${await signInNative()}` };
-    // Through Tailscale (off here) or with the tunnel's name but not through Cloudflare, it counts for nothing.
+    // Through Tailscale while it's off, or with the tunnel's name but not through Cloudflare, it counts for nothing.
     const tailscale = { host: "studio.tail1234.ts.net:8443", "x-forwarded-for": "100.64.0.2", "tailscale-user-login": "jane@example.com" };
     expect((await request("GET", "/", { ...tailscale, ...bearer })).status).toBe(403);
     expect((await request("GET", "/", { host: TUNNEL, "x-forwarded-for": "203.0.113.9", ...bearer })).status).toBe(403);
@@ -451,6 +479,179 @@ describe("Linker Connect", () => {
     } finally {
       on = true;
     }
+  });
+
+  /** Signs in as a page on Jane's web address does, through the tunnel or over Tailscale; answers its session. */
+  async function signInWeb(via: Record<string, string> = viaTunnel): Promise<string> {
+    const page = { ...via, origin: WEB, "content-type": "application/json" };
+    const admitted = await request("POST", "/api/connect/session", { ...page, authorization: "Bearer lew_jane" }, { name: "Browser on Windows" });
+    expect(admitted.status).toBe(200);
+    expect(admitted.headers["access-control-allow-origin"]).toBe(WEB);
+    const redeemed = await request("POST", "/api/connect/native", page, { code: (JSON.parse(admitted.body) as { code: string }).code });
+    expect(redeemed.status).toBe(200);
+    return (JSON.parse(redeemed.body) as { session: string }).session;
+  }
+
+  /** Opens /ws as a page on a web address does: the session in Sec-WebSocket-Protocol. */
+  async function openPageSocket(via: Record<string, string>, origin: string, protocols: string[]): Promise<WebSocket | null> {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, protocols, { origin, headers: via });
+    const [event] = await Promise.race([
+      once(socket, "open").then(() => ["open"]),
+      once(socket, "unexpected-response").then(() => ["refused"]),
+      once(socket, "error").then(() => ["refused"]),
+    ]);
+    if (event === "open") return socket;
+    socket.terminate();
+    return null;
+  }
+
+  it("answers only your own web addresses' preflights, never with credentials", async () => {
+    const preflight = { ...viaTunnel, origin: WEB, "access-control-request-method": "POST", "access-control-request-headers": "authorization" };
+    const allowed = await request("OPTIONS", "/api/connect/session", preflight);
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers).toMatchObject({
+      "access-control-allow-origin": WEB,
+      vary: "origin",
+      "access-control-allow-headers": "authorization, content-type, range",
+      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      "access-control-expose-headers": "content-range, accept-ranges, content-length, www-authenticate",
+      "access-control-max-age": "600",
+    });
+    expect(allowed.headers["access-control-allow-credentials"]).toBeUndefined();
+    expect(allowed.headers["access-control-allow-private-network"]).toBeUndefined();
+    // Chrome's local network check, for Tailscale's 100.x addresses.
+    gate = { host: TAILNET, owner: "jane@example.com" };
+    try {
+      const local = await request("OPTIONS", "/api/hello", { ...viaTailscale, origin: WEB, "access-control-request-private-network": "true" });
+      expect(local.status).toBe(204);
+      expect(local.headers["access-control-allow-private-network"]).toBe("true");
+    } finally {
+      gate = null;
+    }
+    // Any other site: no CORS at all, and nothing else either.
+    for (const origin of ["https://evil.example", "https://linker-edit-web.jane.workers.dev.evil.example", "null", "http://localhost:5173"]) {
+      const refused = await request("OPTIONS", "/api/connect/session", { ...preflight, origin });
+      expect(refused.status).toBe(403);
+      expect(refused.headers["access-control-allow-origin"]).toBeUndefined();
+      expect((await request("GET", "/api/hello", { ...viaTunnel, origin })).status).toBe(403);
+      expect((await request("POST", "/api/connect/session", { ...viaTunnel, origin, authorization: "Bearer lew_jane" }, {})).status).toBe(403);
+    }
+  });
+
+  it("signs a page on your web address in through the tunnel with a Bearer session, never the cookie", async () => {
+    const session = await signInWeb();
+    const page = { ...viaTunnel, origin: WEB };
+    const app = await request("GET", "/", { ...page, authorization: `Bearer ${session}` });
+    expect(app).toMatchObject({ status: 200, body: "<html>app</html>" });
+    expect(app.headers["access-control-allow-origin"]).toBe(WEB);
+    // A cookie never counts cross-origin, even from an allowed address.
+    const cookie = await signIn();
+    const withCookie = await request("GET", "/", { ...page, cookie });
+    expect(withCookie.status).toBe(401);
+    expect(withCookie.headers["www-authenticate"]).toContain("Bearer");
+    expect(withCookie.headers["access-control-allow-origin"]).toBe(WEB);
+    expect((await request("GET", "/api/connect/enter?code=x", page)).status).toBe(401);
+    // Its sign-in works with the Linker web token of the account that linked this computer only.
+    expect((await request("POST", "/api/connect/session", { ...page, authorization: "Bearer lew_bob" }, {})).status).toBe(403);
+  });
+
+  it("signs a page in over Tailscale too, for the owner's devices only", async () => {
+    gate = { host: TAILNET, owner: "jane@example.com" };
+    try {
+      const session = await signInWeb(viaTailscale);
+      const page = { ...viaTailscale, origin: WEB };
+      expect((await request("GET", "/", { ...page, authorization: `Bearer ${session}` })).status).toBe(200);
+      // Someone else's device on the tailnet doesn't get in, nor gets a code.
+      const bob = { ...page, "tailscale-user-login": "bob@example.com" };
+      expect((await request("POST", "/api/connect/session", { ...bob, authorization: "Bearer lew_jane" }, { name: "x" })).status).toBe(403);
+      expect((await request("GET", "/", { ...bob, authorization: `Bearer ${session}` })).status).toBe(403);
+      expect((await request("OPTIONS", "/", { ...bob, "access-control-request-method": "GET" })).status).toBe(403);
+      // A page needs its session, and a Bearer header must be one.
+      const signedOut = await request("GET", "/", page);
+      expect(signedOut.status).toBe(401);
+      expect(signedOut.headers["www-authenticate"]).toContain("Bearer");
+      expect((await request("GET", "/", { ...page, authorization: "Bearer guess" })).status).toBe(401);
+      expect((await request("GET", "/", { ...viaTailscale, authorization: "Bearer guess" })).status).toBe(401);
+      expect((await request("GET", "/", { ...page, origin: "https://evil.example", authorization: `Bearer ${session}` })).status).toBe(403);
+      // The owner's own Tailscale pages come in as before.
+      expect((await request("GET", "/", { ...viaTailscale, origin: `https://${TAILNET}` })).status).toBe(200);
+    } finally {
+      gate = null;
+    }
+  });
+
+  it("opens /ws for a page only with its session as a subprotocol, from your web address", async () => {
+    const session = await signInWeb();
+    const protocols = ["linker-edit", `bearer.${session}`];
+    const socket = await openPageSocket(viaTunnel, WEB, protocols);
+    expect(socket?.protocol).toBe("linker-edit");
+    for (const [origin, offered] of [
+      ["https://evil.example", protocols],
+      [`https://${TUNNEL}`, protocols],
+      [WEB, [`bearer.${session}`]],
+      [WEB, ["linker-edit"]],
+      [WEB, ["chat", `bearer.${session}`]],
+      [WEB, [...protocols, "chat"]],
+      [WEB, ["linker-edit", "bearer.guess"]],
+    ] as const) {
+      expect(await openPageSocket(viaTunnel, origin, [...offered])).toBeNull();
+    }
+    gate = { host: TAILNET, owner: "jane@example.com" };
+    try {
+      const overTailscale = await openPageSocket(viaTailscale, WEB, protocols);
+      expect(overTailscale?.protocol).toBe("linker-edit");
+      overTailscale?.terminate();
+      expect(await openPageSocket({ ...viaTailscale, "tailscale-user-login": "bob@example.com" }, WEB, protocols)).toBeNull();
+      expect(await openPageSocket(viaTailscale, "https://evil.example", protocols)).toBeNull();
+    } finally {
+      gate = null;
+    }
+    // Signing the page out in Settings cuts it off at once.
+    const closed = once(socket!, "close");
+    sessions.revoke(sessions.check(session, "native")!);
+    await closed;
+    expect(await openPageSocket(viaTunnel, WEB, protocols)).toBeNull();
+  });
+
+  it("gives a Bearer session media tickets that play files in its place, Range included", async () => {
+    const session = await signInWeb();
+    const page = { ...viaTunnel, origin: WEB };
+    const issued = await request("POST", "/api/connect/media-ticket", { ...page, authorization: `Bearer ${session}` });
+    expect(issued.status).toBe(200);
+    expect(issued.headers["cache-control"]).toBe("no-store");
+    const { ticket, expiresAt } = JSON.parse(issued.body) as { ticket: string; expiresAt: string };
+    expect(new Date(expiresAt).getTime() - Date.now()).toBeGreaterThan(59 * 60_000);
+    expect(ticket).not.toContain(session);
+    const t = encodeURIComponent(ticket);
+    // <video> sends no Origin and no header; with crossorigin it sends the Origin.
+    expect(await request("GET", `/library/lib/Song.mp3?t=${t}`, { ...viaTunnel, range: "bytes=2-4" })).toMatchObject({ status: 206, body: "234" });
+    const cors = await request("GET", `/library/lib/Song.mp3?t=${t}`, { ...page, range: "bytes=0-1" });
+    expect(cors).toMatchObject({ status: 206, body: "01" });
+    expect(cors.headers["access-control-allow-origin"]).toBe(WEB);
+    // Only on the media routes, only to GET, and never as a session.
+    expect((await request("GET", `/?t=${t}`, viaTunnel)).status).toBe(401);
+    expect((await request("POST", `/library/lib/Song.mp3?t=${t}`, viaTunnel)).status).toBe(401);
+    expect((await request("GET", "/", { ...viaTunnel, authorization: `Bearer ${ticket}` })).status).toBe(401);
+    expect((await request("POST", "/api/connect/media-ticket", { ...viaTunnel, authorization: `Bearer ${ticket}` })).status).toBe(401);
+    // Forged, from another start of Linker-Edit, or out of time: no.
+    const [id, at] = ticket.split(".");
+    expect((await request("GET", `/library/lib/Song.mp3?t=${id}.${at}.forged`, viaTunnel)).status).toBe(401);
+    const otherProcess = createSessions({ file: path.join(connectDir, "sessions.json") }).ticket(id!).ticket;
+    expect((await request("GET", `/library/lib/Song.mp3?t=${encodeURIComponent(otherProcess)}`, viaTunnel)).status).toBe(401);
+    later = 60 * 60_000;
+    try {
+      expect((await request("GET", `/library/lib/Song.mp3?t=${t}`, viaTunnel)).status).toBe(401);
+    } finally {
+      later = 0;
+    }
+    // Only a Bearer session gets one: not a cookie, nor nobody.
+    const cookie = await signIn();
+    expect((await request("POST", "/api/connect/media-ticket", { ...viaTunnel, cookie })).status).toBe(401);
+    expect((await request("POST", "/api/connect/media-ticket", viaTunnel)).status).toBe(401);
+    expect((await request("GET", "/api/connect/media-ticket", { ...viaTunnel, authorization: `Bearer ${session}` })).status).toBe(405);
+    // And it dies with its session.
+    sessions.revoke(sessions.check(session, "native")!);
+    expect((await request("GET", `/library/lib/Song.mp3?t=${t}`, viaTunnel)).status).toBe(401);
   });
 
   it("lists linked computers and opens them only for this computer", async () => {

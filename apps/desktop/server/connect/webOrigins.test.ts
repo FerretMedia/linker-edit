@@ -20,7 +20,7 @@ function setup() {
     calls.push(String(input));
     if (state.down) throw new TypeError("fetch failed");
     const auth = (init?.headers as Record<string, string>).authorization;
-    const user = auth.replace("Bearer token-", "");
+    const user = (auth ?? "").replace("Bearer token-", "");
     return new Response(JSON.stringify({ origins: state.allowed[user] ?? [] }), { status: 200 });
   }) as typeof fetch;
   const origins = createWebOrigins({ linker, appUrl: APP, fetch: fetchFn, now: () => clock });

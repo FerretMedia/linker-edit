@@ -123,7 +123,11 @@ const app = createApp({
 });
 
 export const url = `http://127.0.0.1:${config.port}`;
-export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote, linker, { ...connect, sessions: connectSessions });
+export const server = createServer(app, path.join(APP_ROOT, "build"), config.apiToken, remote, linker, {
+  ...connect,
+  sessions: connectSessions,
+  webOrigins,
+});
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {

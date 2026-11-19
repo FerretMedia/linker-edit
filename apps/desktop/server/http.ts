@@ -177,12 +177,40 @@ export type LinkerRoutes = Pick<LinkerService, "start" | "finish">;
 
 /** Linker Connect (server/connect/connect.ts): this computer's tunnel, and opening your other computers. */
 export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "redeem" | "open" | "others"> & {
-  sessions: Pick<Sessions, "enter" | "check" | "onRevoke">;
+  sessions: Pick<Sessions, "enter" | "check" | "onRevoke" | "ticket" | "checkTicket">;
+  /** The web addresses the owner put Linker-Edit's UI on and allowed at Linker (connect/webOrigins.ts). */
+  webOrigins?: Pick<WebOrigins, "allows">;
   /** Asks another computer's Linker-Edit its name and version; tests replace it. */
   probe?: Probe;
 };
 
 const SESSION_COOKIE = "linker_edit_session";
+/** What a page on your own web address offers when it opens /ws: this, and bearer.<its session>. */
+const WS_PROTOCOL = "linker-edit";
+
+/**
+ * CORS for a page on one of your own web addresses. It sends its session as a Bearer header, never a cookie, so
+ * credentials are never allowed.
+ */
+const CORS = {
+  vary: "origin",
+  "access-control-allow-headers": "authorization, content-type, range",
+  "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  "access-control-expose-headers": "content-range, accept-ranges, content-length, www-authenticate",
+  "access-control-max-age": "600",
+};
+
+/** Routes a <video>, <img> or <audio> plays from, which take a media ticket (?t=) instead of a header. */
+const isMediaRoute = (urlPath: string) =>
+  urlPath.startsWith("/preview/") || urlPath.startsWith("/media/") || urlPath.startsWith("/library/") || urlPath === "/api/timeline";
+
+/** The session in Sec-WebSocket-Protocol: exactly "linker-edit" and "bearer.<session>"; null for anything else. */
+export function subprotocolSession(header: string | undefined): string | null {
+  const offered = (header ?? "").split(",").map((part) => part.trim());
+  const bearer = offered.filter((part) => part.startsWith("bearer."));
+  if (offered.length !== 2 || !offered.includes(WS_PROTOCOL) || bearer.length !== 1) return null;
+  return bearer[0]!.slice("bearer.".length) || null;
+}
 
 /** The token of an Authorization: Bearer header, or null. */
 function bearerToken(req: http.IncomingMessage): string | null {
@@ -246,17 +274,29 @@ export function createServer(
   const gate = remote.gate;
   const connectHost = () => connect?.host() ?? null;
   const sourceOf = (req: http.IncomingMessage) => requestSource(req.headers, gate(), connectHost());
+  /** The origin of this computer's own pages at the address a request came to over Tailscale or the tunnel. */
+  const ownOrigin = (source: "remote" | "connect") => `https://${source === "remote" ? gate()?.host : connectHost()}`;
+  const allowsWeb = async (origin: string) => (await connect?.webOrigins?.allows(origin)) ?? false;
   /**
-   * The Linker Connect session of a request through the tunnel: the iPad app's Bearer token, or else Linker-Edit's
-   * cookie. Called only for "connect" requests, so a Bearer token never changes how others get in.
+   * The Linker Connect session of a request through the tunnel or Tailscale: a Bearer session (the iPad app, a page on
+   * your own web address), else Linker-Edit's cookie where one is taken, else a media ticket where one is taken. A
+   * Bearer header that isn't a session never falls back to the others.
    */
-  const sessionOf = (req: http.IncomingMessage) => {
+  const sessionOf = (req: http.IncomingMessage, cookie: boolean, ticket: string | null = null) => {
+    const sessions = connect?.sessions;
+    if (!sessions) return null;
     const bearer = bearerToken(req);
-    return (
-      connect?.sessions.check(bearer ?? cookieValue(req.headers.cookie, SESSION_COOKIE), bearer === null ? "cookie" : "native") ?? null
-    );
+    if (bearer !== null) return sessions.check(bearer, "native");
+    return (cookie ? sessions.check(cookieValue(req.headers.cookie, SESSION_COOKIE), "cookie") : null) ?? (ticket ? sessions.checkTicket(ticket) : null);
   };
   const server = http.createServer((req, res) => {
+    handle(req, res).catch((error: unknown) => {
+      console.error(error);
+      if (res.headersSent) res.destroy();
+      else res.writeHead(500).end();
+    });
+  });
+  const handle = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     // Also turns away pages on other sites whose name was pointed at 127.0.0.1 (DNS rebinding).
     const source = sourceOf(req);
     if (!source) {
@@ -279,13 +319,32 @@ export function createServer(
       res
         .writeHead(status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
         .end(linkerPage(title, text));
-    // How the desktop app on the user's other computers recognizes this one.
+    // A page on another site, over Tailscale or through the tunnel: only your own web addresses get in, with CORS
+    // and a Bearer session. This computer's own pages are same-origin and come in as before.
+    const origin = req.headers.origin;
+    const foreign = source !== "local" && origin !== undefined && origin !== ownOrigin(source);
+    if (foreign) {
+      if (!(await allowsWeb(origin))) {
+        res.writeHead(403).end("Not allowed.");
+        return;
+      }
+      res.setHeader("access-control-allow-origin", origin);
+      for (const [name, value] of Object.entries(CORS)) res.setHeader(name, value);
+      if (req.method === "OPTIONS") {
+        // Chrome asks before a public page reaches Tailscale's 100.x addresses, which count as a local network.
+        if (req.headers["access-control-request-private-network"] === "true") res.setHeader("access-control-allow-private-network", "true");
+        res.writeHead(204).end();
+        return;
+      }
+    }
+    // How the desktop app on the user's other computers, and a page on your own web address, recognize this one.
     if (urlPath === "/api/hello") {
-      json(200, { app: "linker-edit", name: os.hostname(), version: app.version });
+      json(200, { app: "linker-edit", name: os.hostname(), version: app.version, protocol: PROTOCOL_VERSION } satisfies Hello);
       return;
     }
-    if (source === "connect" && connect) {
-      // Through the Linker Connect tunnel, only these three get in without a session: they make one.
+    if (source !== "local" && connect) {
+      // Through the tunnel or over Tailscale, these get in without a session: they make one. Over Tailscale only the
+      // owner's devices got this far.
       if (urlPath === "/api/connect/session") {
         const auth = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
         if (req.method !== "POST" || !auth) {
@@ -298,7 +357,8 @@ export function createServer(
           .catch(() => json(400, { error: "Bad request." }));
         return;
       }
-      if (urlPath === "/api/connect/enter") {
+      // The cookie is for this computer's own pages through the tunnel only.
+      if (urlPath === "/api/connect/enter" && source === "connect" && !foreign) {
         const entered = connect.sessions.enter(query.get("code") ?? "");
         if (!entered) {
           page(401, "That link ran out", `Open ${os.hostname()} again from Linker-Edit's computer menu.`);
@@ -314,7 +374,8 @@ export function createServer(
           .end();
         return;
       }
-      // The iPad app swaps its code for a session it sends as a Bearer token: in the body, never in the address.
+      // The iPad app, or a page on your own web address, swaps its code for a session it sends as a Bearer token: in
+      // the body, never in the address.
       if (urlPath === "/api/connect/native") {
         if (req.method !== "POST") {
           json(405, { error: "POST the code." });
@@ -329,14 +390,35 @@ export function createServer(
           .catch(() => json(400, { error: "Bad request." }));
         return;
       }
-      if (!sessionOf(req)) {
-        if (bearerToken(req) !== null) {
-          // The iPad app signs in again when it gets this.
+      // Through the tunnel everything needs a session. Over Tailscale the owner's own devices come in as before, but
+      // a page on another site, or anything showing a Bearer token, needs a session too. The cookie is only taken
+      // from this computer's own pages through the tunnel, never cross-origin.
+      const bearer = bearerToken(req);
+      const ticket = isMediaRoute(urlPath) && (req.method === "GET" || req.method === "HEAD") ? query.get("t") : null;
+      const session = sessionOf(req, source === "connect" && !foreign, ticket);
+      if (!session && (source === "connect" || foreign || bearer !== null)) {
+        if (bearer !== null || foreign) {
+          // The iPad app and the web page sign in again when they get this.
           res.setHeader("www-authenticate", 'Bearer error="invalid_token"');
           json(401, { error: "Signed out. Sign in with Linker again." });
         } else {
           page(401, "Signed out", `Open ${os.hostname()} from Linker-Edit's computer menu, signed in with the same Linker account.`);
         }
+        return;
+      }
+      // <video> and <img> can't send the session, so they get a ticket for it, good for an hour.
+      if (urlPath === "/api/connect/media-ticket") {
+        if (req.method !== "POST") {
+          json(405, { error: "POST with your session." });
+          return;
+        }
+        if (bearer === null || !session) {
+          res.setHeader("www-authenticate", 'Bearer error="invalid_token"');
+          json(401, { error: "Only a Bearer session gets a media ticket." });
+          return;
+        }
+        const issued = connect.sessions.ticket(session);
+        json(200, { ticket: issued.ticket, expiresAt: new Date(issued.expiresAt).toISOString() });
         return;
       }
     }
@@ -459,7 +541,7 @@ export function createServer(
     const headers = {
       "content-type": MIME[ext] ?? "application/octet-stream",
       "cache-control": file.endsWith(`${path.sep}index.html`) ? "no-cache" : staticCacheControl(urlPath),
-      vary: "accept-encoding",
+      vary: foreign ? "origin, accept-encoding" : "accept-encoding",
     };
     // This computer's own window reads the files straight from disk; other devices get them gzipped.
     if (source !== "local" && COMPRESSIBLE.has(ext) && acceptsGzip(req.headers["accept-encoding"])) {
@@ -471,30 +553,47 @@ export function createServer(
     }
     res.writeHead(200, headers);
     fs.createReadStream(file).pipe(res);
-  });
-
-  const verifyClient = (info: { origin?: string; req: http.IncomingMessage }) => {
-    const current = gate();
-    switch (sourceOf(info.req)) {
-      case "local":
-        return isAllowedOrigin(info.origin, info.req.headers.host);
-      case "remote":
-        return info.origin === `https://${current!.host}`;
-      case "connect": {
-        // A page can't add an Authorization header to a WebSocket, so a Bearer token comes from a native app,
-        // which sends no Origin, or one naming this address. A cookie comes from a page: only this computer's own.
-        const own = info.origin === `https://${connectHost()}`;
-        const allowed = bearerToken(info.req) === null ? own : own || info.origin === undefined;
-        return allowed && sessionOf(info.req) !== null;
-      }
-      default:
-        return false;
-    }
   };
+
+  /** The Linker Connect session each socket let in came with, so signing it out closes the socket. */
+  const socketSessions = new WeakMap<http.IncomingMessage, string>();
+  /** Whether a /ws request gets in; a session it came with is kept in socketSessions. */
+  const admitSocket = async (req: http.IncomingMessage): Promise<boolean> => {
+    const source = sourceOf(req);
+    const origin = req.headers.origin;
+    if (source === "local") return isAllowedOrigin(origin, req.headers.host);
+    if (source !== "remote" && source !== "connect") return false;
+    const own = ownOrigin(source);
+    const admit = (session: string | null) => {
+      if (session) socketSessions.set(req, session);
+      return session !== null;
+    };
+    // A page on your own web address can't add headers to a WebSocket: its session comes as a subprotocol, and only
+    // from an address the owner allowed. Over Tailscale only the owner's devices got this far.
+    const offered = req.headers["sec-websocket-protocol"];
+    if (offered !== undefined) {
+      const session = subprotocolSession(offered);
+      if (!session || !connect || origin === undefined || origin === own || !(await allowsWeb(origin))) return false;
+      return admit(connect.sessions.check(session, "native"));
+    }
+    // A Bearer token comes from a native app, which sends no Origin, or one naming this address.
+    if (bearerToken(req) !== null) return (origin === undefined || origin === own) && admit(sessionOf(req, false));
+    // Over Tailscale, the owner's own pages as before; through the tunnel, this computer's own pages with the cookie.
+    if (source === "remote") return origin === own;
+    return origin === own && admit(sessionOf(req, true));
+  };
+  const verifyClient = (info: { req: http.IncomingMessage }, done: (result: boolean, code?: number) => void) => {
+    admitSocket(info.req).then(
+      (ok) => done(ok, 401),
+      () => done(false, 500),
+    );
+  };
+  // A page on your own web address asked for this subprotocol, and gets it.
+  const handleProtocols = (protocols: Set<string>) => (protocols.has(WS_PROTOCOL) ? WS_PROTOCOL : false);
   // Messages to other devices are compressed when they offer it: a long thread's snapshot is about a megabyte of
   // JSON. This computer's own window skips the work.
-  const local = new WebSocketServer({ noServer: true, verifyClient });
-  const fromAfar = new WebSocketServer({ noServer: true, verifyClient, perMessageDeflate: { threshold: 1024 } });
+  const local = new WebSocketServer({ noServer: true, verifyClient, handleProtocols });
+  const fromAfar = new WebSocketServer({ noServer: true, verifyClient, handleProtocols, perMessageDeflate: { threshold: 1024 } });
   server.on("upgrade", (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
     if ((req.url ?? "/").split("?")[0] !== "/ws") {
       socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
@@ -509,7 +608,7 @@ export function createServer(
     for (const id of ids) for (const socket of bySession.get(id) ?? []) socket.close();
   });
   const onConnection = (socket: WebSocket, req: http.IncomingMessage) => {
-    const session = sourceOf(req) === "connect" ? sessionOf(req) : null;
+    const session = socketSessions.get(req);
     if (session) {
       const sockets = bySession.get(session) ?? new Set();
       sockets.add(socket);
