@@ -1,13 +1,7 @@
 <script lang="ts">
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
-  import AudioWaveform from "@lucide/svelte/icons/audio-waveform";
-  import Film from "@lucide/svelte/icons/film";
-  import Folder from "@lucide/svelte/icons/folder";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import Globe from "@lucide/svelte/icons/globe";
-  import Image from "@lucide/svelte/icons/image";
-  import Music from "@lucide/svelte/icons/eighth-notes";
-  import Palette from "@lucide/svelte/icons/palette";
   import Pause from "@lucide/svelte/icons/pause";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
@@ -27,9 +21,11 @@
     type LibraryFolderStatus,
     type LibraryKind,
     type LibraryQuery,
+    type LibrarySort,
     type LibraryView,
   } from "#shared/protocol.ts";
   import { fileUrl, formatDuration, KIND_LABEL, parseTags, playable, scopeOf, showable, type LibraryTab } from "#lib/library.ts";
+  import { KIND_ICON } from "#lib/libraryIcons.ts";
   import LibraryFolderDialog from "./LibraryFolderDialog.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
 
@@ -41,6 +37,7 @@
     onTab,
     send,
     browseFolders,
+    sortFolder,
     onClose,
   }: {
     app: AppMeta;
@@ -51,10 +48,9 @@
     onTab: (tab: LibraryTab) => void;
     send: (message: ClientMessage) => void;
     browseFolders: (path: string) => Promise<FolderListing | { error: string }>;
+    sortFolder: (path: string) => Promise<LibrarySort | { error: string }>;
     onClose: () => void;
   } = $props();
-
-  const KIND_ICON: Record<LibraryKind, typeof Music> = { music: Music, sfx: AudioWaveform, graphics: Image, luts: Palette, footage: Film, other: Folder };
 
   const project = $derived(app.projects.find((candidate) => candidate.id === app.projectId) ?? null);
   const scope = $derived(scopeOf(tab, app.projectId));
@@ -85,6 +81,10 @@
     if (!scope) return;
     if (dialog?.folder) send({ type: "library_update_folder", scope, folderId: dialog.folder.id, changes: fields });
     else send({ type: "library_add_folder", scope, folder: fields });
+  }
+
+  function saveFolders(folders: Omit<LibraryFolder, "id">[]) {
+    if (scope && folders.length) send({ type: "library_add_folders", scope, folders });
   }
 
   function removeFolder(folder: LibraryFolderStatus) {
@@ -390,5 +390,14 @@
 </div>
 
 {#if dialog}
-  <LibraryFolderDialog folder={dialog.folder} {where} {browseFolders} onSave={saveFolder} onClose={() => (dialog = null)} />
+  <LibraryFolderDialog
+    folder={dialog.folder}
+    {where}
+    existing={current?.folders.map((folder) => folder.path) ?? []}
+    {browseFolders}
+    {sortFolder}
+    onSave={saveFolder}
+    onSaveMany={saveFolders}
+    onClose={() => (dialog = null)}
+  />
 {/if}

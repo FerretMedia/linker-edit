@@ -35,6 +35,7 @@ import type { History, ProjectCheck } from "./history/history.ts";
 import { checkFolder, cleanFolder, cleanTags, keepLibrary, newFolder, projectFolders, withProjectFolders } from "./library/folders.ts";
 import type { LibraryLink, LibraryService } from "./library/library.ts";
 import { libraryFile } from "./library/serve.ts";
+import { sortFolder } from "./library/sort.ts";
 import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromInput } from "./library/tools.ts";
 import type { LinkerService } from "./linker.ts";
 import type { ConnectService } from "./connect/connect.ts";
@@ -946,6 +947,30 @@ export function createApp(options: AppOptions) {
           saveLibraryFolders(link.scope, [...link.folders, folder]);
           void library.scan(folder);
           break;
+        }
+        case "library_add_folders": {
+          const link = libraryLink(message.scope);
+          if (!link || !Array.isArray(message.folders)) return;
+          const added: LibraryFolder[] = [];
+          const problems: string[] = [];
+          for (const fields of message.folders.slice(0, 200)) {
+            try {
+              added.push(newFolder({ ...fields, path: expandHome(String(fields?.path ?? "")) }, [...link.folders, ...added]));
+            } catch (error) {
+              problems.push(errorText(error));
+            }
+          }
+          if (added.length) saveLibraryFolders(link.scope, [...link.folders, ...added]);
+          for (const folder of added) void library.scan(folder);
+          if (problems.length) toast(client, problems.length === 1 ? problems[0]! : `${problems.length} folders weren't added: ${problems.join(" ")}`);
+          break;
+        }
+        case "library_sort_folder": {
+          const requestId = message.requestId;
+          sortFolder(expandHome(String(message.path ?? "")))
+            .then((sort) => send(client, { type: "library_sorted", requestId, sort }))
+            .catch((error: unknown) => send(client, { type: "library_sorted", requestId, sort: { error: errorText(error) } }));
+          return;
         }
         case "library_update_folder": {
           const link = libraryLink(message.scope);

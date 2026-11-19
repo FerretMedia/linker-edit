@@ -1,4 +1,4 @@
-import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
+import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibrarySort, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
 
 export interface Toast {
@@ -30,6 +30,7 @@ class ServerConnection {
   #toastId = 0;
   #folderRequest = 0;
   #folderReplies = new Map<number, (listing: FolderListing | { error: string }) => void>();
+  #sortReplies = new Map<number, (sort: LibrarySort | { error: string }) => void>();
 
   connect() {
     if (this.#socket && this.#socket.readyState !== WebSocket.CLOSED) return;
@@ -40,6 +41,8 @@ class ServerConnection {
       this.connected = false;
       for (const reply of this.#folderReplies.values()) reply({ error: "Lost the connection to the Linker-Edit server." });
       this.#folderReplies.clear();
+      for (const reply of this.#sortReplies.values()) reply({ error: "Lost the connection to the Linker-Edit server." });
+      this.#sortReplies.clear();
       setTimeout(() => this.connect(), 1000);
     };
     socket.onmessage = (event) => {
@@ -51,6 +54,9 @@ class ServerConnection {
       else if (message.type === "folders") {
         this.#folderReplies.get(message.requestId)?.(message.listing);
         this.#folderReplies.delete(message.requestId);
+      } else if (message.type === "library_sorted") {
+        this.#sortReplies.get(message.requestId)?.(message.sort);
+        this.#sortReplies.delete(message.requestId);
       }
       else if (message.type === "refused") this.onRefused?.(message.threadId, message.text);
       else if (message.type === "toast") this.toast(message.text, message.tone);
@@ -79,6 +85,16 @@ class ServerConnection {
     return new Promise((resolve) => {
       this.#folderReplies.set(requestId, resolve);
       this.send({ type: "browse_folders", requestId, path });
+    });
+  }
+
+  /** The folders inside an assets folder on the server's computer, each with the kind it looks like. */
+  sortLibraryFolder(path: string): Promise<LibrarySort | { error: string }> {
+    if (this.#socket?.readyState !== WebSocket.OPEN) return Promise.resolve({ error: "Not connected to the Linker-Edit server." });
+    const requestId = ++this.#folderRequest;
+    return new Promise((resolve) => {
+      this.#sortReplies.set(requestId, resolve);
+      this.send({ type: "library_sort_folder", requestId, path });
     });
   }
 
