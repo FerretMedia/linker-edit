@@ -4,6 +4,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
   import type { TimelineStrip } from "#shared/protocol.ts";
+  import { host } from "#lib/host.ts";
   import { CHANGE_STYLE } from "#lib/labels.ts";
 
   let {
@@ -51,7 +52,7 @@
         >
           {#if tile.image && tile.media}
             <img
-              src="/media/{encodeURIComponent(tile.media)}"
+              src={host.url(`/media/${encodeURIComponent(tile.media)}`)}
               alt=""
               loading="lazy"
               class="size-full object-cover {tile.change === 'removed' ? 'opacity-35 grayscale' : ''}"

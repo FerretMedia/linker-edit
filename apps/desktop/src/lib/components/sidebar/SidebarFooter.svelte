@@ -4,6 +4,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings from "@lucide/svelte/icons/settings";
   import type { AppUpdate, LinkerAccount, ResolveStatus, TranscriptionStatus } from "#shared/protocol.ts";
+  import { host } from "#lib/host.ts";
   import { resolveStatusLine } from "#lib/settings.ts";
   import AppUpdateCard from "../AppUpdateCard.svelte";
   import LinkerAccountRow from "../LinkerAccount.svelte";
@@ -49,7 +50,7 @@
     onCancelAppUpdate: () => void;
   } = $props();
 
-  const remotePage = !["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+  const remotePage = !host.local;
   const status = $derived(resolveStatusLine(resolve));
   // A computer that only drives an edit rig: nothing to set up here, so nothing to show.
   const controlOnly = $derived(!resolveHere && resolve.state === "setup_needed");

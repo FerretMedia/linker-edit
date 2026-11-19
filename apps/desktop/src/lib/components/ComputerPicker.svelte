@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
   import Check from "@lucide/svelte/icons/check";
   import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import Globe from "@lucide/svelte/icons/globe";
@@ -8,6 +9,8 @@
   import type { Computers, RemoteAccess } from "#shared/protocol.ts";
   import { isNewer, releaseName } from "#shared/release-name.ts";
   import { desktop } from "#lib/desktop.ts";
+  import { host } from "#lib/host.ts";
+  import { web } from "#lib/web.svelte.ts";
 
   let {
     computer,
@@ -30,7 +33,7 @@
   let failed = $state(false);
   let root: HTMLDivElement;
 
-  const here = location.origin;
+  const here = host.base;
   const away = $derived(list !== null && new URL(list.home).origin !== here);
   const entries = $derived(
     list
@@ -73,7 +76,7 @@
     class="flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs transition-colors hover:bg-accent"
     aria-haspopup="menu"
     aria-expanded={open}
-    title={desktop ? "Switch computer" : "Remote access"}
+    title={desktop || host.web ? "Switch computer" : "Remote access"}
     onclick={toggle}
   >
     <Monitor class="size-3.5 shrink-0 text-muted-foreground" />
@@ -133,6 +136,21 @@
             on both. Or use Tailscale.
           </p>
         {/if}
+        <div class="my-1 border-t"></div>
+      {:else if host.web}
+        <!-- On a web address: back to the list of computers. -->
+        <button
+          type="button"
+          role="menuitem"
+          class="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent"
+          onclick={() => {
+            open = false;
+            web.backToList();
+          }}
+        >
+          <ArrowLeftRight class="size-3.5 shrink-0" />
+          Your computers…
+        </button>
         <div class="my-1 border-t"></div>
       {/if}
       <button

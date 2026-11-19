@@ -3,6 +3,7 @@
   import LogIn from "@lucide/svelte/icons/log-in";
   import LogOut from "@lucide/svelte/icons/log-out";
   import type { LinkerAccount } from "#shared/protocol.ts";
+  import { host } from "#lib/host.ts";
   import RowMenu from "./RowMenu.svelte";
 
   let {
@@ -13,9 +14,9 @@
   }: { linker: LinkerAccount; computer: string; onCancel: () => void; onSignOut: () => void } = $props();
 
   // Linker sends the browser back to 127.0.0.1, so signing in only works on the computer Linker-Edit runs on.
-  const onThisComputer = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  const onThisComputer = host.local;
   // A link, not a script: the desktop app opens it in the system browser, where Linker's sign-in remembers you.
-  const SIGN_IN = "/api/linker/sign-in";
+  const SIGN_IN = host.url("/api/linker/sign-in");
 </script>
 
 {#if linker.state === "signed_in"}
