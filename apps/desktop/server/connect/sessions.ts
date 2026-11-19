@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ConnectDevice, ConnectDeviceKind } from "../../shared/protocol.ts";
@@ -11,12 +11,17 @@ import type { ConnectDevice, ConnectDeviceKind } from "../../shared/protocol.ts"
  *    posts the code to /api/connect/native for a session it sends as a Bearer token.
  * A session only works the way it was given out: a cookie's is never taken as a Bearer token, or the other way.
  * Only hashes of codes and sessions are kept, in memory and in the file.
+ *
+ * A page on your own web address can't send a header with <video> or <img>, so a Bearer session can get a media
+ * ticket for those: signed with a key that lives only in this process, good for an hour, and only while its
+ * session lasts.
  */
 
 const CODE_LIFETIME = 60_000;
 export const SESSION_LIFETIME = 30 * 24 * 60 * 60_000;
 /** lastSeenAt is written at most this often. */
 const TOUCH_EVERY = 60_000;
+export const TICKET_LIFETIME = 60 * 60_000;
 
 interface Saved {
   id: string;
@@ -41,6 +46,9 @@ export function createSessions(options: { file: string; now?: () => number }) {
   const codes = new Map<string, { name: string; expiresAt: number }>();
   const revokeListeners = new Set<(ids: string[]) => void>();
   const changeListeners = new Set<() => void>();
+  // New on every start, so a restart ends every ticket; a session simply asks for a new one.
+  const ticketKey = randomBytes(32);
+  const sign = (body: string) => createHmac("sha256", ticketKey).update(body).digest("base64url");
   let sessions = read();
 
   function read(): Saved[] {
@@ -109,6 +117,23 @@ export function createSessions(options: { file: string; now?: () => number }) {
         write();
       }
       return session.id;
+    },
+
+    /** A media ticket for the session with this id: its id, when it runs out, and their signature. */
+    ticket(id: string): { ticket: string; expiresAt: number } {
+      const expiresAt = now() + TICKET_LIFETIME;
+      const body = `${id}.${expiresAt}`;
+      return { ticket: `${body}.${sign(body)}`, expiresAt };
+    },
+
+    /** The session id a media ticket was given to, or null when it's forged, ran out, or its session ended. */
+    checkTicket(ticket: string | null): string | null {
+      const parts = (ticket ?? "").split(".");
+      const [id = "", expiresAt = "", signature = ""] = parts;
+      if (parts.length !== 3 || !id ||!/^\d+$/.test(expiresAt) || !same(signature, sign(`${id}.${expiresAt}`))) return null;
+      if (Number(expiresAt) <= now()) return null;
+      const session = sessions.find((entry) => entry.id === id);
+      return session && session.expiresAt > now() ? session.id : null;
     },
 
     list(): ConnectDevice[] {
