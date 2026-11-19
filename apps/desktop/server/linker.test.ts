@@ -61,6 +61,13 @@ function fakeLinker(fake: FakeOptions = {}) {
       if (auth === "Bearer bob") return json({ sub: "user_bob", name: "Bob" });
       return json({ sub: "user_jane", name: "Jane Doe", email: "jane@example.com", picture: "https://img.example/jane.png" });
     }
+    if (url === `${APP}/api/edit/whoami`) {
+      const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
+      if (auth === "Bearer lew_jane") return json({ sub: "user_jane" });
+      if (auth === "Bearer lew_bob") return json({ sub: "user_bob" });
+      if (auth === "Bearer lew_busy") return json({ error: "rate_limited" }, 429);
+      return json({ error: "unauthorized" }, 401);
+    }
     if (url === `${APP}/api/connector`) return json({ plan: "Max", paid: true }, fake.plan ?? 200);
     if (url === `${AUTH}/oauth/token/revoke`) return new Response(null, { status: 200 });
     return new Response("Not found", { status: 404 });
@@ -127,6 +134,17 @@ describe("who a Linker token belongs to", () => {
     expect(restarted.userId()).toBeNull();
     await restarted.refresh();
     expect(restarted.userId()).toBe("user_jane");
+  });
+
+  it("asks Linker itself about web tokens, never Clerk", async () => {
+    const fake = fakeLinker();
+    const linker = linkerWith(fake);
+    expect(await linker.whoIs("lew_jane")).toBe("user_jane");
+    expect(await linker.whoIs("lew_bob")).toBe("user_bob");
+    expect(await linker.whoIs("lew_revoked")).toBeNull();
+    // Linker busy or down isn't a wrong token.
+    await expect(linker.whoIs("lew_busy")).rejects.toThrow("429");
+    expect(fake.calls.filter((call) => call.url.startsWith(AUTH))).toEqual([]);
   });
 });
 
