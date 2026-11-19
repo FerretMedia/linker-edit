@@ -97,7 +97,7 @@ The defaults work for a standard install. To change where things go, create `~/L
 | `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows; on Linux it looks on PATH, then downloads it; on macOS it looks on PATH |
 | `linkerAuthServer` | `https://clerk.linker.cool`, Linker's sign-in; another one for testing against staging |
 | `linkerAppUrl` | `https://app.linker.cool`, Linker's dashboard and API |
-| `linkerClientId` | unset: the client Linker publishes for Linker-Edit at `app.linker.cool/oauth/linker-edit.json` |
+| `linkerClientId` | unset: Linker-Edit's own OAuth app in Linker's Clerk (`okxg8tSdwQEu1rbv`). With another `linkerAuthServer`, the client Linker publishes at `app.linker.cool/oauth/linker-edit.json` |
 | `cloudflared` | unset: Linker Connect uses a `cloudflared` on PATH, or downloads its pinned release into `toolsDir` |
 
 ## Development
