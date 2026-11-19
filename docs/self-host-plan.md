@@ -2,7 +2,7 @@
 
 **Goal:** anyone can put Linker-Edit's UI on their own Cloudflare account, open it in any browser, sign in with Linker, and drive one of their own edit computers over Tailscale or the Linker Connect tunnel. The edit computer still does all the work and keeps all the state; the web address only serves the UI's files.
 
-**Status (2026-11-19):** a plan. Nothing is built yet. It builds on Linker Connect (`docs/sync-plan.md`) and needs its prerequisites first.
+**Status (2026-11-19):** built in `feat/self-host-web` (this repo) and `feat/edit-web` (FerretMedia/Linker). Step 0's checks 3 and 4 passed on 2026-11-19 (below); 1 and 2 are still open. It builds on Linker Connect (`docs/sync-plan.md`) and needs its prerequisites first.
 
 ## What the person does
 
@@ -104,7 +104,7 @@ Tokens are kept as SHA-256 hashes, with rate limits on `/token` and `/whoami`.
 - **CORS for your allowed addresses:** the host fetches them from Linker (cached 5 minutes) and answers preflight `OPTIONS` without a session. It never allows credentials: Bearer only, no cookies.
 - **Bearer sessions on Tailscale too,** not only through the tunnel, for those origins.
 - **The `/ws` session goes in `Sec-WebSocket-Protocol`** (`linker-edit, bearer.<session>`), because a browser can't set headers on a WebSocket. The Origin must be one of your allowed addresses.
-- **Media tickets:** `<video>` and `<img>` can't send headers, so the host sends a short-lived signed `?t=` ticket over `/ws` for `/preview`, `/media` and `/library`. It's renewed before it runs out. The session itself never goes in a URL.
+- **Media tickets:** `<video>` and `<img>` can't send headers, so the page gets a short-lived signed ticket from `POST /api/connect/media-ticket` and adds it as `?t=` on `/preview`, `/media`, `/library` and `/api/timeline`. It's renewed before it runs out. The session itself never goes in a URL.
 - **`linker.whoIs`** sends `lew_…` tokens to Linker's `/api/edit/whoami` and others to Clerk userinfo, as today.
 - **Linking** sends the Tailscale Serve address, and lets you link without a tunnel.
 - **`/api/hello`** adds `protocol: <number>`, raised only for a breaking change. The page shows *"Redeploy your web address in Cloudflare"* or *"Update Linker-Edit on Studio-PC"*.
@@ -139,6 +139,26 @@ Subagents in their own worktrees, as usual.
    - run `build.command` from an assets-only `wrangler.jsonc`
    - not try to install the monorepo's packages
    - reach `api.github.com` and the release downloads during the build
+
+### Results (2026-11-19)
+
+- **3 passed: the Cloudflare tunnel.** The test used a `cloudflared` 2026.10.0 quick tunnel, the version the app pins, in front of a server that only echoes headers.
+  - The preflight `OPTIONS` arrived with `Origin`, `Access-Control-Request-Headers: authorization` and `Access-Control-Request-Private-Network: true`. The CORS and private-network answers came back unchanged.
+  - A GET kept `Origin` and `Authorization`.
+  - The `/ws` upgrade kept `Origin` and the subprotocols, and the client got `linker-edit` as the chosen subprotocol.
+  - `CF-Connecting-IP` is set on every request.
+  - Cloudflare sends the subprotocols as `linker-edit,bearer.…` with no space. `subprotocolSession` trims each part, so that's fine.
+- **3 passed: Tailscale Serve.** Tested over HTTP (`tailscale serve --http`), because the tailnet has no HTTPS certificates yet.
+  - The same headers all passed through: preflight, `Authorization`, `Origin` and the subprotocols.
+  - Serve keeps the tailnet `Host` (`<pc>.<tailnet>.ts.net:<port>`) and adds `Tailscale-User-Login`.
+- **4 passed, as far as it can without a Cloudflare account.** The test was `wrangler deploy --dry-run` (wrangler 4.165.0) on a copy of only `apps/web`, against a stand-in release built from this branch.
+  - Wrangler accepted the assets-only config, ran `node get-ui.mjs` by itself, and read the 25 UI files. There was no `package.json` and nothing was installed.
+  - The web tarball is about 330 KB.
+  - A release that can't be reached fails the build with get-ui's own message.
+  - Still to try for real: the Deploy button and Import a repository in a Cloudflare account, after the first release that has the web tarball.
+- **Still open:**
+  - 1: Linker sign-in in production, and #249 deployed.
+  - 2: the browsers' local-network prompt. It needs HTTPS certificates on the tailnet (admin console → DNS → HTTPS Certificates) and a person to click Allow.
 
 ## Not in this plan
 

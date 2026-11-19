@@ -175,7 +175,7 @@ struct ConnectView: View {
                         .frame(width: 8, height: 8)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(computer.name).foregroundStyle(.primary)
-                        Text(computer.online == false ? "Offline" : computer.endpoint?.displayName ?? computer.url)
+                        Text(computer.online == false ? "Offline" : computer.endpoint?.displayName ?? computer.url ?? "")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

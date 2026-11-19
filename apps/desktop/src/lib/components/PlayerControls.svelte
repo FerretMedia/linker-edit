@@ -8,6 +8,7 @@
   import Volume2 from "@lucide/svelte/icons/volume-2";
   import VolumeX from "@lucide/svelte/icons/volume-x";
   import type { PlayableTimeline } from "#shared/protocol.ts";
+  import { host } from "#lib/host.ts";
   import { formatTimecode } from "#lib/player.ts";
 
   let {
@@ -112,7 +113,7 @@
         style="left: {percent(clip.start)}; width: {percent(clip.end - clip.start)};{clip.track === 1 &&
         clip.kind === 'image' &&
         clip.media
-          ? ` background: center / cover url('/media/${encodeURIComponent(clip.media)}');`
+          ? ` background: center / cover url('${host.url(`/media/${encodeURIComponent(clip.media)}`)}');`
           : ''}"
         title={clip.name}
       ></div>

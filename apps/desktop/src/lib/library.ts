@@ -1,4 +1,5 @@
 import type { LibraryKind, LibraryScope } from "#shared/protocol.ts";
+import { host } from "./host.ts";
 
 /** The library page's tabs. Workspaces and series will add theirs. */
 export type LibraryTab = "universal" | "project";
@@ -33,9 +34,9 @@ const extension = (name: string) => /\.[^.]+$/.exec(name)?.[0].toLowerCase() ?? 
 export const playable = (name: string) => PLAYS.has(extension(name));
 export const showable = (name: string) => SHOWS.has(extension(name));
 
-/** Where a library file plays from on this server. */
+/** Where a library file plays from on the server. */
 export const fileUrl = (folderId: string, rel: string) =>
-  `/library/${encodeURIComponent(folderId)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
+  host.url(`/library/${encodeURIComponent(folderId)}/${rel.split("/").map(encodeURIComponent).join("/")}`);
 
 /** 3:07, or 1:02:03 for an hour or more; under 10 seconds with a tenth, like 1.2s. */
 export function formatDuration(seconds: number): string {

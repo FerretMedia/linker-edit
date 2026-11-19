@@ -1,0 +1,3 @@
+# Filled by get-ui.mjs from a Linker-Edit release on every deploy.
+public/
+.linker-edit-web.tar.gz

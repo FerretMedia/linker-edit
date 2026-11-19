@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createSessions, SESSION_LIFETIME } from "./sessions.ts";
+import { createSessions, SESSION_LIFETIME, TICKET_LIFETIME } from "./sessions.ts";
 
 let file: string;
 let clock: number;
@@ -63,6 +64,29 @@ describe("Linker Connect sessions", () => {
     expect(sessions.check(token)).toBeNull();
     expect(sessions.check(native.token, "native")).toBeNull();
     expect(sessions.list()).toEqual([]);
+  });
+
+  it("gives a session media tickets that last an hour and end with it", () => {
+    const sessions = make();
+    const native = sessions.enter(sessions.issueCode("Browser"), "native")!;
+    const id = sessions.check(native.token, "native")!;
+    const { ticket, expiresAt } = sessions.ticket(id);
+    expect(expiresAt).toBe(clock + TICKET_LIFETIME);
+    // The session itself never goes in an address.
+    expect(ticket).not.toContain(native.token);
+    expect(sessions.checkTicket(ticket)).toBe(id);
+    expect(sessions.checkTicket(null)).toBeNull();
+    // Another session's id, a later expiry or a ticket another start of Linker-Edit signed: all forged.
+    const [, at, signature] = ticket.split(".");
+    expect(sessions.checkTicket(`${randomUUID()}.${at}.${signature}`)).toBeNull();
+    expect(sessions.checkTicket(`${id}.${Number(at) + 60_000}.${signature}`)).toBeNull();
+    expect(sessions.checkTicket(`${ticket}.extra`)).toBeNull();
+    expect(make().checkTicket(ticket)).toBeNull();
+    clock += TICKET_LIFETIME;
+    expect(sessions.checkTicket(ticket)).toBeNull();
+    const fresh = sessions.ticket(id).ticket;
+    sessions.revoke(id);
+    expect(sessions.checkTicket(fresh)).toBeNull();
   });
 
   it("signs devices out, and says which", () => {

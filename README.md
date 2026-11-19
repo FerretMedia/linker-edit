@@ -290,6 +290,7 @@ Open your edit machine from your other computers, from anywhere, with your [Link
 - **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once; the iPad app, once it's out, shows there as a *Native app*. A sign-in lasts 30 days. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
 - **Linker makes the tunnel, not the traffic.** Linker only gives the edit machine a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/); chats, previews and media go through the tunnel straight to your edit machine. Linker-Edit runs `cloudflared` for it: one on PATH, or a pinned release it downloads once (20 to 55 MB) and checks by hash.
 - **It stays on** across restarts, and is reachable while Linker-Edit runs on the edit machine.
+- **Tailscale only, if you like.** Turn off **Use the tunnel** and the edit machine stays linked to your account without an address at Linker: your devices reach it over Tailscale (below), and it still counts toward the 3.
 
 See [docs/sync-plan.md](docs/sync-plan.md) for how it's built.
 
@@ -307,6 +308,12 @@ Only your own computers show up in that menu, and only once remote access is on 
 - **The first time, Tailscale may ask you to allow it.** If Tailscale Serve or HTTPS certificates are off for your tailnet, the dialog shows Tailscale's link to turn them on. Then click **Turn on** again.
 - **It stays on** after Linker-Edit or the computer restarts, until you turn it off in the same dialog. While Linker-Edit isn't running, the address shows an error.
 - **It uses port 8443**, so it doesn't take over an address you already serve on 443, such as T3 Code's. If 8443 is taken too, set `tailscalePort` in the config.
+
+### Your own web address
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/FerretMedia/linker-edit/tree/main/apps/web)
+
+Put Linker-Edit on your own free Cloudflare address and open your edit machine from any browser: sign in with Linker, allow the address once, and pick the computer. It goes over Tailscale when it can and through Linker Connect otherwise; see [apps/web](apps/web/README.md).
 
 ## Sign in with Linker
 

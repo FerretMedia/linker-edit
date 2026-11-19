@@ -16,6 +16,7 @@
   import UserRound from "@lucide/svelte/icons/user-round";
   import type { AppMeta, ClientMessage } from "#shared/protocol.ts";
   import { RELEASES_URL, releaseName } from "#shared/release-name.ts";
+  import { host } from "#lib/host.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
@@ -48,8 +49,8 @@
   const title = $derived(SETTINGS_SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings");
 
   // Linker sends the browser back to 127.0.0.1, so signing in only works on the computer Linker-Edit runs on.
-  const onThisComputer = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-  const SIGN_IN = "/api/linker/sign-in";
+  const onThisComputer = host.local;
+  const SIGN_IN = host.url("/api/linker/sign-in");
 
   let theme = $state<Theme>(loadTheme());
   function pickTheme(next: Theme) {
@@ -346,6 +347,7 @@
             computer={app.computer}
             onRefresh={() => send({ type: "refresh_connect" })}
             onSetEnabled={(enabled) => send({ type: "set_connect", enabled })}
+            onSetTunnel={(tunnel) => send({ type: "set_connect_tunnel", tunnel })}
             onUnlink={(computerId) => send({ type: "connect_unlink", computerId })}
             onSignOutDevice={(deviceId) => send({ type: "connect_sign_out_device", deviceId })}
             onSignIn={() => onSection("account")}

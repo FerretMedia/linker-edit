@@ -291,6 +291,19 @@ export type LinkerAccount =
       appUrl: string;
     };
 
+/**
+ * What GET /api/hello answers, which is how a page or another computer recognizes Linker-Edit. protocol is raised
+ * only for a change that breaks a page of another version talking to this server (your own web address).
+ */
+export interface Hello {
+  app: "linker-edit";
+  name: string;
+  version: string;
+  protocol: number;
+}
+
+export const PROTOCOL_VERSION = 1;
+
 /** Another of the user's computers that runs Linker-Edit with remote access on. */
 export interface Computer {
   name: string;
@@ -306,8 +319,10 @@ export interface Computer {
 export interface LinkedComputer {
   id: string;
   name: string;
-  /** https://edit-….linker.cool */
-  url: string;
+  /** https://edit-….linker.cool; null for a computer linked for Tailscale only, without a tunnel. */
+  url: string | null;
+  /** Its Tailscale remote access address (https://studio.tail1234.ts.net:8443) while that's on; null otherwise. */
+  tailnetUrl: string | null;
   /** Whether its tunnel is connected now; null when Linker couldn't tell. */
   online: boolean | null;
   linkedAt: string;
@@ -339,7 +354,9 @@ export interface LinkerConnect {
    * on: linked, with the tunnel running.
    */
   state: "signed_out" | "off" | "starting" | "on";
-  /** This computer's address once linked. */
+  /** "Use the tunnel": off links this computer for Tailscale only, with no address at Linker. */
+  tunnel: boolean;
+  /** This computer's address once linked with the tunnel. */
   url: string | null;
   /** While on: whether the tunnel is connected to Cloudflare right now. */
   connected: boolean;
@@ -513,6 +530,8 @@ export type ClientMessage =
   /** Looks up the computers linked to your Linker account again. */
   | { type: "refresh_connect" }
   | { type: "set_connect"; enabled: boolean }
+  /** "Use the tunnel" in Linker Connect; off links this computer for Tailscale only. */
+  | { type: "set_connect_tunnel"; tunnel: boolean }
   /** Unlinks one of your computers from Linker Connect, this one or another, which frees its place. */
   | { type: "connect_unlink"; computerId: string }
   /** Signs a device out of this computer. */
