@@ -135,6 +135,11 @@ export interface FolderListing {
   dir: string;
   isProject: boolean;
   entries: FolderEntry[];
+  /**
+   * The names of the files in it, shown greyed out so you can see what a folder holds before choosing it.
+   * Missing from older servers.
+   */
+  files?: string[];
   /** The drives on Windows, or / elsewhere: where to jump from the picker. */
   roots: string[];
   home: string;

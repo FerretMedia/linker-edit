@@ -13,12 +13,20 @@ test("a music folder is added to the library, read, played and starred", async (
   await expect(page.getByRole("heading", { name: "Universal library" })).toBeVisible();
 
   await page.getByRole("button", { name: "Add folder" }).first().click();
-  const dialog = page.getByRole("dialog");
-  const field = dialog.getByRole("combobox", { name: "Library folder" });
-  // It fills itself in with the home folder once focused: typed before that arrives, the two would run together.
-  await field.focus();
+  // Adding starts with the folder picker, over the form.
+  const picker = page.getByRole("dialog", { name: "Choose a library folder" });
+  const field = picker.getByRole("combobox", { name: "Library folder" });
+  // It fills itself in with the home folder: typed before that arrives, the two would run together.
   await expect(field).not.toHaveValue("");
   await field.fill(music + path.sep);
+  // The files in a folder show, greyed out, so you can tell it's the right one.
+  await expect(picker.getByText("Tone.wav")).toBeVisible();
+  await picker.getByRole("button", { name: "Choose folder" }).click();
+  await expect(picker).toHaveCount(0);
+
+  const dialog = page.getByRole("dialog", { name: "Add a folder" });
+  await expect(dialog.getByRole("button", { name: `Library folder: ${music}. Change` })).toBeVisible();
+  await expect(dialog.getByPlaceholder("music")).toBeVisible();
   await dialog.getByPlaceholder("Licensed for YouTube only. Use for intros.").fill("Royalty free");
   await dialog.getByRole("button", { name: "Add folder" }).click();
   await expect(dialog).toHaveCount(0);

@@ -4,7 +4,7 @@
   import { trimSeparators } from "#lib/browsePath.ts";
   import { KIND_LABEL } from "#lib/library.ts";
   import Dialog from "./Dialog.svelte";
-  import FolderPicker from "./FolderPicker.svelte";
+  import PathField from "./PathField.svelte";
 
   let {
     folder,
@@ -28,11 +28,12 @@
   let path = $state(initial?.path ?? "");
   let label = $state(initial?.label ?? "");
   let note = $state(initial?.note ?? "");
-  let status = $state<{ exists: boolean; isProject: boolean } | null>(null);
+  // Adding starts with the folder: it's what the dialog is for, and the name comes from it.
+  let choosing = $state(!initial);
 
   const picked = $derived(trimSeparators(path.trim()));
   const fallbackLabel = $derived(picked.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
-  const canSave = $derived(!!picked && status?.exists === true);
+  const canSave = $derived(!!picked);
 
   function save() {
     if (!canSave) return;
@@ -60,7 +61,7 @@
 
   <div class="flex flex-col gap-1 text-xs text-muted-foreground">
     Folder
-    <FolderPicker bind:value={path} bind:status browse={browseFolders} listOnFocus label="Library folder" onSubmit={save} />
+    <PathField bind:value={path} bind:open={choosing} label="Library folder" title="Choose a library folder" browse={browseFolders} />
   </div>
 
   <label class="flex flex-col gap-1 text-xs text-muted-foreground">
