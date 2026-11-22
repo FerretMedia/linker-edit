@@ -37,7 +37,7 @@ interface UserConfig {
   transcriptsDir?: string;
   /** Where the speech engine and its models are downloaded. */
   toolsDir?: string;
-  /** Your own whisper-cli, instead of the one Linker-Edit downloads (Windows) or finds on PATH. */
+  /** Your own whisper-cli, instead of the one Linker-Edit finds on PATH or downloads. */
   whisperCli?: string;
   /** The HTTPS port remote access uses on your tailnet. */
   tailscalePort?: number;

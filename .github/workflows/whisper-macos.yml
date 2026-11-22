@@ -1,0 +1,115 @@
+name: whisper.cpp for macOS
+
+# whisper.cpp publishes no macOS whisper-cli, so Linker-Edit builds its own here: Metal on Apple silicon, the CPU on
+# Intel. Each build is published once, as a prerelease (the updater and apps/web only read the latest real release),
+# and apps/desktop/server/transcribe/tools.ts pins its hash, so a published file is never replaced. To move to another
+# whisper.cpp build, change WHISPER_BUILD here and in tools.ts, run this, and pin the new hashes it prints.
+on:
+  push:
+    paths:
+      - ".github/workflows/whisper-macos.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whisper-macos
+  cancel-in-progress: false
+
+env:
+  WHISPER_BUILD: b5454
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-15
+            backend: -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON
+          # Metal on Intel Macs' AMD and Intel GPUs is slow or broken in ggml, so these run on the CPU. macOS 13
+          # needs a 2017 or newer Mac, and all of those have AVX2.
+          - arch: x64
+            os: macos-15-intel
+            backend: -DGGML_METAL=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      NAME: whisper-cli-macos-${{ matrix.arch }}
+    steps:
+      - name: Get whisper.cpp
+        run: git clone --depth 1 --branch "$WHISPER_BUILD" https://github.com/ggml-org/whisper.cpp src
+
+      # Static, so the one file runs on its own; the Metal shaders are compiled in.
+      - name: Build whisper-cli
+        run: |
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF \
+            ${{ matrix.backend }}
+          cmake --build build --config Release --target whisper-cli -j 4
+
+      - name: Check it needs nothing outside macOS
+        run: |
+          otool -L build/bin/whisper-cli
+          if otool -L build/bin/whisper-cli | tail -n +2 | grep -v -E '^\s*/(System/Library|usr/lib)/'; then
+            echo "::error::whisper-cli links a library macOS doesn't have."
+            exit 1
+          fi
+
+      # The same models and flags the app uses (tools.ts, whisper.ts), with the tiny model to keep it quick.
+      - name: Transcribe a sample
+        run: |
+          curl -fsSL -o tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin
+          curl -fsSL -o vad.bin https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v5.1.2.bin
+          build/bin/whisper-cli -m tiny.bin -f src/samples/jfk.wav -l auto --vad -vm vad.bin -ojf -of sample
+          grep -qi "ask not what your country" sample.json
+
+      - name: Pack
+        run: |
+          mkdir "$NAME"
+          cp build/bin/whisper-cli "$NAME/"
+          cp src/LICENSE "$NAME/LICENSE-whisper.cpp"
+          codesign --force --sign - "$NAME/whisper-cli"
+          COPYFILE_DISABLE=1 tar -czf "$NAME.tar.gz" "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.NAME }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish once
+        run: |
+          tag="whisper.cpp-$WHISPER_BUILD-macos"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "$tag is already published and pinned by hash in tools.ts, so it stays as it is."
+            gh release view "$tag" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes  \(.digest)"'
+            exit 0
+          fi
+          gh release create "$tag" dist/*.tar.gz --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "whisper.cpp $WHISPER_BUILD for macOS" \
+            --notes "The speech engine Linker-Edit downloads on macOS: whisper-cli from [whisper.cpp $WHISPER_BUILD](https://github.com/ggml-org/whisper.cpp/releases/tag/$WHISPER_BUILD) (MIT), built by .github/workflows/whisper-macos.yml. Metal on Apple silicon, the CPU on Intel. Not a Linker-Edit release."
+          cd dist
+          for file in *.tar.gz; do
+            echo "$file  $(stat -c %s "$file") bytes  sha256:$(sha256sum "$file" | cut -d' ' -f1)"
+          done

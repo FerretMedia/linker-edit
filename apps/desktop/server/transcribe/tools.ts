@@ -37,19 +37,59 @@ const WINDOWS_BUILDS = {
     size: 8_928_640,
   },
 } satisfies Record<string, Download>;
-// CPU builds, which run on any recent glibc. A whisper-cli on PATH, such as a GPU build, comes first.
-const LINUX_BUILDS: Partial<Record<NodeJS.Architecture, Download>> = {
-  x64: {
-    url: `${WHISPER_RELEASE}/whisper-bin-ubuntu-x64.tar.gz`,
-    sha256: "a72becf15d7917f990f6313867a52638b82b7f9ef237fb0c980dac56a135781c",
-    size: 10_364_195,
+/** A whisper-cli packed in a .tar.gz, for Linux and macOS. */
+export interface TarBuild extends Download {
+  /** Where whisper-cli is inside the archive. */
+  cli: string;
+  /** How it runs, for the engine's label. */
+  device: string;
+}
+
+// whisper.cpp publishes no macOS whisper-cli, so .github/workflows/whisper-macos.yml builds these from the same
+// whisper.cpp build: Metal on Apple silicon, the CPU on Intel Macs.
+const MAC_RELEASE = `https://github.com/FerretMedia/linker-edit/releases/download/whisper.cpp-${WHISPER_BUILD}-macos`;
+
+// A whisper-cli on PATH comes first: on Linux that may be a GPU build, on macOS Homebrew's.
+const TAR_BUILDS: Partial<Record<NodeJS.Platform, Partial<Record<NodeJS.Architecture, TarBuild>>>> = {
+  // CPU builds, which run on any recent glibc.
+  linux: {
+    x64: {
+      url: `${WHISPER_RELEASE}/whisper-bin-ubuntu-x64.tar.gz`,
+      sha256: "a72becf15d7917f990f6313867a52638b82b7f9ef237fb0c980dac56a135781c",
+      size: 10_364_195,
+      cli: "whisper-bin-ubuntu-x64/whisper-cli",
+      device: "CPU",
+    },
+    arm64: {
+      url: `${WHISPER_RELEASE}/whisper-bin-ubuntu-arm64.tar.gz`,
+      sha256: "6b95ebfc60447df48e70ef00a73bdc3f41679ed2d01ef465827206a2ff325149",
+      size: 4_608_377,
+      cli: "whisper-bin-ubuntu-arm64/whisper-cli",
+      device: "CPU",
+    },
   },
-  arm64: {
-    url: `${WHISPER_RELEASE}/whisper-bin-ubuntu-arm64.tar.gz`,
-    sha256: "6b95ebfc60447df48e70ef00a73bdc3f41679ed2d01ef465827206a2ff325149",
-    size: 4_608_377,
+  darwin: {
+    arm64: {
+      url: `${MAC_RELEASE}/whisper-cli-macos-arm64.tar.gz`,
+      sha256: "e0788310660591d35410e50bd04f49db92348871db3af4bdca489b6edd57b735",
+      size: 2_092_170,
+      cli: "whisper-cli-macos-arm64/whisper-cli",
+      device: "Metal",
+    },
+    x64: {
+      url: `${MAC_RELEASE}/whisper-cli-macos-x64.tar.gz`,
+      sha256: "c6309883922c831cb9c01c4697a615a43fec472f349b9d249c683847b6fc6d88",
+      size: 1_337_492,
+      cli: "whisper-cli-macos-x64/whisper-cli",
+      device: "CPU",
+    },
   },
 };
+
+/** The whisper.cpp download for this system when it comes as a .tar.gz, or null when there's none. */
+export function tarBuild(platform: NodeJS.Platform, arch: NodeJS.Architecture): TarBuild | null {
+  return TAR_BUILDS[platform]?.[arch] ?? null;
+}
 
 const MODEL_NAME = "large-v3-turbo";
 const MODEL: Download = {
@@ -139,31 +179,32 @@ async function bundledWindowsWhisper(dir: string, onProgress: SetupProgress, sig
   return { cli, gpu };
 }
 
-/** Where the downloaded Linux engine's whisper-cli is, or null when there's no build for this processor. */
-function linuxWhisperCli(dir: string): string | null {
-  if (process.platform !== "linux" || !LINUX_BUILDS[process.arch]) return null;
-  const home = path.join(dir, `whisper.cpp-${WHISPER_BUILD}-linux-${process.arch}`);
-  return path.join(home, `whisper-bin-ubuntu-${process.arch}`, "whisper-cli");
+const tarHome = (dir: string) => path.join(dir, `whisper.cpp-${WHISPER_BUILD}-${process.platform}-${process.arch}`);
+
+/** Where this system's downloaded whisper-cli is, or null when there's no .tar.gz build for it. */
+function tarWhisperCli(dir: string): string | null {
+  const build = tarBuild(process.platform, process.arch);
+  return build ? path.join(tarHome(dir), ...build.cli.split("/")) : null;
 }
 
-async function bundledLinuxWhisper(dir: string, onProgress: SetupProgress, signal?: AbortSignal): Promise<string | null> {
-  const cli = linuxWhisperCli(dir);
-  const build = LINUX_BUILDS[process.arch];
-  if (!cli || !build) return null;
-  if (fs.existsSync(cli)) return cli;
+async function bundledTarWhisper(dir: string, onProgress: SetupProgress, signal?: AbortSignal): Promise<{ cli: string; device: string } | null> {
+  const build = tarBuild(process.platform, process.arch);
+  const cli = tarWhisperCli(dir);
+  if (!build || !cli) return null;
+  if (fs.existsSync(cli)) return { cli, device: build.device };
 
-  const home = path.dirname(path.dirname(cli));
+  const home = tarHome(dir);
   const archive = `${home}.tar.gz`;
   await download(build, archive, (percent) => onProgress("Downloading the speech engine", percent), signal);
   onProgress("Unpacking the speech engine", null);
-  await unpack(archive, home, "tar", ["-xzf"]);
-  return cli;
+  // macOS's own tar, wherever PATH points.
+  await unpack(archive, home, process.platform === "darwin" ? "/usr/bin/tar" : "tar", ["-xzf"]);
+  // A download made by fetch isn't quarantined, but clear it anyway so Gatekeeper never stops whisper-cli.
+  if (process.platform === "darwin") await succeeds("/usr/bin/xattr", ["-dr", "com.apple.quarantine", home]);
+  return { cli, device: build.device };
 }
 
-const MISSING_WHISPER =
-  process.platform === "darwin"
-    ? "Install whisper.cpp with `brew install whisper-cpp`, or set whisperCli in linker-edit.config.json."
-    : "Install whisper.cpp so `whisper-cli` is on PATH, or set whisperCli in linker-edit.config.json.";
+const MISSING_WHISPER = "Install whisper.cpp so `whisper-cli` is on PATH, or set whisperCli in linker-edit.config.json.";
 
 /** The ffmpeg Linker-Edit ships, or one on PATH. */
 export function findFfmpeg(): string {
@@ -181,12 +222,12 @@ export function toolsReady(dir: string, override: string | undefined): boolean {
     return false;
   }
   const bundled = (["cuda", "cpu"] as const).map((kind) => path.join(dir, `whisper.cpp-${WHISPER_BUILD}-${kind}`, "Release", "whisper-cli.exe"));
-  const linux = linuxWhisperCli(dir);
+  const downloaded = tarWhisperCli(dir);
   const whisper = override
     ? fs.existsSync(override)
     : process.platform === "win32" && process.arch === "x64"
       ? bundled.some((file) => fs.existsSync(file))
-      : findOnPath("whisper-cli") !== null || (linux !== null && fs.existsSync(linux));
+      : findOnPath("whisper-cli") !== null || (downloaded !== null && fs.existsSync(downloaded));
   return whisper && [MODEL, VAD_MODEL].every((item) => fs.existsSync(path.join(dir, "models", path.basename(item.url))));
 }
 
@@ -202,8 +243,11 @@ export async function prepareTools(dir: string, override: string | undefined, on
   }
   whisperCli ??= findOnPath("whisper-cli");
   if (!whisperCli) {
-    whisperCli = await bundledLinuxWhisper(dir, onProgress, signal);
-    if (whisperCli) device = " (CPU)";
+    const bundled = await bundledTarWhisper(dir, onProgress, signal);
+    if (bundled) {
+      whisperCli = bundled.cli;
+      device = ` (${bundled.device})`;
+    }
   }
   if (!whisperCli || !fs.existsSync(whisperCli)) throw new Error(`whisper.cpp not found. ${MISSING_WHISPER}`);
 
