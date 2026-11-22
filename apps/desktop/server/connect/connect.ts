@@ -193,6 +193,35 @@ export function createConnect(options: ConnectOptions) {
     return computers;
   }
 
+  /**
+   * Asks another of your computers, at its tunnel address, for a one-time code with this computer's Linker sign-in;
+   * null when this computer isn't signed in to Linker. Only a computer linked to the account gets the token.
+   */
+  async function codeFrom(url: string): Promise<{ origin: string; computer: LinkedComputer; code: string } | null> {
+    const origin = new URL(url).origin;
+    const find = (list: LinkedComputer[] | null) => list?.find((computer) => computer.url !== null && new URL(computer.url).origin === origin);
+    const token = await options.linker.accessToken();
+    if (!token) return null;
+    const computer = find(computers) ?? find(await listComputers());
+    if (!computer) throw new Error("That computer isn't linked to your Linker account.");
+    let res: Response;
+    try {
+      res = await fetchFn(`${origin}/api/connect/session`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(NETWORK_TIMEOUT),
+      });
+    } catch {
+      throw new Error(`Couldn't reach ${computer.name}. Is it on, with Linker-Edit running and Linker Connect on?`);
+    }
+    const body = (await res.json().catch(() => ({}))) as { code?: unknown; error?: unknown };
+    if (!res.ok || typeof body.code !== "string") {
+      throw new Error(typeof body.error === "string" ? body.error : `${computer.name} answered ${res.status}.`);
+    }
+    return { origin, computer, code: body.code };
+  }
+
   function clearRestart() {
     if (restartTimer) clearTimeout(restartTimer);
     restartTimer = null;
@@ -492,11 +521,14 @@ export function createConnect(options: ConnectOptions) {
       return { session: entered.token, expiresAt: new Date(entered.expiresAt).toISOString() };
     },
 
-    /** Your other linked computers, for the computer menu here; empty when signed out or Linker is unreachable. */
-    async others(): Promise<LinkedComputer[]> {
+    /**
+     * Your other linked computers, for the computer menu here, asked of Linker again when fresh; empty when signed out
+     * or Linker is unreachable.
+     */
+    async others(fresh = false): Promise<LinkedComputer[]> {
       if (!signedIn()) return [];
       try {
-        const list = computers && now() - listedAt < LIST_FRESH_FOR ? computers : await listComputers();
+        const list = !fresh && computers && now() - listedAt < LIST_FRESH_FOR ? computers : await listComputers();
         return list.filter((computer) => computer.id !== saved.computerId);
       } catch (error) {
         console.error(`Couldn't list Linker Connect computers: ${error instanceof Error ? error.message : String(error)}`);
@@ -509,28 +541,34 @@ export function createConnect(options: ConnectOptions) {
      * sign-in, and answers the address that swaps the code for a session.
      */
     async open(url: string): Promise<string> {
-      const origin = new URL(url).origin;
-      const find = (list: LinkedComputer[] | null) => list?.find((computer) => computer.url !== null && new URL(computer.url).origin === origin);
-      const computer = find(computers) ?? find(await listComputers());
-      if (!computer) throw new Error("That computer isn't linked to your Linker account.");
-      const token = await options.linker.accessToken();
-      if (!token) throw new Error("Sign in with Linker on this computer first.");
+      const got = await codeFrom(url);
+      if (!got) throw new Error("Sign in with Linker on this computer first.");
+      return `${got.origin}/api/connect/enter?code=${encodeURIComponent(got.code)}`;
+    },
+
+    /**
+     * A Bearer session on another of your computers, for this computer's server to pass the window's requests on
+     * with (server/machines.ts), the way the iPad app signs in; null when this computer isn't signed in to Linker.
+     */
+    async sessionOn(url: string): Promise<{ session: string; expiresAt: string } | null> {
+      const got = await codeFrom(url);
+      if (!got) return null;
       let res: Response;
       try {
-        res = await fetchFn(`${origin}/api/connect/session`, {
+        res = await fetchFn(`${got.origin}/api/connect/native`, {
           method: "POST",
-          headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({ name }),
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ code: got.code }),
           signal: AbortSignal.timeout(NETWORK_TIMEOUT),
         });
       } catch {
-        throw new Error(`Couldn't reach ${computer.name}. Is it on, with Linker-Edit running and Linker Connect on?`);
+        throw new Error(`Couldn't reach ${got.computer.name}. Is it on, with Linker-Edit running and Linker Connect on?`);
       }
-      const body = (await res.json().catch(() => ({}))) as { code?: unknown; error?: unknown };
-      if (!res.ok || typeof body.code !== "string") {
-        throw new Error(typeof body.error === "string" ? body.error : `${computer.name} answered ${res.status}.`);
+      const body = (await res.json().catch(() => ({}))) as { session?: unknown; expiresAt?: unknown; error?: unknown };
+      if (!res.ok || typeof body.session !== "string" || typeof body.expiresAt !== "string") {
+        throw new Error(typeof body.error === "string" ? body.error : `${got.computer.name} answered ${res.status}.`);
       }
-      return `${origin}/api/connect/enter?code=${encodeURIComponent(body.code)}`;
+      return { session: body.session, expiresAt: body.expiresAt };
     },
   };
 }
