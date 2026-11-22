@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as path from "node:path";
+import type { AppState } from "../shared/protocol.ts";
+import { fakeMachine, project, templateState, thread } from "./fake-machine.ts";
 
 // The built UI served the way someone's own Cloudflare address serves it: files only, and the page itself for
 // every other path (/api/hello included). Linker and the edit computer are stand-ins on made-up addresses.
@@ -13,8 +15,10 @@ const TUNNEL = "https://edit-a.linker.test";
 
 let site: http.Server;
 let origin: string;
+let template: AppState;
 
-test.beforeAll(async () => {
+test.beforeAll(async ({}, testInfo) => {
+  template = await templateState(String(testInfo.project.use.baseURL));
   site = http.createServer((req, res) => {
     const urlPath = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname);
     if (urlPath === "/linker-edit-web.json") {
@@ -38,7 +42,7 @@ const answer = (route: Route, body: unknown, status = 200) =>
     ? route.fulfill({ status: 204, headers: cors })
     : route.fulfill({ status, headers: cors, contentType: "application/json", body: JSON.stringify(body) });
 
-test("a web address signs in with Linker and lists the computers, Tailscale first, then the tunnel", async ({ page }) => {
+test("a web address signs in with Linker and lands in the app with every computer, over Tailscale or the tunnel", async ({ page }) => {
   const tokenRequests: unknown[] = [];
   await page.route(`${LINKER}/**`, async (route) => {
     const url = new URL(route.request().url());
@@ -71,25 +75,33 @@ test("a web address signs in with Linker and lists the computers, Tailscale firs
     else if (url.pathname === "/api/connect/media-ticket") await answer(route, { ticket: "t1", expiresAt: new Date(Date.now() + 3_600_000).toISOString() });
     else await route.abort();
   });
+  await fakeMachine(page, (url) => url.origin === TUNNEL.replace(/^http/, "ws"), template, "Studio-PC", [
+    project("promo", "Promo reel", [thread("t1", "Rough cut")]),
+  ]);
 
   await page.goto(origin);
   await page.getByRole("button", { name: "Sign in with Linker" }).click();
 
-  // Back from Linker: the code is swapped for a token, and gone from the address.
-  await expect(page.getByRole("heading", { name: "Your computers" })).toBeVisible();
+  // Back from Linker: the code is swapped for a token, and gone from the address, and it's the app straight away.
+  const sidebar = page.getByRole("navigation", { name: "Threads" });
+  await expect(sidebar.getByTestId("sidebar-project-folder").filter({ hasText: "Promo reel" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Rough cut");
   expect(new URL(page.url()).hash).toBe("");
   expect(tokenRequests).toEqual([{ code: "c1", code_verifier: expect.stringMatching(/^[\w-]{43}$/), origin }]);
-
-  // Before the first try over Tailscale, it says why the browser may ask about the local network.
-  await expect(page.getByText("may ask to let this page reach devices on your local network")).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
-
-  const studio = page.getByRole("button", { name: /Studio-PC/ });
-  await expect(studio).toContainText("Through Linker Connect");
-  await expect(page.getByRole("button", { name: /Old-Laptop/ })).toContainText("offline");
-
-  // Picking it opens the app on that computer.
-  await studio.click();
-  await expect(page.getByText("Connecting to the Linker-Edit server…")).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("linker-edit:web-sessions") ?? "{}"))).toMatchObject({ a: { session: "s1" } });
+
+  // It says once, without waiting on it, why the browser may ask about the local network.
+  await expect(page.getByText("may ask to let this page reach devices on your local network")).toBeVisible();
+  await page.getByRole("button", { name: "Got it" }).click();
+  await expect(page.getByText("may ask to let this page reach devices on your local network")).toHaveCount(0);
+
+  // The computer that can't be reached is offline, and a project can't be added there.
+  await page.getByRole("button", { name: "Add project" }).first().click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /Old-Laptop/ })).toBeDisabled();
+  await page.keyboard.press("Escape");
+
+  // Signing out is at the foot of the sidebar, and forgets the sessions.
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("button", { name: "Sign in with Linker" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("linker-edit:web-sessions"))).toBeNull();
 });

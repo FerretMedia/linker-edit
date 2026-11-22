@@ -1,7 +1,7 @@
 <script lang="ts">
   import ImageOff from "@lucide/svelte/icons/image-off";
   import type { PlayableClip, PlayableTimeline } from "#shared/protocol.ts";
-  import { host } from "#lib/host.ts";
+  import { useHost } from "#lib/hostContext.ts";
   import { clipKey, clipsAhead, clipsAt, lookStyle } from "#lib/player.ts";
 
   let {
@@ -17,11 +17,12 @@
     muted: boolean;
     volume: number;
   } = $props();
+  const host = useHost();
 
   let failed = $state(new Set<string>());
 
   const playable = (clip: PlayableClip) => clip.media !== null && !failed.has(clip.media) && clip.kind !== "missing" && clip.kind !== "unsupported";
-  const src = (clip: PlayableClip) => host.url(`/media/${encodeURIComponent(clip.media ?? "")}`);
+  const src = (clip: PlayableClip) => host().url(`/media/${encodeURIComponent(clip.media ?? "")}`);
 
   // What is on screen now, plus what comes up next so it is loaded before the cut.
   const pictures = $derived.by(() => {

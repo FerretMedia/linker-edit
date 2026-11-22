@@ -11,12 +11,14 @@
   import Library from "@lucide/svelte/icons/library";
   import LogIn from "@lucide/svelte/icons/log-in";
   import LogOut from "@lucide/svelte/icons/log-out";
+  import Monitor from "@lucide/svelte/icons/monitor";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import UserRound from "@lucide/svelte/icons/user-round";
   import type { AppMeta, ClientMessage } from "#shared/protocol.ts";
   import { RELEASES_URL, releaseName } from "#shared/release-name.ts";
-  import { host } from "#lib/host.ts";
+  import type { Host } from "#lib/host.ts";
+  import { provideHost } from "#lib/hostContext.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
@@ -30,17 +32,31 @@
 
   let {
     app,
+    host,
+    machines,
+    machineId,
+    onMachine,
     section,
     onSection,
     onLibrary,
+    onSignOut = null,
     send,
     onClose,
   }: {
+    /** The settings of this machine: each of the user's computers has its own. */
     app: AppMeta;
+    host: Host;
+    /** Every machine, to choose whose settings these are when there's more than one. */
+    machines: { id: string; name: string; status: "connecting" | "connected" | "offline" }[];
+    machineId: string;
+    onMachine: (machineId: string) => void;
     section: SettingsSection;
     onSection: (section: SettingsSection) => void;
     /** Opens the library page, which has its own address. */
     onLibrary?: () => void;
+    /** On a web address: signs this browser out of Linker. */
+    onSignOut?: (() => void) | null;
+    /** To this machine. */
     send: (message: ClientMessage) => void;
     onClose: () => void;
   } = $props();
@@ -48,9 +64,11 @@
   const ICONS = { general: Settings2, workspaces: Layers, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
   const title = $derived(SETTINGS_SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings");
 
+  // Its remote access and Linker account settings below talk to it too.
+  provideHost(() => host);
   // Linker sends the browser back to 127.0.0.1, so signing in only works on the computer Linker-Edit runs on.
-  const onThisComputer = host.local;
-  const SIGN_IN = host.url("/api/linker/sign-in");
+  const onThisComputer = $derived(host.local);
+  const SIGN_IN = $derived(host.url("/api/linker/sign-in"));
 
   let theme = $state<Theme>(loadTheme());
   function pickTheme(next: Theme) {
@@ -172,6 +190,32 @@
         Back
       </button>
     </div>
+    {#if machines.length > 1}
+      <!-- Like T3 Code's environments: each machine has its own settings. -->
+      <ul class="flex gap-1 overflow-x-auto border-b px-2 pb-2 md:mb-2 md:flex-col md:overflow-visible" aria-label="Computers">
+        {#each machines as entry (entry.id)}
+          <li class="shrink-0">
+            <button
+              type="button"
+              class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm whitespace-nowrap transition-colors disabled:opacity-50 {entry.id ===
+              machineId
+                ? 'bg-sidebar-row-active font-medium text-foreground shadow-[0_0_0_1px_var(--border)]'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground disabled:hover:bg-transparent'}"
+              aria-current={entry.id === machineId ? "true" : undefined}
+              disabled={entry.status !== "connected"}
+              title={entry.status === "connected" ? `Settings of Linker-Edit on ${entry.name}` : `${entry.name} is ${entry.status}`}
+              onclick={() => onMachine(entry.id)}
+            >
+              <Monitor class="size-4 shrink-0" />
+              <span class="min-w-0 flex-1 truncate">{entry.name}</span>
+              {#if entry.status !== "connected"}
+                <span class="shrink-0 text-2xs">{entry.status}</span>
+              {/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
     <ul class="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:overflow-visible">
       {#each SETTINGS_SECTIONS as entry (entry.id)}
         {@const Icon = ICONS[entry.id]}
@@ -198,6 +242,19 @@
           >
             <Library class="size-4 shrink-0" />
             Library
+          </button>
+        </li>
+      {/if}
+      {#if onSignOut}
+        <li class="shrink-0 md:mt-2 md:border-t md:pt-2">
+          <button
+            type="button"
+            class="flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            title="Signs this browser out of Linker; your computers keep running"
+            onclick={onSignOut}
+          >
+            <LogOut class="size-4 shrink-0" />
+            Sign out
           </button>
         </li>
       {/if}
@@ -277,10 +334,10 @@
             </SettingsRow>
           </SettingsGroup>
 
-          <SettingsGroup title="This computer" description="DaVinci Resolve Studio 21.1.2 or newer, with External scripting set to Local.">
+          <SettingsGroup title={app.computer} description="DaVinci Resolve Studio 21.1.2 or newer, with External scripting set to Local.">
             <SettingsRow
               label="Resolve is on this computer"
-              description="Turn off on a computer that only controls your edit computer over remote access. Resolve's setup and the speech engine are then left out here. It turns back on when Resolve is installed."
+              description="Turn off on a computer that only controls your edit computer. Resolve's setup and the speech engine are then left out there. Turn it back on to set Resolve up there; it also turns on by itself when Resolve is installed."
             >
               <Switch
                 label="Resolve is on this computer"

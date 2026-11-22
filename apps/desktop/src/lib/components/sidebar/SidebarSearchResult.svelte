@@ -6,6 +6,7 @@
   let {
     thread,
     index,
+    machine,
     highlighted,
     active,
     nowMs,
@@ -15,6 +16,8 @@
   }: {
     thread: SidebarThread;
     index: number;
+    /** The machine it's on, when there's more than one. */
+    machine: string | null;
     highlighted: boolean;
     active: boolean;
     nowMs: number;
@@ -23,7 +26,7 @@
     onContextMenu: (x: number, y: number) => void;
   } = $props();
 
-  const parked = $derived(!!thread.settledAt || thread.archived);
+  const parked = $derived(!!thread.settledAt || thread.archived || thread.project.offline);
   const scrollIntoView = (node: HTMLElement, on: boolean) => {
     if (on) node.scrollIntoView({ block: "nearest" });
     return { update: (next: boolean) => next && node.scrollIntoView({ block: "nearest" }) };
@@ -38,7 +41,7 @@
     tabindex="-1"
     aria-selected={highlighted}
     aria-current={active ? "page" : undefined}
-    aria-label="{thread.title}, {thread.project.name}"
+    aria-label="{thread.title}, {thread.project.name}{machine ? `, on ${machine}` : ''}"
     data-testid="sidebar-search-result"
     onmousemove={onHighlight}
     onpointerdown={(event) => event.preventDefault()}
@@ -69,6 +72,9 @@
       </span>
       {#if thread.archived}
         <span class="shrink-0 text-2xs text-muted-foreground/70">Archived</span>
+      {/if}
+      {#if machine}
+        <span class="max-w-20 shrink-0 truncate text-2xs text-muted-foreground/70">{thread.project.offline ? `${machine}, offline` : machine}</span>
       {/if}
       <span class="w-8 shrink-0 text-right text-xs text-muted-foreground/55 tabular-nums">{relativeTime(activityTimestamp(thread), nowMs)}</span>
     </span>

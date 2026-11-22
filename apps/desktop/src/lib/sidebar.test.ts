@@ -4,6 +4,7 @@ import { deriveProjectIdentity, firstEmoji, monogramText, parseProjectIcon } fro
 import {
   isUnread,
   isWoke,
+  machineProjects,
   nextThreadAfter,
   partitionSidebar,
   relativeTime,
@@ -11,6 +12,7 @@ import {
   snoozePresets,
   sortProjects,
   topStatus,
+  type SidebarProject,
 } from "./sidebar.ts";
 
 const NOW = Date.parse("2026-11-15T12:00:00.000Z");
@@ -37,8 +39,13 @@ function thread(id: string, fields: Partial<ThreadSummary> = {}): ThreadSummary 
   };
 }
 
-function project(id: string, threads: ThreadSummary[], fields: Partial<ProjectSummary> = {}): ProjectSummary {
+function summary(id: string, threads: ThreadSummary[], fields: Partial<ProjectSummary> = {}): ProjectSummary {
   return { id, name: id, dir: `/projects/${id}`, link: null, local: {}, open: false, threads, icon: null, pinned: false, archived: false, setup: false, ...fields };
+}
+
+/** A project on this computer, as the sidebar lists it. */
+function project(id: string, threads: ThreadSummary[], fields: Partial<ProjectSummary> = {}): SidebarProject {
+  return machineProjects([{ id: "this", projects: [summary(id, threads, fields)], offline: false }])[0]!;
 }
 
 describe("sidebar sections", () => {
@@ -100,8 +107,37 @@ describe("sidebar sections", () => {
 
   it("opens the next listed thread after the open one is settled, wrapping around", () => {
     const order = partitionSidebar([project("a", [thread("one", { lastSentAt: at(1) }), thread("two", { lastSentAt: at(2) })])], NOW).order;
-    expect(nextThreadAfter(order, "one")?.id).toBe("two");
-    expect(nextThreadAfter(order, "two")?.id).toBe("one");
+    expect(nextThreadAfter(order, "this:one")?.id).toBe("two");
+    expect(nextThreadAfter(order, "this:two")?.id).toBe("one");
+  });
+});
+
+describe("several machines", () => {
+  // Two machines can have the same ids: a project folder copied over, or a thread id that happens to match.
+  const projects = machineProjects([
+    { id: "this", projects: [summary("p", [thread("t", { lastSentAt: at(1), busy: true })], { name: "Promo" })], offline: false },
+    { id: "rig", projects: [summary("p", [thread("t", { lastSentAt: at(2), busy: true })], { name: "Promo" })], offline: false },
+    { id: "laptop", projects: [summary("q", [thread("u", { lastSentAt: at(3), busy: true, waiting: true })], { name: "Old" })], offline: true },
+  ]);
+
+  it("lists every machine's projects together, each keyed by its machine", () => {
+    const lists = partitionSidebar(projects, NOW);
+    expect(lists.folders.map((folder) => folder.project.key)).toEqual(["this:p", "rig:p", "laptop:q"]);
+    expect(lists.order.map((entry) => entry.key)).toEqual(["this:t", "rig:t", "laptop:u"]);
+    expect(nextThreadAfter(lists.order, "rig:t")?.key).toBe("laptop:u");
+  });
+
+  it("shows two machines' turns working at once, and an offline machine's as they were, without a turn running", () => {
+    const status = partitionSidebar(projects, NOW).order.map((entry) => [entry.key, topStatus(entry, NOW), entry.project.offline]);
+    expect(status).toEqual([
+      ["this:t", "working", false],
+      ["rig:t", "working", false],
+      ["laptop:u", null, true],
+    ]);
+  });
+
+  it("finds threads on every machine", () => {
+    expect(searchThreads(projects, "promo").map((entry) => entry.key)).toEqual(["this:t", "rig:t"]);
   });
 });
 
