@@ -381,6 +381,32 @@ export interface LinkerConnect {
   devices: ConnectDevice[];
 }
 
+/**
+ * One of the user's computers in the desktop app's sidebar, like a T3 Code environment: its projects show next to
+ * this computer's, and their threads run there. GET /api/machines lists them, this computer first.
+ */
+export interface Machine {
+  /** "this" for this computer; a Linker Connect computer's id; "tailscale-<host>" for one found over Tailscale only. */
+  id: string;
+  name: string;
+  /** Its Linker-Edit's version; "" when it didn't answer. */
+  version: string;
+  /** How this computer reaches it. */
+  via: "this" | "linker" | "tailscale";
+  /** Whether it answered just now. */
+  online: boolean;
+  /**
+   * Where the page reaches its server, as a path on this computer's server: "" for this computer, "/machines/<id>"
+   * for the others, which this computer's server passes on with its own sign-in (server/machines.ts).
+   */
+  base: string;
+}
+
+/** GET /api/machines. */
+export interface Machines {
+  machines: Machine[];
+}
+
 /** GET /api/computers: this computer's name, and the user's other computers found over Tailscale. */
 export interface Computers {
   name: string;
