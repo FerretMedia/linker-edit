@@ -94,7 +94,7 @@ The defaults work for a standard install. To change where things go, create `~/L
 | `transcriptsDir` | `~/LinkerEdit/transcripts` |
 | `toolsDir` | `~/LinkerEdit/tools`, the speech engine and its models |
 | `tailscalePort` | `8443`, the HTTPS port remote access uses on your tailnet |
-| `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows; on Linux it looks on PATH, then downloads it; on macOS it looks on PATH |
+| `whisperCli` | unset: Linker-Edit downloads whisper.cpp on Windows; on Linux and macOS it looks on PATH, then downloads it |
 | `linkerAuthServer` | `https://clerk.linker.cool`, Linker's sign-in; another one for testing against staging |
 | `linkerAppUrl` | `https://app.linker.cool`, Linker's dashboard and API |
 | `linkerClientId` | unset: Linker-Edit's own OAuth app in Linker's Clerk (`okxg8tSdwQEu1rbv`). With another `linkerAuthServer`, the client Linker publishes at `app.linker.cool/oauth/linker-edit.json` |
@@ -273,7 +273,7 @@ What it can't do: it sees still frames, not motion, and it can't hear. It knows 
 
 Ask for anything that depends on what's said, such as "transcribe the interview clips" or "cut the bits where I mention pricing". The agent transcribes the clips it needs with [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`large-v3-turbo`) on this machine. Nothing is uploaded, and it costs nothing.
 
-- **The speech engine installs itself** into `~/LinkerEdit/tools` when the app starts: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. On Linux it uses a `whisper-cli` on your PATH, such as a GPU build, and otherwise downloads a CPU build. The sidebar shows the progress with **Cancel**, and offers **Set up** to try again if the download failed. On macOS, install whisper.cpp first (`brew install whisper-cpp`) so `whisper-cli` is on your PATH, or point `whisperCli` in the config at it.
+- **The speech engine installs itself** into `~/LinkerEdit/tools` when the app starts: about 1.5 GB on Windows with an NVIDIA GPU, or 0.9 GB without one, where it runs on the CPU and is much slower. On a Mac it's about 0.9 GB and runs on the GPU through Metal on Apple silicon, or on the CPU on an Intel Mac. whisper.cpp has no Mac download of its own, so Linker-Edit builds one (`.github/workflows/whisper-macos.yml`). On Linux it downloads a CPU build. On Linux and macOS a `whisper-cli` already on your PATH comes first, such as a GPU build or Homebrew's. The sidebar shows the progress with **Cancel**, and offers **Set up** to try again if the download failed.
 - **It's fast.** On an RTX 2060, a 3-minute clip takes about 9 seconds, model loading included.
 - **Each transcript is kept** in `~/LinkerEdit/transcripts`, as text and as JSON with per-word times, until the clip's file changes. Asking again is instant.
 - **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.
