@@ -4,7 +4,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
   import type { TimelineStrip } from "#shared/protocol.ts";
-  import { host } from "#lib/host.ts";
+  import { useHost } from "#lib/hostContext.ts";
   import { CHANGE_STYLE } from "#lib/labels.ts";
 
   let {
@@ -13,6 +13,7 @@
     onPreview,
   }: { strip: TimelineStrip; detail: string | null; onPreview: (timelineId: string) => void } = $props();
 
+  const host = useHost();
   const signed = (seconds: number) => `${seconds > 0 ? "+" : "−"}${Math.abs(seconds)}s`;
 </script>
 
@@ -52,7 +53,7 @@
         >
           {#if tile.image && tile.media}
             <img
-              src={host.url(`/media/${encodeURIComponent(tile.media)}`)}
+              src={host().url(`/media/${encodeURIComponent(tile.media)}`)}
               alt=""
               loading="lazy"
               class="size-full object-cover {tile.change === 'removed' ? 'opacity-35 grayscale' : ''}"

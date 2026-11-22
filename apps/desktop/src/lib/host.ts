@@ -1,7 +1,8 @@
 /**
- * Where the Linker-Edit server is. Served by a computer (host mode), it's this page's own origin, as always. On
- * someone's own web address (web mode), it's the edit computer picked on the start screen, reached cross-origin
- * with a Bearer session; see web.svelte.ts. Every server address in the UI goes through `host`.
+ * Where one machine's Linker-Edit server is; machines.svelte.ts keeps one per machine. Served by a computer (host
+ * mode), it's this page's own origin, and another of the user's computers is a path on it ("/machines/<id>") that
+ * this computer's server passes on. On someone's own web address (web mode), each computer is reached cross-origin
+ * with a Bearer session of its own; see web.svelte.ts. Every server address in the UI goes through a Host.
  */
 
 import { PROTOCOL_VERSION, type Hello as HostHello } from "#shared/protocol.ts";
@@ -39,9 +40,15 @@ interface WebHost {
 }
 
 export class Host {
+  /** Host mode: "" for the page's own server, "/machines/<id>" for a computer it passes requests on to. */
+  readonly #prefix: string;
   #web: WebHost | null = null;
   /** Web mode: called on a 401 from the host; true when it got a new session, so the request is sent once more. */
   renew: (() => Promise<boolean>) | null = null;
+
+  constructor(prefix = "") {
+    this.#prefix = prefix;
+  }
 
   /** Whether the page is on a web address, talking to a computer elsewhere. */
   get web(): boolean {
@@ -55,10 +62,10 @@ export class Host {
 
   /** Whether the server is this very computer: only there do Linker's sign-in and the folder dialogs work. */
   get local(): boolean {
-    return LOCAL_NAMES.includes(new URL(this.base).hostname);
+    return !this.#prefix && LOCAL_NAMES.includes(new URL(this.base).hostname);
   }
 
-  /** Web mode with this computer and session; null goes back to the page's own origin. */
+  /** Web mode with this computer and session, once it's reached; null goes back to the page's own origin. */
   use(web: { base: string; session: string } | null) {
     this.#web = web ? { base: web.base, session: web.session, ticket: null } : null;
   }
@@ -73,7 +80,7 @@ export class Host {
 
   /** A server address for links and media; host mode keeps it relative, as before. */
   url(path: string): string {
-    if (!this.#web) return path;
+    if (!this.#web) return this.#prefix + path;
     const url = this.#web.base + path;
     if (!this.#web.ticket || !MEDIA.test(path)) return url;
     return `${url}${path.includes("?") ? "&" : "?"}t=${encodeURIComponent(this.#web.ticket)}`;
@@ -81,13 +88,13 @@ export class Host {
 
   /** The WebSocket's address, and in web mode the session as a subprotocol: a browser can't set its headers. */
   ws(path: string): { url: string; protocols?: string[] } {
-    const url = this.base.replace(/^http/, "ws") + path;
+    const url = this.base.replace(/^http/, "ws") + this.#prefix + path;
     return this.#web ? { url, protocols: ["linker-edit", `bearer.${this.#web.session}`] } : { url };
   }
 
   /** fetch on the server, with the session in web mode. */
   async api(path: string, init: RequestInit = {}): Promise<Response> {
-    if (!this.#web) return fetch(path, init);
+    if (!this.#web) return fetch(this.#prefix + path, init);
     const send = () => {
       const headers = new Headers(init.headers);
       headers.set("authorization", `Bearer ${this.#web?.session ?? ""}`);
@@ -98,5 +105,3 @@ export class Host {
     return send();
   }
 }
-
-export const host = new Host();

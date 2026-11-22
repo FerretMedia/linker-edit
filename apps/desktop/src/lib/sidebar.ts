@@ -3,13 +3,43 @@
 // apps/web/src/components/Sidebar.logic.ts.
 
 import type { ProjectSummary, ThreadSummary } from "#shared/protocol.ts";
+import { scopedKey } from "./machines.ts";
 
 export type SidebarSection = "pinned" | "active" | "snoozed" | "settled";
 
+/** A project with its machine, as the sidebar lists every machine's together. */
+export interface SidebarProject extends ProjectSummary {
+  machineId: string;
+  /** Unique across machines, where its own id may not be. */
+  key: string;
+  /** Its machine isn't connected: shown as it was last, and nothing goes to it. */
+  offline: boolean;
+}
+
 /** A thread with its project, as the sidebar lists it. */
 export interface SidebarThread extends ThreadSummary {
-  project: ProjectSummary;
+  project: SidebarProject;
+  /** Unique across machines, where its own id may not be. */
+  key: string;
 }
+
+/**
+ * Every machine's projects in one list, like T3 Code's environments. An offline machine's are what it had last; a
+ * turn that was running then isn't shown as still running, as nobody can tell.
+ */
+export function machineProjects(machines: readonly { id: string; projects: readonly ProjectSummary[]; offline: boolean }[]): SidebarProject[] {
+  return machines.flatMap((machine) =>
+    machine.projects.map((project) => ({
+      ...project,
+      threads: machine.offline ? project.threads.map((thread) => ({ ...thread, busy: false, waiting: false })) : project.threads,
+      machineId: machine.id,
+      key: scopedKey(machine.id, project.id),
+      offline: machine.offline,
+    })),
+  );
+}
+
+const listed = (thread: ThreadSummary, project: SidebarProject): SidebarThread => ({ ...thread, project, key: scopedKey(project.machineId, thread.id) });
 
 /** Threads a project folder shows before "Show more". */
 export const FOLDER_PREVIEW_COUNT = 6;
@@ -24,6 +54,7 @@ const time = (iso: string | null | undefined): number | null => {
 };
 
 const byId = (left: { id: string }, right: { id: string }) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+const byKey = (left: { key: string }, right: { key: string }) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
 
 /** Snoozed and still asleep. A thread waiting for an approval wakes early, as one asking for input does in T3 Code. */
 export function isSnoozed(thread: ThreadSummary, nowMs: number): boolean {
@@ -129,7 +160,7 @@ export function projectActivity(project: ProjectSummary): number {
 }
 
 /** Pinned projects first, then by last activity; archived ones last. */
-export function sortProjects(projects: readonly ProjectSummary[]): ProjectSummary[] {
+export function sortProjects<P extends ProjectSummary>(projects: readonly P[]): P[] {
   const rank = (project: ProjectSummary) => (project.archived ? 2 : project.pinned ? 0 : 1);
   return [...projects].sort(
     (left, right) => rank(left) - rank(right) || projectActivity(right) - projectActivity(left) || left.name.localeCompare(right.name),
@@ -137,7 +168,7 @@ export function sortProjects(projects: readonly ProjectSummary[]): ProjectSummar
 }
 
 export interface SidebarFolder {
-  project: ProjectSummary;
+  project: SidebarProject;
   threads: SidebarThread[];
 }
 
@@ -154,7 +185,7 @@ export interface SidebarLists {
  * The sidebar's sections. A project gets a folder when it has active threads, or when it's pinned (not archived)
  * or open in Resolve; an archived project keeps one only for its active threads, below the rest.
  */
-export function partitionSidebar(projects: readonly ProjectSummary[], nowMs: number): SidebarLists {
+export function partitionSidebar(projects: readonly SidebarProject[], nowMs: number): SidebarLists {
   const pinned: SidebarThread[] = [];
   const snoozed: SidebarThread[] = [];
   const settled: SidebarThread[] = [];
@@ -163,9 +194,8 @@ export function partitionSidebar(projects: readonly ProjectSummary[], nowMs: num
     const active: SidebarThread[] = [];
     for (const thread of project.threads) {
       if (thread.archived) continue;
-      const listed = { ...thread, project };
       const section = threadSection(thread, nowMs);
-      (section === "pinned" ? pinned : section === "snoozed" ? snoozed : section === "settled" ? settled : active).push(listed);
+      (section === "pinned" ? pinned : section === "snoozed" ? snoozed : section === "settled" ? settled : active).push(listed(thread, project));
     }
     if (active.length > 0 || (!project.archived && (project.pinned || project.open))) {
       folders.push({ project, threads: sortActive(active) });
@@ -176,8 +206,8 @@ export function partitionSidebar(projects: readonly ProjectSummary[], nowMs: num
 }
 
 /** The next thread to open after settling or snoozing the open one: the next listed one, wrapping around. */
-export function nextThreadAfter(order: readonly SidebarThread[], threadId: string): SidebarThread | null {
-  const index = order.findIndex((thread) => thread.id === threadId);
+export function nextThreadAfter(order: readonly SidebarThread[], key: string): SidebarThread | null {
+  const index = order.findIndex((thread) => thread.key === key);
   if (index === -1) return null;
   return [...order.slice(index + 1), ...order.slice(0, index)][0] ?? null;
 }
@@ -188,7 +218,7 @@ const fold = (text: string) => text.normalize("NFKD").replace(/\p{M}/gu, "").toL
  * Threads whose title (or project name) matches every word of the query: title starts first, then word starts,
  * then anywhere; ties by activity. Settled and archived threads are found too.
  */
-export function searchThreads(projects: readonly ProjectSummary[], query: string): SidebarThread[] {
+export function searchThreads(projects: readonly SidebarProject[], query: string): SidebarThread[] {
   const words = fold(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   const scored: { thread: SidebarThread; score: number }[] = [];
@@ -199,11 +229,14 @@ export function searchThreads(projects: readonly ProjectSummary[], query: string
       if (!words.every((word) => subject.includes(word))) continue;
       const first = words[0]!;
       const score = title.startsWith(first) ? 0 : new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(first)}`, "u").test(title) ? 1 : title.includes(first) ? 2 : 3;
-      scored.push({ thread: { ...thread, project }, score });
+      scored.push({ thread: listed(thread, project), score });
     }
   }
   return scored
-    .sort((left, right) => left.score - right.score || activityTime(right.thread) - activityTime(left.thread) || byId(left.thread, right.thread))
+    .sort(
+      (left, right) =>
+        left.score - right.score || activityTime(right.thread) - activityTime(left.thread) || byKey(left.thread, right.thread),
+    )
     .map(({ thread }) => thread);
 }
 

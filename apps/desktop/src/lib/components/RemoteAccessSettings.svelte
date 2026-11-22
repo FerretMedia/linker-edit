@@ -3,7 +3,7 @@
   import Check from "@lucide/svelte/icons/check";
   import Copy from "@lucide/svelte/icons/copy";
   import type { RemoteAccess } from "#shared/protocol.ts";
-  import { host } from "#lib/host.ts";
+  import { useHost } from "#lib/hostContext.ts";
 
   let {
     remote,
@@ -14,6 +14,7 @@
     onRefresh: () => void;
     onSetEnabled: (enabled: boolean) => void;
   } = $props();
+  const host = useHost();
 
   // Tailscale may have changed since the app last looked, such as after logging in.
   onMount(() => onRefresh());
@@ -21,7 +22,7 @@
   let copied = $state(false);
   const url = $derived(remote.state === "off" || remote.state === "on" || remote.state === "switching" ? remote.url : null);
   // Turning it off from a remote device cuts that device off.
-  const viaTailscale = !host.local;
+  const viaTailscale = $derived(!host().local);
 
   /** Text with its links made clickable, as Tailscale's hints often carry one. */
   function parts(text: string): { text: string; href?: string }[] {

@@ -26,6 +26,7 @@
     thread,
     variant,
     action,
+    machine = null,
     active,
     nowMs,
     renaming,
@@ -44,6 +45,8 @@
     thread: SidebarThread;
     variant: "card" | "folder" | "slim";
     action: "settle" | "unsettle" | "unsnooze";
+    /** The machine it's on, when there's more than one. */
+    machine?: string | null;
     active: boolean;
     nowMs: number;
     renaming: boolean;
@@ -124,6 +127,8 @@
           ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
           : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
       recede && status === "working" ? "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none" : "",
+      // Its machine is offline: shown as it was, and it doesn't open.
+      thread.project.offline ? "cursor-default opacity-60" : "",
     ].join(" "),
   );
 
@@ -142,7 +147,8 @@
     ].join(" "),
   );
 
-  const label = $derived([thread.title, top?.label, thread.project.name].filter(Boolean).join(", "));
+  const label = $derived([thread.title, top?.label, thread.project.name, machine && `on ${machine}`, thread.project.offline && "offline"].filter(Boolean).join(", "));
+  const tooltip = $derived([thread.title, machine ? `${thread.project.name} · ${machine}` : thread.project.name].join("\n"));
 </script>
 
 {#snippet title()}
@@ -211,7 +217,7 @@
       data-thread-id={thread.id}
       aria-label={label}
       aria-current={active ? "page" : undefined}
-      title={`${thread.title}\n${thread.project.name}`}
+      title={tooltip}
       class="{surface} flex h-9 items-center gap-2.5 px-2.5 {inFolder ? 'ps-9' : ''}"
       onclick={onSelect}
       ondblclick={onDblclick}
@@ -231,6 +237,9 @@
         </span>
       {/if}
       {@render title()}
+      {#if machine && !inFolder}
+        <span class="max-w-20 shrink-0 truncate text-2xs text-sidebar-muted-foreground">{machine}</span>
+      {/if}
       {@render pinIndicator()}
       <span
         class="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end {jumpLabel
@@ -310,7 +319,7 @@
       data-thread-id={thread.id}
       aria-label={label}
       aria-current={active ? "page" : undefined}
-      title={`${thread.title}\n${thread.project.name}`}
+      title={tooltip}
       class={surface}
       onclick={onSelect}
       ondblclick={onDblclick}
@@ -324,7 +333,9 @@
         <div class="flex h-5 min-w-0 items-center gap-1.5">
           <ProjectIcon icon={thread.project.icon} name={thread.project.name} class="size-4 shrink-0" />
           {@render pinIndicator()}
-          <span class="min-w-0 flex-1 truncate text-xs font-normal text-secondary-label">{thread.project.name}</span>
+          <span class="min-w-0 flex-1 truncate text-xs font-normal text-secondary-label">
+            {thread.project.name}{#if machine}<span class="text-sidebar-muted-foreground"> · {machine}</span>{/if}
+          </span>
           <span
             class="group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs {jumpLabel
               ? '[&>:not([data-jump-hint])]:invisible [&>:not([data-jump-hint])]:absolute'

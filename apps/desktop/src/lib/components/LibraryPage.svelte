@@ -24,6 +24,7 @@
     type LibrarySort,
     type LibraryView,
   } from "#shared/protocol.ts";
+  import { useHost } from "#lib/hostContext.ts";
   import { fileUrl, formatDuration, KIND_LABEL, parseTags, playable, scopeOf, showable, type LibraryTab } from "#lib/library.ts";
   import { KIND_ICON } from "#lib/libraryIcons.ts";
   import LibraryFolderDialog from "./LibraryFolderDialog.svelte";
@@ -51,6 +52,7 @@
     sortFolder: (path: string) => Promise<LibrarySort | { error: string }>;
     onClose: () => void;
   } = $props();
+  const host = useHost();
 
   const project = $derived(app.projects.find((candidate) => candidate.id === app.projectId) ?? null);
   const scope = $derived(scopeOf(tab, app.projectId));
@@ -104,7 +106,7 @@
       audio.pause();
       return;
     }
-    audio.src = fileUrl(file.folderId, file.rel);
+    audio.src = fileUrl(host(), file.folderId, file.rel);
     playing = keyOf(file);
     audio.play().catch(() => (playing = null));
   }
@@ -294,7 +296,7 @@
                   <div class="flex flex-col" role="listitem">
                     <div class="flex items-center gap-2 px-3 py-2">
                       {#if showable(file.name)}
-                        <img src={fileUrl(file.folderId, file.rel)} alt="" loading="lazy" class="size-7 shrink-0 rounded object-cover" />
+                        <img src={fileUrl(host(), file.folderId, file.rel)} alt="" loading="lazy" class="size-7 shrink-0 rounded object-cover" />
                       {:else}
                         <button
                           type="button"
