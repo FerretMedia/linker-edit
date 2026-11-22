@@ -41,7 +41,7 @@ export interface MachinesOptions {
   tailscale: () => Promise<Computer[]>;
   probe: Probe;
   /** A Bearer session at a Linker Connect computer's tunnel address; null when not signed in to Linker here. */
-  sessionOn: (url: string) => Promise<{ session: string; expiresAt: string } | null>;
+  sessionOn: (url: string, failed: string | null) => Promise<{ session: string; expiresAt: string } | null>;
   now?: () => number;
 }
 
@@ -207,7 +207,7 @@ export function createMachines(options: MachinesOptions) {
       if (got && got.session !== failed && got.expiresAt > now()) return got.session;
       if (sessions.get(origin) !== kept) return sessionAt(origin, failed);
     }
-    const next = options.sessionOn(origin).then((got) => got && { session: got.session, expiresAt: Date.parse(got.expiresAt) });
+    const next = options.sessionOn(origin, failed).then((got) => got && { session: got.session, expiresAt: Date.parse(got.expiresAt) });
     sessions.set(origin, next);
     const forget = () => {
       if (sessions.get(origin) === next) sessions.delete(origin);

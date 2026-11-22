@@ -23,6 +23,8 @@ import type { Sessions } from "./sessions.ts";
 export const LIMIT = 3;
 const LIST_FRESH_FOR = 30_000;
 const NETWORK_TIMEOUT = 20_000;
+/** A kept session on another computer is used again only while it has more than this left. */
+const KEPT_SESSION_MARGIN = 24 * 60 * 60_000;
 /** Waits before starting a stopped tunnel again, growing up to the last. */
 const RESTART_DELAYS = [2_000, 5_000, 15_000, 30_000, 60_000];
 /** Sign-in attempts through the tunnel per minute, each way in, so nobody makes this computer hammer Linker. */
@@ -50,6 +52,11 @@ interface Saved {
   tailnetUrl?: string | null;
   /** The Linker account that linked this computer, the only one let in. */
   ownerId?: string;
+  /**
+   * This computer's sessions on your other computers, by their origin, kept so a restart doesn't sign in again and
+   * add another device there. Only used while the same Linker account (`by`) is signed in here.
+   */
+  outgoing?: Record<string, { session: string; expiresAt: string; by: string }>;
 }
 
 export interface ConnectOptions {
@@ -549,8 +556,15 @@ export function createConnect(options: ConnectOptions) {
     /**
      * A Bearer session on another of your computers, for this computer's server to pass the window's requests on
      * with (server/machines.ts), the way the iPad app signs in; null when this computer isn't signed in to Linker.
+     * The one kept from before is used again, unless it's `failed`: the other computer just turned it down.
      */
-    async sessionOn(url: string): Promise<{ session: string; expiresAt: string } | null> {
+    async sessionOn(url: string, failed: string | null = null): Promise<{ session: string; expiresAt: string } | null> {
+      const origin = new URL(url).origin;
+      const user = options.linker.userId();
+      const kept = saved.outgoing?.[origin];
+      if (kept && user && kept.by === user && kept.session !== failed && Date.parse(kept.expiresAt) - now() > KEPT_SESSION_MARGIN) {
+        return { session: kept.session, expiresAt: kept.expiresAt };
+      }
       const got = await codeFrom(url);
       if (!got) return null;
       let res: Response;
@@ -567,6 +581,13 @@ export function createConnect(options: ConnectOptions) {
       const body = (await res.json().catch(() => ({}))) as { session?: unknown; expiresAt?: unknown; error?: unknown };
       if (!res.ok || typeof body.session !== "string" || typeof body.expiresAt !== "string") {
         throw new Error(typeof body.error === "string" ? body.error : `${got.computer.name} answered ${res.status}.`);
+      }
+      if (user) {
+        const outgoing = Object.fromEntries(
+          Object.entries(saved.outgoing ?? {}).filter(([, other]) => other.by === user && Date.parse(other.expiresAt) > now()),
+        );
+        saved.outgoing = { ...outgoing, [origin]: { session: body.session, expiresAt: body.expiresAt, by: user } };
+        write();
       }
       return { session: body.session, expiresAt: body.expiresAt };
     },

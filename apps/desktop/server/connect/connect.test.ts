@@ -296,6 +296,12 @@ describe("Linker Connect", () => {
       "POST https://edit-0000000000000002.linker.example/api/connect/session",
       "POST https://edit-0000000000000002.linker.example/api/connect/native",
     ]);
+    // Kept for next time, so a restart doesn't add another device there; asked again once turned down.
+    const calls = relay.calls.length;
+    expect((await connect.sessionOn("https://edit-0000000000000002.linker.example"))?.session).toBe("s-office");
+    expect(relay.calls.length).toBe(calls);
+    await connect.sessionOn("https://edit-0000000000000002.linker.example", "s-office");
+    expect(relay.calls.length).toBe(calls + 2);
     // Never shows the Linker token to a computer that isn't linked to the account.
     await expect(connect.sessionOn("https://edit-0000000000000003.linker.example")).rejects.toThrow("isn't linked");
     linker.fake.signOut();

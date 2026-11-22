@@ -297,7 +297,7 @@ export function createServer(
     linked: async (fresh) => (connect ? connect.others(fresh) : []),
     tailscale: remote.computers,
     probe: connect?.probe ?? probeLinkerEdit,
-    sessionOn: async (url) => (connect ? connect.sessionOn(url) : null),
+    sessionOn: async (url, failed) => (connect ? connect.sessionOn(url, failed) : null),
   });
   /**
    * Only this computer's own window may list them and reach them through here. A <video> or <img> sends no Origin,
