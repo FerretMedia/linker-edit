@@ -16,6 +16,7 @@
     "dist",
     "desktop/preload.cjs",
     "server/resolve/scripts/*.py",
+    "skills",
     "NOTICE",
     "linker-edit.config.example.json"
   ],

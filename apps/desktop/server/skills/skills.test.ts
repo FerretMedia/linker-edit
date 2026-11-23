@@ -2,7 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { listSkills, readSkill, skillsSection, type SkillRoot } from "./skills.ts";
+import { BRIEF_TOOLS } from "../collections/tools.ts";
+import { APP_ROOT } from "../config.ts";
+import { LIBRARY_TOOLS } from "../library/tools.ts";
+import { RESOLVE_TOOLS } from "../resolve/tools.ts";
+import { AUTONOMOUS_RULES } from "../rules.ts";
+import { STUDY_TOOLS } from "../study/study.ts";
+import { listSkills, READ_SKILL_TOOL, readSkill, skillsSection, type SkillRoot } from "./skills.ts";
 
 let dir: string;
 let roots: SkillRoot[];
@@ -80,5 +86,29 @@ describe("skills", () => {
   it("cuts off a skill that is too long", () => {
     write("shipped", "color/SKILL.md", "x".repeat(30_000));
     expect(readSkill(roots, "color").length).toBeLessThan(20_500);
+  });
+});
+
+describe("the skills Linker-Edit ships", () => {
+  const shipped = path.join(APP_ROOT, "skills");
+  const skills = listSkills([{ label: "Linker-Edit", dir: shipped }]);
+  const files = skills.flatMap(({ name }) => fs.readdirSync(path.join(shipped, name)).map((file) => [name, file] as const));
+  const tools = [...RESOLVE_TOOLS, ...LIBRARY_TOOLS, ...STUDY_TOOLS, ...BRIEF_TOOLS, READ_SKILL_TOOL];
+  // transcribe is linkerMcp.ts's own; list_luts is on Resolve's MCP server.
+  const words = new Set(["transcribe", "list_luts", ...tools.flatMap((tool) => [tool.name, ...Object.keys(tool.inputSchema.properties ?? {})])]);
+
+  it("have video-editing, which the rules for working alone start from, and say when to read them", () => {
+    expect(AUTONOMOUS_RULES).toContain("video-editing skill");
+    expect(skills.map(({ name }) => name)).toContain("video-editing");
+    for (const skill of skills) expect(skill.description.length, skill.name).toBeGreaterThan(40);
+  });
+
+  it.each(files)("%s/%s can be read, is short, and names only tools, skills and files that exist", (name, file) => {
+    const text = file === "SKILL.md" ? readSkill([{ label: "Linker-Edit", dir: shipped }], name) : readSkill([{ label: "Linker-Edit", dir: shipped }], name, file);
+    expect(text.length).toBeLessThan(6_000);
+    const named = [...text.matchAll(/`([a-z]+(?:[_-][a-z]+)*(?:\.md)?)`/g)].map((match) => match[1]!);
+    const exists = (word: string) =>
+      word.endsWith(".md") ? fs.existsSync(path.join(shipped, name, word)) : word.includes("-") ? skills.some((skill) => skill.name === word) : !word.includes("_") || words.has(word);
+    expect(named.filter((word) => !exists(word))).toEqual([]);
   });
 });

@@ -99,23 +99,7 @@ The user's rules above are this brand's brief. It gets better through you:
 /** For projects whose series or workspace works on its own. Replaces rule 6: decide, don't ask. */
 export const AUTONOMOUS_RULES = `# Working on your own
 
-This project is set to work on its own, which replaces rule 6: when the user gives you footage (a folder or files) and no further direction, make the whole first cut without asking. Decide from the user's rules and lessons, and say afterwards what you decided.
-
-1. Take stock: import the footage (import_media, sorted into bins), list it, look at it (view_frames) and transcribe everything with speech. Write what you found under Footage in ${PROJECT_NOTES_FILE}, and the brief as far as the user and the footage give it.
-2. Build the cut the way the rules describe this format: pick the material, make a rough cut, tighten it, then add music, sound effects and titles from the library.
-3. Check your work before you show it, and fix what you find:
-   - every line under "Must" in the rules, its length first;
-   - get_timeline: no gaps, nothing left on a wrong track, audio where the picture is;
-   - view_frames on the first and last frame, every title, and a few cuts: no black frames, titles readable and inside the frame;
-   - the word timings at each cut in speech: no cut inside a word.
-   Then measure it, because you can't hear it or see it move: render the timeline (render_timeline; a small preset is enough) and run study_media on the file. Compare its numbers with each line under "Must" and with the examples' numbers: length, aspect ratio, frame rate, loudness, the longest quiet stretch, shot lengths. Fix what is off and measure again, at most twice.
-4. End with an editor's note, short:
-   - what you made: the timeline's name and its length;
-   - each "Must" line with what you measured for it, and any that is still off;
-   - what you left out, and why;
-   - the decisions you made instead of asking, one line each, so the user can overrule them;
-   - what you couldn't check: how it sounds, and motion between frames.
-   Then tell the user to open the preview and give feedback, with times.
+This project is set to work on its own, which replaces rule 6: when the user gives you footage (a folder or files) and no further direction, make the whole first cut without asking. Read the video-editing skill first and follow it to its end, with every skill it names. Decide from the user's rules and lessons, and say afterwards what you decided.
 
 Only stop early when the edit can't be made at all: no footage found, or Resolve unreachable. Say what's missing.`;
 
