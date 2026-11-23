@@ -148,7 +148,7 @@
     !server.connected ? "Not connected." : app?.busy ? "Wait for the agent to finish." : ((app?.blocked?.canSend ? null : app?.blocked?.message) ?? (rendering ? "Wait for the render." : null)),
   );
 
-  /** The first message of a setup thread, or of a video the agent edits on its own, from the folders picked. */
+  /** The first message of a skill thread, or of a video the agent edits on its own, from the folders picked. */
   function start(lines: string[], notes: string) {
     server.send({ type: "send", text: [...lines, ...(notes ? ["", notes] : [])].join("\n") });
     stickToBottom = true;
@@ -160,7 +160,7 @@
     composer?.focus();
   }
 
-  // The side panels show a Resolve project's timelines; a setup thread has none.
+  // The side panels show a Resolve project's timelines; a skill thread has none.
   const PANELS = [
     { name: "preview", label: "Preview", Icon: MonitorPlay },
     { name: "history", label: "History", Icon: History },
@@ -318,7 +318,7 @@
     onLibrary={() => openLibrary()}
     send={(message) => {
       server.send(message);
-      // Its setup thread opens behind the settings page.
+      // Its skill thread opens behind the settings page.
       if (message.type === "setup_collection") closeSettings();
     }}
     onClose={closeSettings}
@@ -443,22 +443,23 @@
             {#if app.items.length === 0 && project?.setup && collection}
               <ThreadStarter
                 title="Teach Linker-Edit how {collection.name} is edited"
-                intro="Point at videos you've finished. The agent studies them, asks what it can't see, and proposes the rules for you to accept. It doesn't touch Resolve."
+                intro="The agent studies videos and Resolve projects you've finished, asks what it can't see, and proposes a skill file for you to accept. It only looks at your projects, and opens them one by one in Resolve."
                 fields={[
-                  { key: "finished", label: "Finished videos", hint: "A folder of videos as they were published.", required: true },
+                  { key: "finished", label: "Finished videos", hint: "A folder of videos as they were published. Leave it empty to learn from your Resolve projects only.", required: false },
                   { key: "raw", label: "Raw footage", hint: "What some of them were cut from. It shows what an editor leaves out.", required: false },
                   { key: "assets", label: "Brand assets", hint: "Logo, intro, music, LUTs.", required: false },
                 ]}
-                notesPlaceholder="Which videos belong to which format, who watches them, where they're published…"
+                notesPlaceholder="Which finished Resolve projects to look at, which belong to which format, who watches them…"
                 button="Start"
                 disabled={startBlocked}
                 browseFolders={(path) => server.browseFolders(path)}
                 onStart={(folders, notes) =>
                   start(
                     [
-                      `Set up the brief for ${collection.name}.`,
+                      `Make the skill files for ${collection.name}.`,
                       "",
-                      `Finished videos: ${folders.finished}`,
+                      "Finished Resolve projects: look at those of mine that fit, unless I name some below.",
+                      `Finished videos: ${folders.finished || "none"}`,
                       `Raw footage: ${folders.raw || "none"}`,
                       `Brand assets: ${folders.assets || "none"}`,
                     ],

@@ -4,7 +4,7 @@ import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJECT_RULES, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
-import { exampleName, RULES_FILE, type CollectionStore, type SavedCollection } from "./store.ts";
+import { exampleName, RULES_FILE, skillBody, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the workspaces and series need from the app around them. */
 export interface CollectionsHost {
@@ -37,7 +37,7 @@ export const ICON_COLORS: readonly IconColor[] = ["gray", "red", "orange", "ambe
 
 const KINDS: readonly CollectionKind[] = ["workspace", "series"];
 const MAX_NAME = 80;
-// RULES.md is for a style guide, not a book; this keeps a paste accident out of every prompt.
+// SKILL.md is for a style guide, not a book; this keeps a paste accident out of every prompt.
 const MAX_RULES = 20_000;
 
 const isMessage = (message: ClientMessage): message is CollectionMessage =>
@@ -166,7 +166,7 @@ export function createCollections(host: CollectionsHost) {
     }
     if (message.rules !== undefined) {
       if (typeof message.rules !== "string") return null;
-      if (message.rules.length > MAX_RULES) return `Rules can be up to ${MAX_RULES.toLocaleString("en-US")} characters.`;
+      if (message.rules.length > MAX_RULES) return `A skill can be up to ${MAX_RULES.toLocaleString("en-US")} characters.`;
       next.rules = message.rules;
     }
     if (message.parentId !== undefined) {
@@ -247,7 +247,7 @@ export function createCollections(host: CollectionsHost) {
   function move(projectId: string, collectionId: string | null): string | null {
     const project = host.projects().find((candidate) => candidate.id === projectId);
     if (!project) return null;
-    if (project.setup) return "Setup threads stay with what they set up.";
+    if (project.setup) return "Skill threads stay with what they are for.";
     if (collectionId === null) {
       if (project.collection) host.setCollection(projectId, null, `Take the project out of "${project.collection.name}"`);
       return null;
@@ -287,7 +287,7 @@ export function createCollections(host: CollectionsHost) {
 
     /**
      * The agent's rules for this project: the editing rules, then its workspace's, its series' and its own, each
-     * with the lessons learned there. A setup thread gets the setup assistant's rules instead.
+     * with the lessons learned there. A skill thread gets the skill writer's rules instead.
      */
     rulesFor(project: SavedProject): string {
       const { workspace, series } = collectionChain(collections, project);
@@ -321,16 +321,16 @@ export function createCollections(host: CollectionsHost) {
     proposeBrief(project: SavedProject, input: Record<string, unknown>): BriefProposal | { error: string } {
       const found = target(project, input);
       if ("error" in found) return found;
-      const rules = typeof input.rules === "string" ? input.rules.trim() : "";
-      if (!rules) return { error: "Pass the full new rules in rules." };
-      if (rules.length > MAX_RULES) return { error: `Rules can be up to ${MAX_RULES.toLocaleString("en-US")} characters; these are ${rules.length.toLocaleString("en-US")}. Make them shorter.` };
+      const rules = typeof input.rules === "string" ? skillBody(input.rules).trim() : "";
+      if (!rules) return { error: "Pass the full new skill in rules." };
+      if (rules.length > MAX_RULES) return { error: `A skill can be up to ${MAX_RULES.toLocaleString("en-US")} characters; this is ${rules.length.toLocaleString("en-US")}. Make it shorter.` };
       const name = "create" in found ? `New ${COLLECTION_LABEL.series.lower} "${found.create}"` : label(found.collection);
       return {
         shows: { for: name, summary: text(input.summary).slice(0, 600), was: "create" in found ? "" : found.collection.rules, rules },
         apply() {
           const saved = saveRules(found, `${rules}\n`);
           host.changed();
-          return `Saved the rules of ${label(saved)}.`;
+          return `Saved the skill of ${label(saved)}.`;
         },
       };
     },

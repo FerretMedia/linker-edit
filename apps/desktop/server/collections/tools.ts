@@ -22,12 +22,12 @@ const where = {
 export const BRIEF_TOOLS = [
   {
     name: SAVE_BRIEF,
-    description: `Propose new rules for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: the brief every edit in it follows. Pass the complete new text, not a patch: it replaces the rules. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
+    description: `Propose a new skill for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: its SKILL.md, which every edit in it follows. Pass the complete new text, not a patch: it replaces the skill. Leave front matter out: Linker-Edit writes it. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
     inputSchema: {
       type: "object",
       properties: {
         ...where,
-        rules: { type: "string", description: "The complete new rules, in Markdown." },
+        rules: { type: "string", description: "The complete new skill, in Markdown." },
         summary: { type: "string", description: "One or two sentences on what changes and why, for the user." },
       },
       required: ["rules", "summary"],

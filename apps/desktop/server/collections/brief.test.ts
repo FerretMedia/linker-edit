@@ -74,14 +74,14 @@ function setup(...scripts: Script[]) {
   return { app, client, send, byName, answer, turnDone, prompts, rules, resolveCalls, projects, collections };
 }
 
-describe("a setup thread", () => {
+describe("a skill thread", () => {
   it("opens once per workspace, as a project of its own that isn't counted among the workspace's projects", () => {
     const { client, send, byName, projects } = setup();
     send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
     send({ type: "setup_collection", id: byName("Ferret Media").id });
 
     const setupProject = client.state.projects.find((candidate) => candidate.setup)!;
-    expect(setupProject).toMatchObject({ name: "Ferret Media setup", link: null });
+    expect(setupProject).toMatchObject({ name: "Ferret Media skill", link: null });
     expect(client.state.projectId).toBe(setupProject.id);
     expect(byName("Ferret Media")).toMatchObject({ setupProjectId: setupProject.id, projectIds: [] });
     expect(projects.projects.get(setupProject.id)).toMatchObject({ setup: true, collection: { name: "Ferret Media" } });
@@ -93,17 +93,17 @@ describe("a setup thread", () => {
     expect(client.state.threadId).toBe(threadId);
     expect(client.state.projects.filter((candidate) => candidate.setup)).toHaveLength(1);
     send({ type: "update_collection", id: byName("Ferret Media").id, name: "Ferret" });
-    expect(client.state.projects.find((candidate) => candidate.setup)!.name).toBe("Ferret setup");
+    expect(client.state.projects.find((candidate) => candidate.setup)!.name).toBe("Ferret skill");
 
     // It stays with its workspace, and goes when the workspace is deleted.
     send({ type: "move_project", projectId: setupProject.id, collectionId: null });
-    expect(client.toasts).toEqual(["Setup threads stay with what they set up."]);
+    expect(client.toasts).toEqual(["Skill threads stay with what they are for."]);
     send({ type: "delete_collection", id: byName("Ferret").id });
     expect(client.state.collections).toEqual([]);
     expect(client.state.projects.map((candidate) => candidate.id)).toEqual(["ep12"]);
   });
 
-  it("gets the setup assistant's rules, can't touch Resolve, and changes the brief only when the user accepts", async () => {
+  it("gets the skill writer's rules, can't use Resolve outside a visit, and changes a skill only when the user accepts", async () => {
     const replies: { text: string; isError: boolean }[] = [];
     const { app, client, send, byName, answer, turnDone, rules, resolveCalls } = setup(async (running) => {
       replies.push(await running.resolveTool("list_media", {}));
@@ -132,12 +132,12 @@ describe("a setup thread", () => {
     expect((await answer(true)).input).toMatchObject({ for: 'New series "Reels"', was: "" });
     await turnDone();
 
-    expect(rules[0]).toMatch(/^You are Linker-Edit's setup assistant\. You are learning how Workspace "Ferret Media" is edited/);
+    expect(rules[0]).toMatch(/^You are Linker-Edit's skill writer\. You are learning how Workspace "Ferret Media" is edited/);
     expect(rules[0]).not.toContain(EDITING_RULES);
     // Only the frames of a file got through to the Resolve tools.
     expect(resolveCalls).toEqual(["view_frames"]);
     expect(replies.map((reply) => reply.isError)).toEqual([true, true, false, true, false, true, false, false, true]);
-    expect(replies[0]!.text).toMatch(/setup thread/);
+    expect(replies[0]!.text).toMatch(/skill thread/);
     expect(replies[5]!.text).toMatch(/declined/);
     expect(byName("Ferret Media")).toMatchObject({ rules: "End on the logo.\n", examples: [{ name: "reel-1" }] });
     expect(byName("Reels")).toMatchObject({ kind: "series", parentId: byName("Ferret Media").id, rules: "30 to 40 seconds, 9:16.\n" });

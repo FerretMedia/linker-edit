@@ -236,33 +236,36 @@ Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previo
 
 ## Teaching it a brand
 
-A **workspace** is a client, brand or channel, and a **series** is one of its formats, such as a weekly vlog or reels. Each has rules the agent follows in every project in it (**Settings → Workspaces & series**). You can write them yourself, or have the agent work them out from videos you've finished. The aim: you give it footage, it makes the first cut, and you only give feedback on the video.
+A **workspace** is a client, brand or channel, and a **series** is one of its formats, such as a weekly vlog or reels. Each has a skill, a `SKILL.md` file the agent follows in every project in it (**Settings → Workspaces & series**). You can write it yourself, or have the agent work it out from videos and Resolve projects you've finished. The aim: you give it footage, it makes the first cut, and you only give feedback on the video.
 
-**Set up with AI** on a workspace or series opens a setup thread. It runs on your own Claude or Codex, and it never touches Resolve.
+**Make the skill with AI** on a workspace or series opens a skill thread, separate from your editing. It runs on your own Claude or Codex, and it changes nothing in Resolve. Come back to it later to bring a skill up to date.
 
-1. Point it at a folder of **finished videos**, and if you have them the **raw footage** some were cut from and the brand's **assets**.
-2. It measures each video with the ffmpeg Linker-Edit comes with: length, aspect ratio, shot lengths, how quiet it gets, loudness, how fast people talk and how it opens. It looks at a contact sheet of its frames and reads the transcript. Measurements are kept in `~/LinkerEdit/cache/study` until a file changes.
-3. With raw footage, it lines up what is said in the finished video with what is said in the raw files. That shows what the editor kept and cut, which take they used, and whether they reordered.
-4. It tells you what it found, with the numbers, and asks only what it can't see: who watches, where the music comes from, where the examples disagree.
-5. It proposes rules for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
+1. Point it at your **finished Resolve projects**, a folder of **finished videos**, or both, and if you have them the **raw footage** some were cut from and the brand's **assets**.
+2. It visits the projects one by one, read only, and looks at what a rendered video can't show: how the tracks are used, shot lengths, titles and their text, where music starts and stops. You're asked before Resolve leaves a project you're working in, and it goes back to that one afterwards.
+3. It measures each video with the ffmpeg Linker-Edit comes with: length, aspect ratio, shot lengths, how quiet it gets, loudness, how fast people talk and how it opens. It looks at a contact sheet of its frames and reads the transcript. Measurements are kept in `~/LinkerEdit/cache/study` until a file changes.
+4. With raw footage, it lines up what is said in the finished video with what is said in the raw files. That shows what the editor kept and cut, which take they used, and whether they reordered.
+5. It tells you what it found, with the numbers, and asks only what it can't see: who watches, where the music comes from, where the examples disagree.
+6. It proposes a skill for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
 
-Its notes on each example are kept as files next to the rules, in `~/LinkerEdit/collections/<name>/examples`.
+`SKILL.md` is in the Agent Skills format, so you can use the same folder as a skill in Claude Code or Codex. A `RULES.md` from an earlier version becomes the `SKILL.md`.
+
+Its notes on each example are kept as files next to the skill, in `~/LinkerEdit/collections/<name>/examples`.
 
 **It is laid out like code.** A project is a repository of one video, and it gets its rules from the folders of its series and workspace:
 
 ```
 ~/LinkerEdit/collections/ferret-media/   the workspace
-  RULES.md                               what is always true for the brand
+  SKILL.md                               what is always true for the brand
   examples/                              the agent's notes on example videos
 ~/LinkerEdit/collections/reels/          a series in it
-  RULES.md                               how this kind of video is made
+  SKILL.md                               how this kind of video is made
 ~/LinkerEdit/projects/Reel 14/           a project in that series: a Git repository
   PROJECT.md                             this video: brief, footage, decisions, feedback, status
   resolve/                               its timelines as text, one save per turn
   AGENTS.md                              written by Linker-Edit: everything above in one file, for the agent
 ```
 
-The agent reads the three files from the most general to the most specific, and the later one wins. It keeps `PROJECT.md` itself, so a new thread knows what the video is about, what is in the footage and what you already said. You can read and edit it under **Project file**, next to Preview and History, and each change is saved in the project's edit history. Rules set up with AI use the same headings for every brand. **Must** holds what can be measured, such as length and aspect ratio, and the agent checks its cut against it before it shows you.
+The agent reads the three files from the most general to the most specific, and the later one wins. It keeps `PROJECT.md` itself, so a new thread knows what the video is about, what is in the footage and what you already said. You can read and edit it under **Project file**, next to Preview and History, and each change is saved in the project's edit history. Skills made with AI use the same headings for every brand. **Must** holds what can be measured, such as length and aspect ratio, and the agent checks its cut against it before it shows you.
 
 **Works on its own** is a switch on a workspace or series. With it on, a new thread in one of its projects asks for the footage folder, and the agent makes the whole first cut without asking questions: it imports and transcribes the footage, builds the cut the way the rules describe, checks its own work, renders it and measures the file against the rules' **Must** lines (length, aspect ratio, loudness, quiet stretches), and ends with a note of what it made, what it left out and what it decided for you. It still only changes `AI - …` timelines, and you still make one the main timeline yourself.
 

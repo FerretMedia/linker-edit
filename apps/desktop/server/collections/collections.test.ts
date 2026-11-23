@@ -126,8 +126,8 @@ describe("workspaces and series", () => {
     expect(rules.startsWith(EDITING_RULES)).toBe(true);
     const order = [
       "# The user's rules",
-      `## Workspace "Ferret Media" (/collections/${byName("Ferret Media").id}/RULES.md)\n\nEnd on the logo.`,
-      `## Series "Podcast" (/collections/${byName("Podcast").id}/RULES.md)\n\nLower thirds in Inter Bold.`,
+      `## Workspace "Ferret Media" (/collections/${byName("Ferret Media").id}/SKILL.md)\n\nEnd on the logo.`,
+      `## Series "Podcast" (/collections/${byName("Podcast").id}/SKILL.md)\n\nLower thirds in Inter Bold.`,
       "## This project (PROJECT.md in the working folder)\n\nEp 12 is the anniversary episode.\n\nGuest asked to cut the salary talk.",
     ].map((part) => rules.indexOf(part));
     expect(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1]!))).toBe(true);

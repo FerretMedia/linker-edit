@@ -14,7 +14,7 @@ function setup() {
 const monogram = { kind: "monogram", text: "", color: "blue" } as const;
 
 describe("fileCollectionStore", () => {
-  it("keeps the list, each collection's file and its RULES.md, and reads them back", () => {
+  it("keeps the list, each collection's file and its SKILL.md, and reads them back", () => {
     const { root, open } = setup();
     const store = open();
     const workspace = store.create({ kind: "workspace", name: "Ferret Media", parentId: null, icon: monogram, rules: "" });
@@ -47,8 +47,10 @@ describe("fileCollectionStore", () => {
       lessons: [],
       edits: [],
     });
-    expect(fs.readFileSync(path.join(dir, "RULES.md"), "utf8")).toBe("Lower thirds in Inter Bold.\n");
-    expect(store.rulesFile(series.id)).toBe(path.join(dir, "RULES.md"));
+    expect(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8")).toBe(
+      '---\nname: podcast\ndescription: "How Podcast videos are edited. Use for every video in this series."\n---\n\nLower thirds in Inter Bold.\n',
+    );
+    expect(store.rulesFile(series.id)).toBe(path.join(dir, "SKILL.md"));
 
     // A file from before lessons and working alone loads with neither.
     const file = path.join(dir, "collection.json");
@@ -56,9 +58,31 @@ describe("fileCollectionStore", () => {
     fs.writeFileSync(file, JSON.stringify(older));
     expect(open().load()[1]).toEqual(series);
 
-    // RULES.md edited in another editor shows on the next start.
-    fs.writeFileSync(path.join(dir, "RULES.md"), "End on the logo.");
+    // SKILL.md edited in another editor shows on the next start.
+    fs.writeFileSync(path.join(dir, "SKILL.md"), "End on the logo.");
     expect(open().load()).toEqual([workspace, { ...series, rules: "End on the logo." }]);
+
+    // Front matter someone wrote is theirs, and isn't part of what the app shows.
+    const own = "---\r\nname: my-podcast\r\ndescription: Mine.\r\n---\r\n\r\nEnd on the logo.";
+    fs.writeFileSync(path.join(dir, "SKILL.md"), own);
+    const again = open();
+    expect(again.load()[1]!.rules).toBe("End on the logo.");
+    again.save({ ...series, rules: "End on black." });
+    expect(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8").replaceAll("\r\n", "\n")).toBe("---\nname: my-podcast\ndescription: Mine.\n---\n\nEnd on black.");
+  });
+
+  it("takes over the RULES.md of an earlier version, without losing it before SKILL.md is written", () => {
+    const { root, open } = setup();
+    const made = open().create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "" });
+    const dir = path.join(root, "collections", "podcast");
+    fs.rmSync(path.join(dir, "SKILL.md"));
+    fs.writeFileSync(path.join(dir, "RULES.md"), "Keep it short.\n");
+    const store = open();
+    expect(store.load()).toEqual([{ ...made, rules: "Keep it short.\n" }]);
+    expect(fs.existsSync(path.join(dir, "RULES.md"))).toBe(true);
+    store.save(store.load()[0]!);
+    expect(fs.readdirSync(dir).sort()).toEqual(["SKILL.md", "collection.json"]);
+    expect(open().load()).toEqual([{ ...made, rules: "Keep it short.\n" }]);
   });
 
   it("gives each collection its own folder, and deletes it with the collection", () => {
@@ -112,7 +136,7 @@ describe("fileCollectionStore", () => {
     reopened.save({ ...b, name: "Broken again" });
     const c = reopened.create({ kind: "workspace", name: "Broken", parentId: null, icon: monogram, rules: "" });
     expect(fs.readFileSync(broken, "utf8")).toBe('{"version": 1, "id"');
-    expect(reopened.rulesFile(c.id)).toBe(path.join(root, "collections", "broken-2", "RULES.md"));
+    expect(reopened.rulesFile(c.id)).toBe(path.join(root, "collections", "broken-2", "SKILL.md"));
   });
 
   it("makes a folder name of any name", () => {

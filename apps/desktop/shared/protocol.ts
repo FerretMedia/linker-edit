@@ -750,7 +750,7 @@ export interface CollectionSummary {
   /** The workspace a series is in; always null for a workspace. One level deep. */
   parentId: string | null;
   icon: CollectionIcon;
-  /** The style guide for the agent, in plain words; its RULES.md. */
+  /** How its videos are made, for the agent, in plain words: its SKILL.md without the front matter. */
   rules: string;
   /** Where the rules are kept, to edit them in another editor too. */
   rulesFile: string;
@@ -762,7 +762,7 @@ export interface CollectionSummary {
   lessons: Lesson[];
   /** The agent's notes on example videos it studied, kept as files next to the rules. */
   examples: { name: string; file: string }[];
-  /** The project that holds its setup threads; null until "Set up with AI" was used. */
+  /** The project that holds its setup threads; null until "Make the skill with AI" was used. */
   setupProjectId: string | null;
   /** Approved edits of its projects, newest first, to see whether the brief works. */
   edits: ApprovedEdit[];

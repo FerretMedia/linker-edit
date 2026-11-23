@@ -4,7 +4,7 @@ The goal: you point Linker-Edit at a brand's example videos and project folders,
 
 ## Where we are (main, b43861a)
 
-- A workspace and a series each have a `RULES.md`. The agent gets them on every turn, from the most general to the most specific (`apps/desktop/server/rules.ts`, `agentRules`). You write them by hand, up to 20,000 characters.
+- A workspace and a series each have a `SKILL.md`. The agent gets them on every turn, from the most general to the most specific (`apps/desktop/server/rules.ts`, `agentRules`). You write them by hand, up to 20,000 characters.
 - The library points at folders of music, sound effects and graphics. The code already takes a chain (universal → workspace → series → project), but a workspace or series can't have its own library folders yet (`CollectionLibraryFolder = never`).
 - The agent can already study footage: `transcribe` (local, with word times), `find_silences`, `view_frames` on a media file, `detect_scene_cuts` on a timeline.
 - The edit history saves every timeline as JSON in Git, with the agent's turns and your own changes in Resolve as separate commits.
@@ -57,7 +57,7 @@ The brief is in the workspace's or series' own folder:
 
 ```
 collections/<workspace>/
-  RULES.md              # the rules: style, and for a series the steps of one edit. In every prompt (as now)
+  SKILL.md              # the rules: style, and for a series the steps of one edit. In every prompt (as now)
   collection.json       # also holds the lessons from feedback, and whether it works on its own
   examples/<video>.md   # the AI's notes on one example
 ```
@@ -68,8 +68,8 @@ A project is the repository of one video. It gets its rules from the folders of 
 
 | Level | Question | Changes | File |
 | --- | --- | --- | --- |
-| Workspace (brand) | What is always true? | Rarely | `collections/<workspace>/RULES.md` |
-| Series (format) | How is this kind of video made? | Sometimes | `collections/<series>/RULES.md` |
+| Workspace (brand) | What is always true? | Rarely | `collections/<workspace>/SKILL.md` |
+| Series (format) | How is this kind of video made? | Sometimes | `collections/<series>/SKILL.md` |
 | Project (one video) | What is this video? | Every session | `projects/<project>/PROJECT.md` |
 
 ```
@@ -96,7 +96,7 @@ Examples of what each level holds:
 | YouTube long-form | Hook, B-roll rhythm, chapter style | The outline, the B-roll list, which parts ran long |
 | Client work | The client's format and deliverables per platform | The client's brief, their feedback per round |
 
-`RULES.md` and the lessons go into every prompt, so they stay short. `PROJECT.md` does too: the agent is told to rewrite it, not append, and to keep it under 4,000 characters. The notes on examples don't: the agent is told where they are and reads one when it needs a reference. The measured numbers of each video are cached in `~/LinkerEdit/cache/study`.
+`SKILL.md` and the lessons go into every prompt, so they stay short. `PROJECT.md` does too: the agent is told to rewrite it, not append, and to keep it under 4,000 characters. The notes on examples don't: the agent is told where they are and reads one when it needs a reference. The measured numbers of each video are cached in `~/LinkerEdit/cache/study`.
 
 ## Part 2: setup, with the AI
 
@@ -104,7 +104,7 @@ It runs on your own Claude or Codex subscription, as a normal agent turn. No ext
 
 ### Step 1: point at things
 
-On a workspace or series in Settings: **Set up with AI**. You give it:
+On a workspace or series in Settings: **Make the skill with AI**. You give it:
 
 1. **Finished videos** (a folder, or files). The most important.
 2. **Raw footage** some of them were cut from.
@@ -194,7 +194,7 @@ So the first formats that will really work alone are the ones driven by speech: 
 Built in one PR:
 
 - `study_media` (measurements and contact sheets) and `compare_cut` (raw against final by transcript).
-- Setup threads with **Set up with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
+- Setup threads with **Make the skill with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
 - **Works on its own** per workspace or series, with the footage form in a new thread.
 - Lessons from feedback, the retro on "Use as main timeline", rounds until approved, and feedback at a moment of the preview.
 - `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from. **Project file** in the app shows it and lets you edit it.

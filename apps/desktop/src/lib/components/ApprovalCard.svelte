@@ -20,7 +20,7 @@
     <div class="flex items-center gap-2 text-sm">
       <GraduationCap class="size-4 shrink-0 text-warning" />
       <span class="min-w-0 flex-1 truncate">
-        <span class="font-medium">{brief.kind === "lesson" ? "New lesson for" : brief.was ? "Change the rules of" : "Rules for"}</span>
+        <span class="font-medium">{brief.kind === "lesson" ? "New lesson for" : brief.was ? "Change the skill of" : "Skill for"}</span>
         {brief.for}
       </span>
     </div>
@@ -39,7 +39,7 @@
       {#if brief.summary}
         <p class="mt-2 ms-6 text-sm text-muted-foreground select-text">{brief.summary}</p>
       {/if}
-      <div class="mt-2 ms-6 max-h-72 overflow-auto rounded-md border font-mono text-xs leading-5 select-text" aria-label="The rules, with what changes">
+      <div class="mt-2 ms-6 max-h-72 overflow-auto rounded-md border font-mono text-xs leading-5 select-text" aria-label="The skill, with what changes">
         {#each diff as line, index (index)}
           <div class="flex gap-2 px-2 whitespace-pre-wrap {LINE[line.kind]}"><span class="shrink-0 select-none">{MARK[line.kind]}</span>{line.text || " "}</div>
         {/each}
@@ -48,7 +48,7 @@
     <p class="mt-2 ms-6 text-2xs text-muted-foreground">
       {brief.kind === "lesson"
         ? "Decline it if this isn't what you meant. You can remove a lesson later in Settings."
-        : "Every edit in it follows these. You can change them later in Settings."}
+        : "Every edit in it follows this skill. You can change it later in Settings."}
     </p>
   {:else if leaving}
     <div class="flex items-center gap-2 text-sm">

@@ -14,7 +14,7 @@ export interface SavedCollection {
   /** The workspace a series is in; null for a workspace. */
   parentId: string | null;
   icon: CollectionIcon;
-  /** RULES.md: the style guide for the agent. */
+  /** The skill in its SKILL.md, without the front matter: how its videos are made, for the agent. */
   rules: string;
   library: CollectionLibraryFolder[];
   /** Licensing: its projects only use its own music. Not used yet. */
@@ -37,7 +37,7 @@ export interface CollectionStore {
   save(collection: SavedCollection): void;
   /** Takes it out of the list and deletes its folder, rules included. */
   remove(id: string): void;
-  /** Where its RULES.md is; null when it isn't in the list. */
+  /** Where its SKILL.md is; null when it isn't in the list. */
   rulesFile(id: string): string | null;
   /** The agent's notes on example videos, one Markdown file each in its examples/ folder. */
   examples(id: string): { name: string; file: string }[];
@@ -47,12 +47,34 @@ export interface CollectionStore {
 }
 
 export const COLLECTION_FILE = "collection.json";
-export const RULES_FILE = "RULES.md";
+export const RULES_FILE = "SKILL.md";
+/** What SKILL.md was called before; read once, then replaced by it. */
+const OLD_RULES_FILE = "RULES.md";
 export const EXAMPLES_DIR = "examples";
 
 /** "Reel 12 - launch.mp4" → "reel-12-launch": an example's notes are named after its video. */
 export function exampleName(name: string): string {
   return collectionSlug(name.replace(/\.[a-z0-9]{2,5}$/i, ""));
+}
+
+const FRONT_MATTER = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
+
+/** SKILL.md without its front matter: what people edit in the app and agents read. */
+export const skillBody = (text: string): string => text.replace(FRONT_MATTER, "");
+
+/**
+ * SKILL.md in the Agent Skills format, so the folder works as a skill in Claude Code and Codex too. Front matter
+ * someone wrote by hand is kept as it is.
+ */
+export function skillText(collection: Pick<SavedCollection, "kind" | "name" | "rules">, existing = ""): string {
+  if (!collection.rules.trim()) return "";
+  const kept = FRONT_MATTER.exec(existing)?.[1];
+  const about =
+    collection.kind === "workspace"
+      ? `How videos for ${collection.name} are edited. Use for every video of this brand.`
+      : `How ${collection.name} videos are edited. Use for every video in this series.`;
+  const front = kept ?? `name: ${collectionSlug(collection.name)}\ndescription: ${JSON.stringify(about)}`;
+  return `---\n${front}\n---\n\n${collection.rules}`;
 }
 
 // Bump when a file changes shape; a file with another version is left alone rather than misread.
@@ -102,6 +124,15 @@ function readJson<T>(file: string): T | null {
   }
 }
 
+function readText(file: string): string | null {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 // Written whole and renamed, so a crash mid-write can't leave half a file.
 function writeFile(file: string, text: string) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -114,7 +145,7 @@ const writeJson = (file: string, value: unknown) => writeFile(file, `${JSON.stri
 
 /**
  * Workspaces and series, listed in <root>/collections.json, each in <root>/collections/<slug>/ with its
- * collection.json and RULES.md. A file that can't be read is kept as it is, never overwritten.
+ * collection.json and SKILL.md. A file that can't be read is kept as it is, never overwritten.
  */
 export function fileCollectionStore(options: { root: string; onError?: (error: unknown) => void }): CollectionStore {
   const { root } = options;
@@ -185,12 +216,7 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
       if (saved.version !== VERSION || saved.id !== id) {
         throw new Error(`${file} is from another Linker-Edit version or another list, so it was left out and left as it is.`);
       }
-      let rules = "";
-      try {
-        rules = fs.readFileSync(path.join(dirOf(folder), RULES_FILE), "utf8");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+      const rules = skillBody(readText(path.join(dirOf(folder), RULES_FILE)) ?? readText(path.join(dirOf(folder), OLD_RULES_FILE)) ?? "");
       return {
         id,
         kind: saved.kind,
@@ -215,7 +241,10 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
     const { rules, ...fields } = collection;
     const file: CollectionFile = { version: VERSION, ...fields };
     writeJson(path.join(dirOf(folder), COLLECTION_FILE), file);
-    writeFile(path.join(dirOf(folder), RULES_FILE), rules);
+    const skillFile = path.join(dirOf(folder), RULES_FILE);
+    writeFile(skillFile, skillText(collection, readText(skillFile) ?? ""));
+    // Written into SKILL.md above, so two files never disagree.
+    fs.rmSync(path.join(dirOf(folder), OLD_RULES_FILE), { force: true });
   }
 
   function uniqueFolder(name: string): string {
