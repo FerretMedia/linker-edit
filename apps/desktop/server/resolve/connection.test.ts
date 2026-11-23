@@ -4,9 +4,9 @@ import { createResolveConnection, parseScriptResult, ResolveError, scriptSource,
 import type { ResolveProcesses } from "./program.ts";
 
 const FAKE = path.join(import.meta.dirname, "fixtures", "fakeResolveMcp.mjs");
-const CLOSED: ResolveProcesses = { resolve: false, scriptServer: false };
-const BOOTING: ResolveProcesses = { resolve: true, scriptServer: false };
-const UP: ResolveProcesses = { resolve: true, scriptServer: true };
+const CLOSED: ResolveProcesses = { resolve: null, scriptServer: false };
+const BOOTING: ResolveProcesses = { resolve: 900, scriptServer: false };
+const UP: ResolveProcesses = { resolve: 900, scriptServer: true };
 const open: ResolveConnection[] = [];
 
 /** A connection on a computer with these processes; "unseen" is a look that fails. */
@@ -19,6 +19,7 @@ function on(processes: ResolveProcesses | "unseen", server: { command: string | 
       if (computer.processes === "unseen") throw new Error("can't see whether Resolve is running");
       return computer.processes;
     },
+    alive: (pid) => computer.processes !== "unseen" && computer.processes.resolve === pid,
   });
   open.push(connection);
   return { computer, connection };
@@ -206,6 +207,22 @@ describe("the boot guard", () => {
     await after(2000, status(connection));
     await unanswered(connection);
     computer.processes = BOOTING;
+    await blocked(connection);
+  });
+
+  it("doesn't connect to a Resolve that was restarted since it answered", async () => {
+    const { computer, connection } = on(UP);
+    await after(2000, status(connection));
+    computer.processes = { resolve: 901, scriptServer: false };
+    await blocked(connection);
+  });
+
+  it("gives a Resolve that was restarted without a script server its own 90 seconds", async () => {
+    const { computer, connection } = on(BOOTING);
+    await blocked(connection);
+    await vi.advanceTimersByTimeAsync(90_000);
+    await run(connection, "CLOSED");
+    computer.processes = { resolve: 901, scriptServer: false };
     await blocked(connection);
   });
 });

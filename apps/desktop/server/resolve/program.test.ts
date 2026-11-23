@@ -7,24 +7,24 @@ const WINDOWS = [
   '"DaVinci Resolve Welcome.exe","14600","Console","1","3,776 K"',
 ];
 const MAC = [
-  "/sbin/launchd",
-  "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Applications/ResolveMCP",
-  "/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
+  "    1 /sbin/launchd",
+  "14564 /Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Applications/ResolveMCP",
+  "  700 /System/Library/CoreServices/Finder.app/Contents/MacOS/Finder",
 ];
-const MAC_RESOLVE = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/MacOS/Resolve";
-const MAC_SCRIPT_SERVER = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fuscript";
-const LINUX = ["systemd", "kworker/0:1", "ResolveMCP", "fuscript <defunct>"];
+const MAC_RESOLVE = "  900 /Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/MacOS/Resolve";
+const MAC_SCRIPT_SERVER = "  901 /Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fuscript";
+const LINUX = ["      1 systemd", "     12 kworker/0:1", "  14564 ResolveMCP", "    899 fuscript <defunct>"];
 
 describe("parseProcesses", () => {
   it.each([
     ["win32", WINDOWS, '"Resolve.exe","900","Console","1","2,000,000 K"', '"fuscript.exe","901","Console","1","9,000 K"', "\r\n"],
     ["darwin", MAC, MAC_RESOLVE, MAC_SCRIPT_SERVER, "\n"],
-    ["linux", LINUX, "resolve", "fuscript", "\n"],
+    ["linux", LINUX, "    900 resolve", "    901 fuscript", "\n"],
   ] as const)("finds Resolve and its script server on %s", (platform, others, resolve, scriptServer, newline) => {
     const parse = (...lines: string[]) => parseProcesses([...others, ...lines, ""].join(newline), platform);
-    expect(parse()).toEqual({ resolve: false, scriptServer: false });
-    expect(parse(resolve)).toEqual({ resolve: true, scriptServer: false });
-    expect(parse(resolve, scriptServer)).toEqual({ resolve: true, scriptServer: true });
+    expect(parse()).toEqual({ resolve: null, scriptServer: false });
+    expect(parse(resolve)).toEqual({ resolve: 900, scriptServer: false });
+    expect(parse(resolve, scriptServer)).toEqual({ resolve: 900, scriptServer: true });
   });
 
   it.each([
