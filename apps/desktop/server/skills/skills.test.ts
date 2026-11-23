@@ -36,6 +36,15 @@ describe("skills", () => {
       "- sound: Music and levels. (Linker-Edit)",
     ]);
     expect(listSkills(roots.slice(0, 1))[0]!.description).toBe('Grading "footage".');
+    for (const [written, read] of [
+      ["description: >\n  Grading\n  footage.", "Grading footage."],
+      ["# mine\ndescription: 'Don''t'", "Don't"],
+      ["description: >-\n  One: two.\nother: x", "One: two."],
+    ] as const) {
+      write("workspace", "color/SKILL.md", `---\n${written}\n---\n\nTeal.`);
+      expect(listSkills(roots.slice(0, 2))[0]!.description).toBe(read);
+      expect(readSkill(roots.slice(0, 2), "color")).toMatch(/SKILL\.md\)\n\nTeal\.$/);
+    }
     expect(skillsSection(listSkills([{ label: "None", dir: path.join(dir, "missing") }]))).toBe("");
   });
 
@@ -53,6 +62,10 @@ describe("skills", () => {
     expect(readSkill(roots, "color", "skin.md")).toBe("Skin on the line.");
     write("series", "color/skin.md", "Warmer skin.");
     expect(readSkill(roots, "color", "skin.md")).toBe("Warmer skin.");
+    // Also where only the file is changed, and not the skill.
+    write("workspace", "sound/rock.md", "Loud.");
+    expect(readSkill(roots, "sound", "rock.md")).toBe("Loud.");
+    expect(readSkill(roots, "color", "")).toBe(readSkill(roots, "color"));
     write("shipped", "secret.md", "No.");
     for (const file of ["../secret.md", "..\\secret.md", path.join(dir, "shipped", "secret.md"), "SKILL.md.bak"]) {
       expect(() => readSkill(roots, "color", file)).toThrow(/isn't a file name/);

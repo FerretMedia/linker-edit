@@ -49,10 +49,12 @@ function readText(file: string): string | null {
   }
 }
 
+/** The front matter's description: on its line, or on the indented lines below it, as YAML allows. */
 function description(text: string): string {
-  const value = /^description:[ \t]*(.*?)[ \t]*$/m.exec(FRONT_MATTER.exec(text)?.[1] ?? "")?.[1] ?? "";
-  const quoted = /^(["'])(.*)\1$/.exec(value);
-  return (quoted ? quoted[2]!.replaceAll('\\"', '"') : value).slice(0, MAX_DESCRIPTION);
+  const found = /^description:[ \t]*(.*(?:\r?\n[ \t]+.*)*)/m.exec(FRONT_MATTER.exec(text)?.[1] ?? "")?.[1] ?? "";
+  const value = found.replace(/^[>|][+-]?(?=\s|$)/, "").replace(/\s+/g, " ").trim();
+  const [, quote, inner] = /^(["'])(.*)\1$/.exec(value) ?? [];
+  return (quote === '"' ? inner!.replaceAll('\\"', '"') : quote ? inner!.replaceAll("''", "'") : value).slice(0, MAX_DESCRIPTION);
 }
 
 const capped = (text: string) => (text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}\n\n(The rest is left out: a skill can be up to ${MAX_TEXT.toLocaleString("en-US")} characters.)`);
@@ -93,10 +95,10 @@ export function readSkill(roots: SkillRoot[], name: string, file?: string): stri
   const skills = listSkills(roots);
   const skill = skills.find((candidate) => candidate.name === name);
   if (!skill) throw new Error(skills.length ? `There is no skill "${name}". There are: ${skills.map((candidate) => candidate.name).join(", ")}.` : "There are no skills here.");
-  if (file !== undefined) {
+  if (file) {
     if (!DETAIL_FILE.test(file)) throw new Error(`"${file}" isn't a file name a skill can have, such as "interview.md".`);
-    for (const source of skill.sources.toReversed()) {
-      const text = readText(path.join(path.dirname(source.file), file));
+    for (const { dir } of roots.toReversed()) {
+      const text = readText(path.join(dir, name, file));
       if (text !== null) return capped(text);
     }
     throw new Error(`The skill "${name}" has no file "${file}".`);

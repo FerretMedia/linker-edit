@@ -57,8 +57,8 @@ export function exampleName(name: string): string {
   return collectionSlug(name.replace(/\.[a-z0-9]{2,5}$/i, ""));
 }
 
-// Starts with a key, so a file that begins with a line of dashes doesn't lose what is above the next one.
-export const FRONT_MATTER = /^\uFEFF?---\r?\n(?=[\w-]+:)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
+// Starts with a key, or comments and then a key, so a file that begins with a line of dashes doesn't lose what is above the next one.
+export const FRONT_MATTER = /^\uFEFF?---\r?\n(?=(?:#.*\r?\n)*[\w-]+:)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
 
 /** SKILL.md without its front matter: what people edit in the app and agents read. */
 export const skillBody = (text: string): string => text.replace(FRONT_MATTER, "");
