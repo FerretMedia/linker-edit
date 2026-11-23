@@ -8,7 +8,7 @@ import { readResolveSnapshot } from "../history/history.ts";
 import { ResolveError } from "./connection.ts";
 import { hasPython, pythonConnection } from "./testing.ts";
 import { NODE_TOOLS } from "./run.ts";
-import { RESOLVE_TOOLS } from "./tools.ts";
+import { APP_TOOLS, RESOLVE_TOOLS } from "./tools.ts";
 
 const FAKE = fs.readFileSync(path.join(import.meta.dirname, "fixtures", "DaVinciResolveScript.py"), "utf8");
 
@@ -65,7 +65,7 @@ describe.skipIf(!hasPython)("Resolve scripts", () => {
   it("has a script or a Node handler for every tool", () => {
     for (const tool of RESOLVE_TOOLS) {
       const script = fs.existsSync(path.join(import.meta.dirname, "scripts", `tool_${tool.name}.py`));
-      expect(script || NODE_TOOLS.has(tool.name) || tool.name === "start_resolve", tool.name).toBe(true);
+      expect(script || NODE_TOOLS.has(tool.name) || APP_TOOLS.has(tool.name), tool.name).toBe(true);
     }
   });
 
@@ -80,6 +80,7 @@ describe.skipIf(!hasPython)("Resolve scripts", () => {
       database: { type: "Disk", name: "Local Database" },
       timeline: "Edit",
       page: "edit",
+      activity: expect.stringContaining("01:00:00:00"),
     });
   });
 

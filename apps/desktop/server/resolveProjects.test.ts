@@ -27,6 +27,7 @@ class Project:
     def GetUniqueId(self): return self.id
     def GetTimelineCount(self): return 0 if self.id == "untitled-id" else 1
     def GetCurrentTimeline(self): return None
+    def IsRenderingInProgress(self): return STATE.get("rendering", False)
     def GetMediaPool(self): return Pool()
 
 class PM:
@@ -200,6 +201,15 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     expect(working.calls()).toEqual([]);
     const empty = fakeResolve({ current: ["Promo", "untitled-id"] });
     await expect(empty.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
+  });
+
+  it("never leaves a project that is rendering, or has work in it that was never saved", async () => {
+    const link = { kind: "local", name: "Interview", projectId: "int-id" } as const;
+    const rendering = fakeResolve({ rendering: true });
+    await expect(rendering.projects.open(link, {})).rejects.toThrow('Resolve is rendering in "Promo"');
+    const unsaved = fakeResolve({ current: ["Untitled Project", "new-id"] });
+    await expect(unsaved.projects.open(link, {})).rejects.toThrow("was never saved");
+    expect([...rendering.calls(), ...unsaved.calls()]).toEqual([]);
   });
 
   it("says when Resolve can't find the project, back in the project it had open", async () => {

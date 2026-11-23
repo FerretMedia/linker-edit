@@ -115,7 +115,7 @@
   const thread = $derived(project?.threads.find((candidate) => candidate.id === app?.threadId) ?? null);
   const rendering = $derived(app?.preview.state === "rendering");
   const canSend = $derived(
-    server.connected && !!app?.threadId && !app.busy && !app.blocked && !rendering && draft.trim().length > 0,
+    server.connected && !!app?.threadId && !app.busy && (!app.blocked || app.blocked.canSend === true) && !rendering && draft.trim().length > 0,
   );
   let now = $state(Date.now());
   // The cache expiry the user switched to sending the full chat for.
@@ -145,7 +145,7 @@
     project ? (app?.collections.find((candidate) => candidate.projectIds.includes(project.id) || candidate.setupProjectId === project.id) ?? null) : null,
   );
   const startBlocked = $derived(
-    !server.connected ? "Not connected." : app?.busy ? "Wait for the agent to finish." : (app?.blocked?.message ?? (rendering ? "Wait for the render." : null)),
+    !server.connected ? "Not connected." : app?.busy ? "Wait for the agent to finish." : ((app?.blocked?.canSend ? null : app?.blocked?.message) ?? (rendering ? "Wait for the render." : null)),
   );
 
   /** The first message of a setup thread, or of a video the agent edits on its own, from the folders picked. */
@@ -557,6 +557,19 @@
                   Open in Resolve
                 </button>
               {/if}
+            </div>
+          {/if}
+          {#if app.reopen && !app.blocked}
+            <div class="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
+              <span class="min-w-0 flex-1 text-muted-foreground">Resolve had "{app.reopen}" open before this. It was saved.</span>
+              <button
+                type="button"
+                class="flex h-7 shrink-0 items-center gap-1.5 rounded-md border bg-card px-2.5 text-xs transition-colors hover:bg-accent"
+                onclick={() => server.send({ type: "reopen_previous" })}
+              >
+                <MonitorUp class="size-3.5" />
+                Open it again
+              </button>
             </div>
           {/if}
           <Composer

@@ -50,6 +50,13 @@ def untouched(p):
     return p.GetName() not in (pm.GetProjectListInCurrentFolder() or [])
 
 
+def saved_somewhere(name):
+    pm.GotoRootFolder()
+    found = walk([], lambda n, p: n == name)
+    pm.GotoRootFolder()
+    return found
+
+
 def opened(p, folder):
     return {"project": {"name": p.GetName(), "id": p.GetUniqueId()}, "database": database(pm.GetCurrentDatabase()), "folder": folder}
 
@@ -73,6 +80,14 @@ def open_project(req):
             f"Resolve has \"{current.GetName()}\" open, and only the user switches projects. Ask them to open "
             f"\"{req['name']}\" with Open in Resolve in Linker-Edit."
         )
+    if not idle:
+        if call(current, "IsRenderingInProgress"):
+            raise Refused(f"Resolve is rendering in \"{current.GetName()}\". Wait until it's done.")
+        # Saving it would ask the user for a name, or add an "Untitled Project" to their database. What a
+        # Blackmagic Cloud library lists isn't known, so there it's left alone.
+        local_library = ((pm.GetCurrentDatabase() or {}).get("DbType") or "").lower() in ("disk", "postgresql")
+        if local_library and not saved_somewhere(current.GetName()):
+            raise Refused(f"\"{current.GetName()}\" has work in it and was never saved. Save it in Resolve first.")
     previous_name = current.GetName() if current else None
     previous_db = database(pm.GetCurrentDatabase())
     if not idle:
