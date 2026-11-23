@@ -53,10 +53,10 @@ describe("startResolve", () => {
 
   it("says why when Resolve doesn't come up, and when a running one doesn't answer", async () => {
     const never = closedResolve({ readyAfter: Infinity, launchError: "Timed out after 60s" });
-    await expect(never.start({ launchTimeoutMs: 5 })).rejects.toThrow("Resolve didn't start in time (Timed out after 60s).");
+    await expect(never.start({ launchTimeoutMs: 0 })).rejects.toThrow("Resolve didn't start in time (Timed out after 60s).");
     expect(never.closed()).toBe(1);
     const stuck = closedResolve({ running: true, readyAfter: Infinity });
-    await expect(stuck.start({ runningTimeoutMs: 5 })).rejects.toThrow("doesn't answer");
+    await expect(stuck.start({ runningTimeoutMs: 0 })).rejects.toThrow("doesn't answer");
   });
 
   it("stops waiting when the user stops the turn", async () => {
