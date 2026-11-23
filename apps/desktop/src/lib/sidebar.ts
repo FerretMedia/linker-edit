@@ -1,15 +1,50 @@
 // The sidebar's thread and project logic, ported from T3 Code (MIT, see NOTICE):
 // packages/client-runtime/src/state/threadSort.ts, threadSettled.ts, threadInbox.ts and
-// apps/web/src/components/Sidebar.logic.ts.
+// apps/web/src/components/Sidebar.tsx and Sidebar.logic.ts.
 
 import type { ProjectSummary, ThreadSummary } from "#shared/protocol.ts";
+import { scopedKey } from "./machines.ts";
 
-export type SidebarSection = "pinned" | "active" | "snoozed" | "settled";
+/** T3 Code's shelves, top to bottom. Working exists only in the inbox, not in project folders. */
+export type SidebarSection = "pinned" | "active" | "working" | "snoozed" | "settled";
+
+/** A project with its machine, as the sidebar lists every machine's together. */
+export interface SidebarProject extends ProjectSummary {
+  machineId: string;
+  /** Unique across machines, where its own id may not be. */
+  key: string;
+  /** Its machine isn't connected: shown as it was last, and nothing goes to it. */
+  offline: boolean;
+}
 
 /** A thread with its project, as the sidebar lists it. */
 export interface SidebarThread extends ThreadSummary {
-  project: ProjectSummary;
+  project: SidebarProject;
+  /** Unique across machines, where its own id may not be. */
+  key: string;
 }
+
+/**
+ * Every machine's projects in one list, like T3 Code's environments. An offline machine's are what it had last; a
+ * turn that was running then isn't shown as still running, as nobody can tell.
+ */
+export function machineProjects(machines: readonly { id: string; projects: readonly ProjectSummary[]; offline: boolean }[]): SidebarProject[] {
+  return machines.flatMap((machine) =>
+    machine.projects.map((project) => ({
+      ...project,
+      threads: machine.offline ? project.threads.map((thread) => ({ ...thread, busy: false, waiting: false })) : project.threads,
+      machineId: machine.id,
+      key: scopedKey(machine.id, project.id),
+      offline: machine.offline,
+    })),
+  );
+}
+
+const listed = (thread: ThreadSummary, project: SidebarProject): SidebarThread => ({ ...thread, project, key: scopedKey(project.machineId, thread.id) });
+
+/** Every machine's threads but the archived ones, for the working tracker to look at. */
+export const listedThreads = (projects: readonly SidebarProject[]): SidebarThread[] =>
+  projects.flatMap((project) => project.threads.filter((thread) => !thread.archived).map((thread) => listed(thread, project)));
 
 /** Threads a project folder shows before "Show more". */
 export const FOLDER_PREVIEW_COUNT = 6;
@@ -24,6 +59,7 @@ const time = (iso: string | null | undefined): number | null => {
 };
 
 const byId = (left: { id: string }, right: { id: string }) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+const byKey = (left: { key: string }, right: { key: string }) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
 
 /** Snoozed and still asleep. A thread waiting for an approval wakes early, as one asking for input does in T3 Code. */
 export function isSnoozed(thread: ThreadSummary, nowMs: number): boolean {
@@ -55,11 +91,73 @@ export function isUnread(thread: ThreadSummary): boolean {
   return ended !== null && read !== null && ended > read;
 }
 
-export function threadSection(thread: ThreadSummary, nowMs: number): SidebarSection {
+/** Where a thread goes before the Working shelf takes the running ones out of Active. */
+export function threadSection(thread: ThreadSummary, nowMs: number): "pinned" | "active" | "snoozed" | "settled" {
   if (isSnoozed(thread, nowMs)) return "snoozed";
   if (thread.settledAt) return "settled";
   if (thread.pinnedAt) return "pinned";
   return "active";
+}
+
+/** A turn is running and nothing waits on the user: T3 Code's isThreadWorking. One asking for an approval needs you, so it's Active. */
+export const isWorking = (thread: ThreadSummary) => thread.busy && !thread.waiting;
+
+/** How long a thread that stopped working stays on the Working shelf, in case its next step starts. As in T3 Code. */
+export const WORKING_EXIT_GRACE_MS = 2_000;
+/** A turn that ended this long ago gets no grace: it ended while this page was closed. */
+const STALE_EXIT_MS = 60_000;
+
+/** What the working tracker saw: which threads are on the Working shelf, and when each came back from it. */
+export interface WorkingView {
+  isWorking: (thread: SidebarThread) => boolean;
+  returnedAt: (thread: SidebarThread) => number | undefined;
+}
+
+/**
+ * T3 Code's inbox return tracker (threadInbox.ts, createInboxReturnTracker): a thread whose turn ends stays on the
+ * Working shelf for WORKING_EXIT_GRACE_MS, so it doesn't jump at once, then goes back to the top of Active. Only
+ * where it's listed waits; an approval, or the user moving it, counts at once. Keep one for the page's life.
+ */
+export function createWorkingTracker() {
+  const states = new Map<string, { working: boolean; deadline: number | null; placement: string | null }>();
+  const returns = new Map<string, number>();
+  return {
+    observe(threads: readonly SidebarThread[], now: number): WorkingView {
+      const present = new Set<string>();
+      for (const thread of threads) {
+        present.add(thread.key);
+        const previous = states.get(thread.key);
+        const actual = isWorking(thread);
+        const placement = actual || previous?.working ? JSON.stringify([thread.archived, thread.pinnedAt, thread.settledAt, thread.snoozedUntil]) : null;
+        const moved = previous !== undefined && previous.placement !== placement;
+        const excluded = thread.archived || !!thread.pinnedAt || !!thread.settledAt || isSnoozed(thread, now);
+        const ended = time(thread.turnEndedAt);
+        const endedLongAgo = ended !== null && ended <= now - STALE_EXIT_MS;
+        const deadline =
+          !actual && previous?.working && !thread.waiting && !moved && !excluded && !endedLongAgo
+            ? (previous.deadline ?? now + WORKING_EXIT_GRACE_MS)
+            : null;
+        const working = actual || (deadline !== null && deadline > now);
+        if (previous?.working && !working) returns.set(thread.key, now);
+        states.set(thread.key, { working, deadline: working ? deadline : null, placement });
+      }
+      for (const key of states.keys()) {
+        if (!present.has(key)) {
+          states.delete(key);
+          returns.delete(key);
+        }
+      }
+      const working = new Map([...states].map(([key, state]) => [key, state.working]));
+      const returned = new Map(returns);
+      return { isWorking: (thread) => working.get(thread.key) ?? isWorking(thread), returnedAt: (thread) => returned.get(thread.key) };
+    },
+    /** When the next grace ends, to look again then; null when none is running. */
+    nextDeadline(): number | null {
+      let next: number | null = null;
+      for (const state of states.values()) if (state.deadline !== null && (next === null || state.deadline < next)) next = state.deadline;
+      return next;
+    },
+  };
 }
 
 export type ThreadStatus = "approval" | "working" | "ready";
@@ -129,7 +227,7 @@ export function projectActivity(project: ProjectSummary): number {
 }
 
 /** Pinned projects first, then by last activity; archived ones last. */
-export function sortProjects(projects: readonly ProjectSummary[]): ProjectSummary[] {
+export function sortProjects<P extends ProjectSummary>(projects: readonly P[]): P[] {
   const rank = (project: ProjectSummary) => (project.archived ? 2 : project.pinned ? 0 : 1);
   return [...projects].sort(
     (left, right) => rank(left) - rank(right) || projectActivity(right) - projectActivity(left) || left.name.localeCompare(right.name),
@@ -137,47 +235,102 @@ export function sortProjects(projects: readonly ProjectSummary[]): ProjectSummar
 }
 
 export interface SidebarFolder {
-  project: ProjectSummary;
+  project: SidebarProject;
   threads: SidebarThread[];
+}
+
+/** The newest of several times, as T3 Code's sorts take them. */
+const newest = (...values: (string | null | undefined)[]) => Math.max(0, ...values.map((value) => time(value) ?? 0));
+
+/**
+ * The inbox's Active order (T3 Code's sortInboxThreadsByReturn): newest return first, a return being its creation,
+ * the user's last message, its last turn ending, coming out of Settled, or leaving the Working shelf.
+ */
+export function sortInbox(threads: readonly SidebarThread[], returnedAt: (thread: SidebarThread) => number | undefined = () => undefined): SidebarThread[] {
+  const at = (thread: SidebarThread) =>
+    Math.max(newest(thread.createdAt, thread.unsettledAt, thread.lastSentAt, thread.turnEndedAt), returnedAt(thread) ?? 0);
+  return [...threads].sort((left, right) => at(right) - at(left) || byKey(left, right));
+}
+
+/** The Working shelf's order (T3 Code's sortWorkingThreadsBySend): newest send first. */
+export function sortWorking(threads: readonly SidebarThread[]): SidebarThread[] {
+  const at = (thread: SidebarThread) => newest(thread.createdAt, thread.lastSentAt);
+  return [...threads].sort((left, right) => at(right) - at(left) || byKey(left, right));
 }
 
 export interface SidebarLists {
   pinned: SidebarThread[];
-  folders: SidebarFolder[];
+  /** The inbox's Active threads, from every listed project; empty with project folders. */
+  active: SidebarThread[];
+  /** Turns running; empty with project folders, which keep them in place. */
+  working: SidebarThread[];
+  /** With project folders only: the active threads by project. */
+  folders: SidebarFolder[] | null;
   snoozed: SidebarThread[];
   settled: SidebarThread[];
-  /** Everything listed, in order, for moving to the next thread after a settle. */
+  /** Pinned, Active and Working, in order: for the jump shortcuts and the next thread after a settle. */
   order: SidebarThread[];
 }
 
+export interface SidebarOptions {
+  /** Project keys to list, T3 Code's project scope; null or empty lists every project. */
+  scope?: ReadonlySet<string> | null;
+  /** T3 Code's boring sidebar: active threads in a folder per project, and no Working shelf. */
+  folders?: boolean;
+  /** The working tracker's view; without it a thread is on the Working shelf exactly while its turn runs. */
+  working?: WorkingView;
+}
+
+/** The projects a scope lists: all of them, or the ones in it. A scope naming no listed project lists all. */
+export function scopedProjects(projects: readonly SidebarProject[], scope: ReadonlySet<string> | null | undefined): SidebarProject[] {
+  const inScope = scope ? projects.filter((project) => scope.has(project.key)) : [];
+  return inScope.length > 0 ? inScope : [...projects];
+}
+
 /**
- * The sidebar's sections. A project gets a folder when it has active threads, or when it's pinned (not archived)
- * or open in Resolve; an archived project keeps one only for its active threads, below the rest.
+ * The sidebar's shelves, as T3 Code has them: Pinned, Active, Working, Snoozed and Settled, every machine's threads
+ * mixed. With folders, Active is a folder per project instead: a project gets one when it has active threads, or
+ * when it's pinned (not archived), open in Resolve or picked in the scope; an archived project keeps one only for
+ * its active threads, below the rest.
  */
-export function partitionSidebar(projects: readonly ProjectSummary[], nowMs: number): SidebarLists {
-  const pinned: SidebarThread[] = [];
-  const snoozed: SidebarThread[] = [];
-  const settled: SidebarThread[] = [];
+export function partitionSidebar(projects: readonly SidebarProject[], nowMs: number, options: SidebarOptions = {}): SidebarLists {
+  const listedProjects = scopedProjects(projects, options.scope);
+  const scoped = listedProjects.length < projects.length;
+  const working = options.folders ? null : (options.working ?? { isWorking, returnedAt: () => undefined });
+  const lists = { pinned: [] as SidebarThread[], active: [] as SidebarThread[], working: [] as SidebarThread[], snoozed: [] as SidebarThread[], settled: [] as SidebarThread[] };
   const folders: SidebarFolder[] = [];
-  for (const project of sortProjects(projects)) {
+  for (const project of sortProjects(listedProjects)) {
     const active: SidebarThread[] = [];
-    for (const thread of project.threads) {
-      if (thread.archived) continue;
-      const listed = { ...thread, project };
+    for (const summary of project.threads) {
+      if (summary.archived) continue;
+      const thread = listed(summary, project);
       const section = threadSection(thread, nowMs);
-      (section === "pinned" ? pinned : section === "snoozed" ? snoozed : section === "settled" ? settled : active).push(listed);
+      if (section !== "active") lists[section].push(thread);
+      else if (working?.isWorking(thread)) lists.working.push(thread);
+      else active.push(thread);
     }
-    if (active.length > 0 || (!project.archived && (project.pinned || project.open))) {
+    lists.active.push(...active);
+    if (options.folders && (active.length > 0 || (!project.archived && (project.pinned || project.open || scoped)))) {
       folders.push({ project, threads: sortActive(active) });
     }
   }
-  const lists = { pinned: sortPinned(pinned), folders, snoozed: sortSnoozed(snoozed), settled: sortSettled(settled) };
-  return { ...lists, order: [...lists.pinned, ...folders.flatMap((folder) => folder.threads)] };
+  const pinned = sortPinned(lists.pinned);
+  const active = options.folders ? [] : sortInbox(lists.active, working?.returnedAt);
+  const workingShelf = sortWorking(lists.working);
+  return {
+    pinned,
+    active,
+    working: workingShelf,
+    folders: options.folders ? folders : null,
+    snoozed: sortSnoozed(lists.snoozed),
+    settled: sortSettled(lists.settled),
+    order: [...pinned, ...(options.folders ? folders.flatMap((folder) => folder.threads) : active), ...workingShelf],
+  };
 }
 
 /** The next thread to open after settling or snoozing the open one: the next listed one, wrapping around. */
-export function nextThreadAfter(order: readonly SidebarThread[], threadId: string): SidebarThread | null {
-  const index = order.findIndex((thread) => thread.id === threadId);
+export function nextThreadAfter(order: readonly SidebarThread[], key: string): SidebarThread | null {
+  const index = order.findIndex((thread) => thread.key === key);
   if (index === -1) return null;
   return [...order.slice(index + 1), ...order.slice(0, index)][0] ?? null;
 }
@@ -188,7 +341,7 @@ const fold = (text: string) => text.normalize("NFKD").replace(/\p{M}/gu, "").toL
  * Threads whose title (or project name) matches every word of the query: title starts first, then word starts,
  * then anywhere; ties by activity. Settled and archived threads are found too.
  */
-export function searchThreads(projects: readonly ProjectSummary[], query: string): SidebarThread[] {
+export function searchThreads(projects: readonly SidebarProject[], query: string): SidebarThread[] {
   const words = fold(query).split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   const scored: { thread: SidebarThread; score: number }[] = [];
@@ -199,11 +352,14 @@ export function searchThreads(projects: readonly ProjectSummary[], query: string
       if (!words.every((word) => subject.includes(word))) continue;
       const first = words[0]!;
       const score = title.startsWith(first) ? 0 : new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(first)}`, "u").test(title) ? 1 : title.includes(first) ? 2 : 3;
-      scored.push({ thread: { ...thread, project }, score });
+      scored.push({ thread: listed(thread, project), score });
     }
   }
   return scored
-    .sort((left, right) => left.score - right.score || activityTime(right.thread) - activityTime(left.thread) || byId(left.thread, right.thread))
+    .sort(
+      (left, right) =>
+        left.score - right.score || activityTime(right.thread) - activityTime(left.thread) || byKey(left.thread, right.thread),
+    )
     .map(({ thread }) => thread);
 }
 
@@ -220,6 +376,15 @@ export function relativeTime(iso: string, nowMs: number): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+/** How long a turn has run, after "Working": "12s", "4m", "1h 5m". T3 Code's formatWorkingDurationLabel. */
+export function workingDuration(elapsedMs: number): string {
+  const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 /** How long until a snoozed thread wakes: "45m", "3h", "2d". */

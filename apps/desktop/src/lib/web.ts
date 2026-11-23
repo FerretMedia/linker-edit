@@ -1,9 +1,9 @@
 /**
  * The page on someone's own web address: signing in with Linker for a web token, listing their computers, and
- * getting a session on one. Linker's side is FerretMedia/Linker's /edit/web routes; the host's is
+ * getting a session on each. Linker's side is FerretMedia/Linker's /edit/web routes; the host's is
  * /api/connect/session and /api/connect/native, the iPad app's way in. web.svelte.ts drives these.
  */
-import type { LinkedComputer } from "#shared/protocol.ts";
+import type { LinkedComputer, Machine } from "#shared/protocol.ts";
 import { helloAt, type Hello } from "./host.ts";
 
 export const DEFAULT_LINKER_URL = "https://app.linker.cool";
@@ -15,7 +15,7 @@ const TOKEN_KEY = "linker-edit:web-token";
 const SESSIONS_KEY = "linker-edit:web-sessions";
 const LAST_KEY = "linker-edit:web-last";
 
-/** A computer as Linker lists it: the parts the start screen uses. */
+/** A computer as Linker lists it: the parts the page uses. */
 export type WebComputer = Pick<LinkedComputer, "id" | "name" | "url" | "tailnetUrl" | "online">;
 
 /** Refused: by Linker, which wants a new sign-in, or by the host, which wants a new session. */
@@ -134,7 +134,7 @@ export function savedToken(storage: Store, now = Date.now()): string | null {
   return null;
 }
 
-/** Signing out: the web token, every computer's session and the last computer go. */
+/** Signing out: the web token, every computer's session and the last computer (of the old start screen) go. */
 export function forgetAll(storage: Store) {
   for (const key of [TOKEN_KEY, SESSIONS_KEY, LAST_KEY]) write(storage, key, null);
 }
@@ -248,6 +248,7 @@ export async function newSession(
   return session;
 }
 
-/** The computer that opens again next time. */
-export const lastComputer = (storage: Store) => read<string>(storage, LAST_KEY);
-export const rememberComputer = (storage: Store, computerId: string | null) => write(storage, LAST_KEY, computerId);
+/** A computer of the list as one of the page's machines: "connecting" until reach() says otherwise. */
+export function machineOf(computer: WebComputer): Machine {
+  return { id: computer.id, name: computer.name, version: "", via: computer.tailnetUrl ? "tailscale" : "linker", online: true, base: "" };
+}

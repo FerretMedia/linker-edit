@@ -25,6 +25,7 @@
     trimSeparators,
   } from "#lib/browsePath.ts";
   import { desktop } from "#lib/desktop.ts";
+  import { useHost } from "#lib/hostContext.ts";
 
   type Reply = FolderListing | { error: string };
 
@@ -35,6 +36,7 @@
     placeholder = "",
     autofocus = false,
     label,
+    native,
     onSubmit,
     onPicked,
   }: {
@@ -45,6 +47,8 @@
     placeholder?: string;
     autofocus?: boolean;
     label?: string;
+    /** Whether the folders are this computer's, so the system's folder dialog may choose one. By default, the provided host's. */
+    native?: boolean;
     /** Enter on the path itself, with no folder in the list chosen. */
     onSubmit?: (path: string) => void;
     /** A folder chosen in the system's dialog; without it, the dialog only fills in the field. */
@@ -59,7 +63,10 @@
   /** The last good listing, for the drive shortcuts while another folder loads. */
   let lastListing = $state<FolderListing | null>(null);
   let highlight = $state(-1);
-  let canPick = $state(false);
+  const host = useHost();
+  let desktopPicks = $state(false);
+  // The system's dialog shows this computer's folders, so only for a machine that's this computer.
+  const canPick = $derived(desktopPicks && (native ?? host().local));
 
   const directory = $derived(browseDirectory(value.trim()));
   const filter = $derived(browseFilter(value.trim()));
@@ -87,7 +94,7 @@
 
   onMount(() => {
     if (autofocus) input.focus();
-    void desktop?.canPickFolder?.().then((can) => (canPick = can));
+    void desktop?.canPickFolder?.().then((can) => (desktopPicks = can));
     // Starts an empty field in the home folder, written out the way the server's computer writes paths.
     if (untrack(() => value.trim())) return;
     void load("").then((result) => {

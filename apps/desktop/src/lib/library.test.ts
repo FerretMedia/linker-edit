@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Host } from "./host.ts";
 import { describeCounts, fileUrl, formatDuration, libraryHash, libraryTabFromHash, parseTags, samePath } from "./library.ts";
 
 describe("library page helpers", () => {
@@ -17,8 +18,9 @@ describe("library page helpers", () => {
     expect(formatDuration(3723)).toBe("1:02:03");
   });
 
-  it("encodes each part of a file's path", () => {
-    expect(fileUrl("id", "Calm/Piano #1.wav")).toBe("/library/id/Calm/Piano%20%231.wav");
+  it("encodes each part of a file's path, on the machine the library is on", () => {
+    expect(fileUrl(new Host(), "id", "Calm/Piano #1.wav")).toBe("/library/id/Calm/Piano%20%231.wav");
+    expect(fileUrl(new Host("/machines/rig"), "id", "Tone.wav")).toBe("/machines/rig/library/id/Tone.wav");
   });
 
   it("splits tags on commas", () => {
