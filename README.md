@@ -43,7 +43,7 @@ Priorities come from real use. If something here matters to you, or is missing, 
 ## Requirements
 
 - **DaVinci Resolve Studio 21.1.2 or newer**, which comes with its own MCP server (`ResolveMCP`). Linker-Edit finds it in Resolve's install folder. Set Preferences → System → General → *External scripting using* to **Local**, and restart Resolve after changing it. The free edition has no MCP server.
-- **Claude Code** (`claude`, logged in) and/or **Codex** (`codex`, logged in).
+- **Claude Code** (`claude`, logged in) and/or **Codex** (`codex`, logged in). Linker-Edit uses your sign-in, but not your own setup for coding: chats leave out your skills, your global `CLAUDE.md`, connectors such as Gmail, and for Claude your MCP servers. Codex is told to ignore your global `AGENTS.md`, and still loads the MCP servers in its `config.toml`.
 - **[Git](https://git-scm.com)**, for the edit history.
 
 ## Install

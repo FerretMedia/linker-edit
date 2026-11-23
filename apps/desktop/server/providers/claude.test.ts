@@ -187,11 +187,19 @@ describe("Claude session", () => {
     expect(contexts).toEqual([null]);
   });
 
+  it("leaves the user's own skills, instructions and MCP servers out, but not the rest of their settings", async () => {
+    const { calls, runQuery } = scripted([]);
+    await session(runQuery).send("go", collectingSink().sink, signal());
+    const { options } = calls[0]!;
+    expect(options).toMatchObject({ strictMcpConfig: true, skills: [], settings: { claudeMdExcludes: [expect.stringMatching(/\/\.claude\/\*\*$/)] } });
+    expect(options).not.toHaveProperty("settingSources");
+  });
+
   it("passes the auto-compact window and shortens long Resolve results before Claude reads them", async () => {
     const { calls, runQuery } = scripted([]);
     await createClaudeSession({ ...testConfig, autoCompactWindow: 300_000 }, () => "ask", { runQuery }).send("go", collectingSink().sink, signal());
     const { settings, hooks } = calls[0]!.options;
-    expect(settings).toEqual({ autoCompactWindow: 300_000 });
+    expect(settings).toMatchObject({ autoCompactWindow: 300_000 });
     const [matcher] = hooks!.PostToolUse!;
     expect(matcher!.matcher).toBe("mcp__resolve__.*");
     const hook = (tool_response: unknown) =>
