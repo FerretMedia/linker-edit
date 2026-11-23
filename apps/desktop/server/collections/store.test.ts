@@ -72,7 +72,7 @@ describe("fileCollectionStore", () => {
     again.save({ ...series, rules: "" });
     expect(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8")).toContain("description: Mine.");
 
-    // What is above a line of dashes is part of the skill.
+    // What is above a line of dashes is part of the rules.
     const ruled = "---\nNo music.\n\n---\nEnd on the logo.";
     fs.writeFileSync(path.join(dir, "SKILL.md"), ruled);
     expect(open().load()[1]!.rules).toBe(ruled);

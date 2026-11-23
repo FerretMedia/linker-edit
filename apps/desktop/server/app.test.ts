@@ -1178,10 +1178,10 @@ describe("app projects", () => {
       expect(client.state.resolve).toMatchObject({ project: "Interview" });
     });
 
-    it("lets a skill thread look, asking before it leaves what the user is working in, and goes back to that", async () => {
+    it("lets a setup thread look, asking before it leaves what the user is working in, and goes back to that", async () => {
       const results: { text: string; isError: boolean }[] = [];
-      const skill: SavedProject = { ...workspaceProject, id: "skill", setup: true, collection: { id: "c", name: "Ferret" } };
-      const { app, client, send, turnDone, opens, ran } = twoProjects([interview, promo, linked("Doc", "doc-id"), skill], async (call) => {
+      const brand: SavedProject = { ...workspaceProject, id: "brand", setup: true, collection: { id: "c", name: "Ferret" } };
+      const { app, client, send, turnDone, opens, ran } = twoProjects([interview, promo, linked("Doc", "doc-id"), brand], async (call) => {
         for (const [tool, input] of [
           ["list_timelines", {}],
           // Looking at what is open already doesn't make it the visit's to leave.
@@ -1194,7 +1194,7 @@ describe("app projects", () => {
         ] as const) results.push(await call(tool, input));
       });
       await app.refreshResolve();
-      send({ type: "new_thread", projectId: "skill" });
+      send({ type: "new_thread", projectId: "brand" });
       send({ type: "send", text: "learn from Interview" });
       await client.until((state) => state.approvals.length > 0);
       expect(client.state.approvals[0]!.input).toMatchObject({ open: "Promo", wants: expect.stringContaining("Interview") });

@@ -15,8 +15,8 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Ferret Media");
 
-  await page.getByRole("textbox", { name: "Skill (SKILL.md)" }).fill("End every video on the logo.");
-  await page.getByRole("button", { name: "Save skill" }).click();
+  await page.getByRole("textbox", { name: "Rules for the agent" }).fill("End every video on the logo.");
+  await page.getByRole("button", { name: "Save rules" }).click();
   await expect(page.getByRole("button", { name: "Saved" })).toBeDisabled();
 
   // A new series goes in the workspace that is picked.
@@ -56,17 +56,17 @@ test("a project's own file is read and saved in the project file panel", async (
   expect(fs.readFileSync(path.join(dir, "workspace", "PROJECT.md"), "utf8")).toBe("# Promo\n\n## Brief\nThirty seconds, for the launch.\n");
 });
 
-test("a workspace gets its skill from AI in a thread of its own, and can be set to work on its own", async ({ page }) => {
+test("a workspace is set up with AI in a thread of its own, and can be set to work on its own", async ({ page }) => {
   await page.goto("/#settings/workspaces");
   await page.getByRole("button", { name: "New workspace" }).click();
   await page.getByRole("textbox", { name: "New workspace name" }).fill("Studio North");
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Studio North");
 
-  // The skill thread opens behind the settings page, without the panels that need a Resolve project.
-  await page.getByRole("button", { name: "Make the skill with AI" }).click();
+  // The setup thread opens behind the settings page, without the panels that need a Resolve project.
+  await page.getByRole("button", { name: "Set up with AI" }).click();
   await expect(page.getByRole("heading", { name: "Teach Linker-Edit how Studio North is edited" })).toBeVisible();
-  await expect(page.getByRole("navigation").getByRole("button", { name: "Studio North skill", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Studio North setup", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0);
 
   // It can start from Resolve projects alone. Not sent here: chat.spec.ts has the one turn that may run.
@@ -77,11 +77,11 @@ test("a workspace gets its skill from AI in a thread of its own, and can be set 
   await picker.getByRole("button", { name: "Cancel" }).click();
   await expect(picker).toHaveCount(0);
 
-  // The skill thread is found again from the workspace, which can be set to work on its own. No project is put
+  // The setup thread is found again from the workspace, which can be set to work on its own. No project is put
   // in it here: chat.spec.ts expects the shared "workspace" project to start threads the usual way.
   await page.goto("/#settings/workspaces");
   await page.getByRole("button", { name: /Studio North/ }).click();
-  await expect(page.getByRole("button", { name: "Open skill thread" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open setup" })).toBeVisible();
   const alone = page.getByRole("switch", { name: "Works on its own" });
   await alone.click();
   await expect(alone).toBeChecked();

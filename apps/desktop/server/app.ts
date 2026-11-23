@@ -115,11 +115,11 @@ export interface AppOptions {
 const APPROVED = "Approved:";
 /** Starts the message Linker-Edit sends for the user after an approval, so it isn't counted as feedback. */
 const LEARN = "Learn from this edit:";
-/** The Resolve tools that work on files alone, which a skill thread may use without a visit. */
+/** The Resolve tools that work on files alone, which a setup thread may use without a visit. */
 const usesNoResolve = (tool: string, input: Record<string, unknown>) =>
   tool === "find_silences" || (tool === "view_frames" && typeof input.file === "string");
 const SETUP_REFUSAL =
-  "This is a skill thread: it has no Resolve project of its own, so it only reads in Resolve, in a project you visit. Find one with list_projects and open it with visit_project, or study the videos as files.";
+  "This is a setup thread: it has no Resolve project of its own, so it only reads in Resolve, in a project you visit. Find one with list_projects and open it with visit_project, or study the videos as files.";
 const VISIT_REFUSAL = "You're visiting this project, so you can only read it. Call end_visit to go back first.";
 /** What the approval to leave the project open in Resolve is called. */
 const SWITCH_TOOL = `mcp__${LINKER_MCP_NAME}__switch_project`;
@@ -221,7 +221,7 @@ export function createApp(options: AppOptions) {
 
   function projectName(saved: SavedProject): string {
     // Follows a rename of what it sets up.
-    if (saved.setup) return `${collections.get(saved.collection?.id ?? "")?.name ?? saved.collection?.name ?? "Brand"} skill`;
+    if (saved.setup) return `${collections.get(saved.collection?.id ?? "")?.name ?? saved.collection?.name ?? "Brand"} setup`;
     return saved.name ?? saved.link?.name ?? path.basename(saved.dir);
   }
   const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || reopening !== null || applying !== null || toolCalls > 0;
@@ -466,7 +466,7 @@ export function createApp(options: AppOptions) {
     await refreshResolve();
     if (!canOpen(target) && !isOpen(target)) throw new Error(`"${wanted}" is a Blackmagic Cloud project: only the user can open it.`);
     const open = openProject(resolve);
-    // Where Resolve goes after it: the thread's own project, or for a skill thread what the user has open.
+    // Where Resolve goes after it: the thread's own project, or for a setup thread what the user has open.
     const back: Away | null = visit ? visit.back : own.saved.link ? { link: own.saved.link, local: own.saved.local } : open ? linkFromOpen(open) : null;
     if (back?.link.kind === "cloud") throw new Error(`Resolve has the Blackmagic Cloud project "${back.link.name}" open, and only the user can open that again, so no other project is visited.`);
     const askUser: Ask = (tool, shown) => thread.requestApproval(tool, shown);
@@ -1335,14 +1335,14 @@ export function createApp(options: AppOptions) {
     }
   }
 
-  /** A workspace's or series' skill thread: its newest one, in a project made for it on first use. */
+  /** A workspace's or series' setup thread: its newest one, in a project made for it on first use. */
   function openSetup(client: Client, collectionId: string) {
     const collection = collections.get(collectionId);
     if (!collection) return;
     const existing = [...projects.values()].find((project) => project.saved.setup && project.saved.collection?.id === collectionId);
     const project =
       existing ??
-      addProject(store.create({ name: `${collection.name} skill`, link: null, local: {}, collection: { id: collection.id, name: collection.name }, setup: true }));
+      addProject(store.create({ name: `${collection.name} setup`, link: null, local: {}, collection: { id: collection.id, name: collection.name }, setup: true }));
     select(client, projectThreads(project.saved.id).find((thread) => !thread.archived)?.id ?? newThread(project.saved.id).id);
   }
 

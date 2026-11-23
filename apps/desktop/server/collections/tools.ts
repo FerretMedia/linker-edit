@@ -22,12 +22,12 @@ const where = {
 export const BRIEF_TOOLS = [
   {
     name: SAVE_BRIEF,
-    description: `Propose a new skill for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: its SKILL.md, which every edit in it follows. Pass the complete new text, not a patch: it replaces the skill. Leave front matter out: Linker-Edit writes it. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
+    description: `Propose new rules for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: the brief every edit in it follows. Pass the complete new text, not a patch: it replaces the rules. They are kept in its SKILL.md; leave front matter out, Linker-Edit writes it. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
     inputSchema: {
       type: "object",
       properties: {
         ...where,
-        rules: { type: "string", description: "The complete new skill, in Markdown." },
+        rules: { type: "string", description: "The complete new rules, in Markdown." },
         summary: { type: "string", description: "One or two sentences on what changes and why, for the user." },
       },
       required: ["rules", "summary"],
@@ -52,7 +52,7 @@ export const BRIEF_TOOLS = [
   {
     name: SAVE_EXAMPLE,
     description:
-      "Keep your notes on one example of this brand, a video or a finished project, as a Markdown file next to its skill: what it is, its numbers, its structure with times, what stands out. Saving again under the same name replaces them.",
+      "Keep your notes on one example of this brand, a video or a finished project, as a Markdown file next to its rules: what it is, its numbers, its structure with times, what stands out. Saving again under the same name replaces them.",
     inputSchema: {
       type: "object",
       properties: {

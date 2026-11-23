@@ -11,7 +11,7 @@
   import SettingsRow from "./SettingsRow.svelte";
   import Switch from "./Switch.svelte";
 
-  // One workspace or series: its name, icon, place and skill. Keyed by id where it's used, so drafts start fresh.
+  // One workspace or series: its name, icon, place and rules. Keyed by id where it's used, so drafts start fresh.
   let {
     collection,
     workspaces,
@@ -28,7 +28,7 @@
     projectNames: string[];
     seriesCount: number;
     onUpdate: (changes: { name?: string; icon?: Icon; rules?: string; parentId?: string | null; autonomous?: boolean }) => void;
-    /** Opens its skill thread, where the agent studies example videos and projects and proposes the skill. */
+    /** Opens its setup thread, where the agent studies example videos and proposes the rules. */
     onSetup: () => void;
     onRemoveLesson: (lessonId: string) => void;
     onRemoveExample: (name: string) => void;
@@ -66,7 +66,7 @@
   const rounds = $derived(collection.edits.slice(0, 8).map((edit) => edit.rounds));
 
   function remove() {
-    if (confirm(`Delete ${label.lower} "${collection.name}"? Its skill, lessons and notes are deleted too.`)) onDelete();
+    if (confirm(`Delete ${label.lower} "${collection.name}"? Its rules, lessons and notes are deleted too.`)) onDelete();
   }
 
   const button = "h-8 rounded-md border px-3 text-xs whitespace-nowrap transition-colors hover:bg-accent disabled:opacity-50";
@@ -123,12 +123,12 @@
   />
 
   <SettingsRow
-    label="Make the skill with AI"
-    description="A thread where the agent studies finished videos and Resolve projects, asks what it can't see, and proposes the skill below for you to accept."
+    label="Set up with AI"
+    description="Point the agent at videos and Resolve projects you've finished. It studies them, asks what it can't see, and proposes these rules for you to accept."
   >
     <button type="button" class="{button} flex items-center gap-1.5" onclick={onSetup}>
       <Sparkles class="size-3.5" />
-      {collection.setupProjectId ? "Open skill thread" : "Make the skill with AI"}
+      {collection.setupProjectId ? "Open setup" : "Set up with AI"}
     </button>
   </SettingsRow>
 
@@ -140,10 +140,10 @@
   </SettingsRow>
 
   <div class="flex flex-col gap-2 p-4">
-    <label for="collection-rules" class="text-sm">Skill (SKILL.md)</label>
+    <label for="collection-rules" class="text-sm">Rules for the agent</label>
     <p class="text-xs text-muted-foreground">
       In plain words, for every project in this {label.lower}{collection.kind === "workspace" ? ` and its ${COLLECTION_LABEL.series.lowerMany}` : ""}.
-      A more specific skill comes after this one and wins where they disagree.
+      More specific rules come after these and win where they disagree.
     </p>
     <textarea
       id="collection-rules"
@@ -168,7 +168,7 @@
         disabled={!rulesChanged}
         onclick={() => onUpdate({ rules })}
       >
-        {rulesChanged ? "Save skill" : "Saved"}
+        {rulesChanged ? "Save rules" : "Saved"}
       </button>
     </div>
   </div>
@@ -177,7 +177,7 @@
     <p class="text-sm">Lessons from your feedback</p>
     <p class="text-xs text-muted-foreground">
       {#if collection.lessons.length}
-        The agent follows these after the skill above. You accepted each one; remove any that turned out wrong.
+        The agent follows these after the rules above. You accepted each one; remove any that turned out wrong.
       {:else}
         None yet. When your feedback on an edit holds for the next video too, the agent proposes a lesson and you accept or decline it.
       {/if}
@@ -236,7 +236,7 @@
   <SettingsRow
     label="Delete {label.lower}"
     description={empty
-      ? "Its skill, lessons and notes are deleted too. Projects are never deleted."
+      ? "Its rules, lessons and notes are deleted too. Projects are never deleted."
       : `Move its projects${collection.kind === "workspace" ? ` and ${COLLECTION_LABEL.series.lowerMany}` : ""} out first.`}
   >
     <button type="button" class="{button} flex items-center gap-1.5 text-destructive" disabled={!empty} onclick={remove}>

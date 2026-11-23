@@ -14,7 +14,7 @@ export interface SavedCollection {
   /** The workspace a series is in; null for a workspace. */
   parentId: string | null;
   icon: CollectionIcon;
-  /** The skill in its SKILL.md, without the front matter: how its videos are made, for the agent. */
+  /** Its SKILL.md without the front matter: the style guide for the agent. */
   rules: string;
   library: CollectionLibraryFolder[];
   /** Licensing: its projects only use its own music. Not used yet. */
@@ -37,7 +37,7 @@ export interface CollectionStore {
   save(collection: SavedCollection): void;
   /** Takes it out of the list and deletes its folder, rules included. */
   remove(id: string): void;
-  /** Where its skill is: its SKILL.md, or a RULES.md not taken over yet. Null when it isn't in the list. */
+  /** Where its rules are: its SKILL.md, or a RULES.md not taken over yet. Null when it isn't in the list. */
   rulesFile(id: string): string | null;
   /** The agent's notes on example videos, one Markdown file each in its examples/ folder. */
   examples(id: string): { name: string; file: string }[];
@@ -57,7 +57,7 @@ export function exampleName(name: string): string {
   return collectionSlug(name.replace(/\.[a-z0-9]{2,5}$/i, ""));
 }
 
-// Starts with a key, so a skill that begins with a rule (---) doesn't lose what is above the next one.
+// Starts with a key, so a file that begins with a line of dashes doesn't lose what is above the next one.
 const FRONT_MATTER = /^\uFEFF?---\r?\n(?=[\w-]+:)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
 
 /** SKILL.md without its front matter: what people edit in the app and agents read. */

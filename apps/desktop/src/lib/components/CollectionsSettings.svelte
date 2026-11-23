@@ -81,7 +81,7 @@
     <div class="min-w-0 flex-1">
       <p class="text-xs text-muted-foreground">
         A {COLLECTION_LABEL.workspace.lower} is a client, brand or channel. A {COLLECTION_LABEL.series.lower} holds its episodes. Each has
-        its own skill for the agent.
+        its own rules for the agent.
       </p>
     </div>
     <button type="button" class={button} onclick={() => startCreating("workspace")}>
@@ -170,11 +170,11 @@
     />
   {/key}
 {:else if app.collections.length}
-  <p class="-mt-4 px-1 text-xs text-muted-foreground">Pick one to rename it, change its icon, write its skill or have AI make it.</p>
+  <p class="-mt-4 px-1 text-xs text-muted-foreground">Pick one to rename it, change its icon, write its rules or set it up with AI.</p>
 {/if}
 
 <p class="px-1 text-xs text-muted-foreground">
   Each project has a file of its own too: PROJECT.md in the project's folder, with the video's brief, footage notes,
   decisions and feedback. The agent keeps it, and you can edit it. It comes after the
-  {COLLECTION_LABEL.workspace.lower}'s and {COLLECTION_LABEL.series.lower}' skills.
+  {COLLECTION_LABEL.workspace.lower}'s and {COLLECTION_LABEL.series.lower}' rules.
 </p>

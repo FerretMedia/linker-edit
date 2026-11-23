@@ -104,7 +104,7 @@ It runs on your own Claude or Codex subscription, as a normal agent turn. No ext
 
 ### Step 1: point at things
 
-On a workspace or series in Settings: **Make the skill with AI**. You give it:
+On a workspace or series in Settings: **Set up with AI**. You give it:
 
 1. **Finished videos** (a folder, or files). The most important.
 2. **Raw footage** some of them were cut from.
@@ -125,7 +125,7 @@ Results are cached per file like transcripts. The model then reads the numbers, 
 
 **Raw vs final** is the best source when you have both. Transcribe the raw footage and the finished video and line the words up. That shows exactly what the editor cut: the retakes, the ums, the tangents, how much of a long answer survived. No project file needed.
 
-**Past Resolve projects** would be even more exact: tracks, titles, zooms and markers as they were made. Not built yet, because it means the app switching Resolve projects on its own.
+**Past Resolve projects** would be even more exact: tracks, titles, zooms and markers as they were made. The setup thread visits the ones added to Linker-Edit, read only, and Resolve goes back afterwards.
 
 ### Step 3: the AI shows what it found and asks
 
@@ -149,7 +149,7 @@ With a project in the series and the raw footage of one example, the AI edits th
 
 ### Where setup runs
 
-In a skill thread of the workspace or series. It is kept as a project of its own with no Resolve project, called "<name> skill" in the sidebar, so it reuses the chat, the threads and the agents as they are. It never links to Resolve, and tools that work in Resolve are refused in it, except for reading a project it visits.
+In a setup thread of the workspace or series. It is kept as a project of its own with no Resolve project, called "<name> setup" in the sidebar, so it reuses the chat, the threads and the agents as they are. It never links to Resolve, and tools that work in Resolve are refused in it, except for reading a project it visits.
 
 ## Part 3: editing on its own
 
@@ -191,10 +191,10 @@ So the first formats that will really work alone are the ones driven by speech: 
 
 ## What is built, and what isn't
 
-Built in one PR:
+Built:
 
 - `study_media` (measurements and contact sheets) and `compare_cut` (raw against final by transcript).
-- Skill threads with **Make the skill with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
+- Setup threads with **Set up with AI** that also visit finished Resolve projects, read only, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
 - **Works on its own** per workspace or series, with the footage form in a new thread.
 - Lessons from feedback, the retro on "Use as main timeline", rounds until approved, and feedback at a moment of the preview.
 - `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from. **Project file** in the app shows it and lets you edit it.
@@ -206,7 +206,6 @@ Not built:
 - A **Must** the code can read. The agent working on its own is told to render its cut, measure it with `study_media` and compare each Must line, and to report the numbers. The comparing is the agent's: Must is plain text, so Linker-Edit can't refuse a cut that breaks it.
 - Folding old lessons into the rules when there are many.
 - Library folders on a workspace or series (thread 4 of the library plan). Until then the brief names the brand's assets by their path, and the universal library holds the music.
-- Reading past Resolve projects.
 - Questions as cards with choices: the agent asks numbered questions with options in the chat.
 - Approved videos becoming examples by themselves: the agent can save notes on one when asked.
 
