@@ -1,4 +1,3 @@
-// DaVinci Resolve as a program on this computer: whether it runs, and starting it. Nothing here connects to it.
 import { execFile, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -10,7 +9,6 @@ export interface ResolveProcesses {
   scriptServer: boolean;
 }
 
-/** Reads `tasklist /nh /fo csv` on Windows and `ps -o comm=` elsewhere. Throws when it lists no processes at all. */
 export function parseProcesses(output: string, platform: NodeJS.Platform): ResolveProcesses {
   const programs =
     platform === "win32"
@@ -39,7 +37,6 @@ export function resolveProcesses(): Promise<ResolveProcesses> {
   });
 }
 
-/** What to run to start Resolve, from where its ResolveMCP is; `program` is Resolve itself. */
 export function launchCommand(resolveMcp: string, platform: NodeJS.Platform): { program: string; command: string; args: string[] } {
   if (platform === "win32") {
     const program = path.win32.join(path.win32.dirname(resolveMcp), "Resolve.exe");
@@ -61,7 +58,6 @@ export function launchEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([name]) => !/^(ELECTRON_RUN_AS_NODE$|LINKER_EDIT_)/i.test(name)));
 }
 
-/** Starts Resolve so that it outlives Linker-Edit, without waiting until it's up. */
 export async function launchResolve(resolveMcp: string): Promise<void> {
   const { program, command, args } = launchCommand(resolveMcp, process.platform);
   if (!fs.existsSync(program)) {
@@ -80,7 +76,6 @@ export async function launchResolve(resolveMcp: string): Promise<void> {
         env: launchEnv(process.env),
       });
       child.on("error", reject);
-      // On Linux this is Resolve itself; elsewhere it's what starts Resolve, and it ends at once.
       if (command === program) child.on("spawn", resolve);
       else child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${command} stopped with exit code ${code}`))));
       child.unref();

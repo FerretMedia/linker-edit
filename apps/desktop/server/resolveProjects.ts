@@ -20,7 +20,7 @@ export interface ResolveProjects {
 }
 
 export interface OpenOptions {
-  /** Refuse when Resolve was running already with another project open: for agents, which never switch projects. */
+  /** Refuse when Resolve has another project open: for agents, which never switch projects. */
   onlyIfIdle?: boolean;
   signal?: AbortSignal;
 }
@@ -34,7 +34,7 @@ export function createResolveProjects(connection: ResolveConnection, pollMs = 30
     start,
     library: () => connection.runScript<ResolveLibrary>("list_projects", {}, 60),
     async open(link, local, { onlyIfIdle = false, signal } = {}) {
-      const started = await start(signal);
+      await start(signal);
       try {
         return await connection.runScript<OpenedProject>(
           "open_project",
@@ -44,8 +44,7 @@ export function createResolveProjects(connection: ResolveConnection, pollMs = 30
             projectId: link.projectId,
             database: local.database ?? null,
             folder: local.folder ?? [],
-            // A Resolve that just started may have opened the last project by itself; nobody is working in it.
-            onlyIfIdle: onlyIfIdle && !started,
+            onlyIfIdle,
           },
           60,
         );
