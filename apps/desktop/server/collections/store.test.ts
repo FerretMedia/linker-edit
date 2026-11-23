@@ -78,17 +78,6 @@ describe("fileCollectionStore", () => {
     expect(open().load()[1]!.rules).toBe(ruled);
   });
 
-  it("names the skill after its folder, and describes it by its new name after a rename", () => {
-    const { root, open } = setup();
-    const store = open();
-    store.create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "" });
-    const second = store.create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "Short." });
-    store.save({ ...second, name: "Vlog" });
-    expect(fs.readFileSync(path.join(root, "collections", "podcast-2", "SKILL.md"), "utf8")).toBe(
-      '---\nname: podcast-2\ndescription: "How Vlog videos are edited. Use for every video in this series."\n---\n\nShort.',
-    );
-  });
-
   it("takes over the RULES.md of an earlier version, without losing it before SKILL.md is written", () => {
     const { root, open } = setup();
     const made = open().create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "" });
@@ -116,6 +105,9 @@ describe("fileCollectionStore", () => {
     const a = store.create({ kind: "workspace", name: "Café Ünïcode!", parentId: null, icon: monogram, rules: "" });
     const b = store.create({ kind: "workspace", name: "cafe unicode", parentId: null, icon: monogram, rules: "x" });
     expect(fs.readdirSync(path.join(root, "collections")).sort()).toEqual(["cafe-unicode", "cafe-unicode-2"]);
+    // A skill is named after its folder, and described by its name, also after a rename.
+    store.save({ ...b, name: "Studio" });
+    expect(fs.readFileSync(path.join(root, "collections", "cafe-unicode-2", "SKILL.md"), "utf8")).toMatch(/^---\nname: cafe-unicode-2\ndescription: "How videos for Studio .*"\n---\n\nx$/);
 
     const lesson = { id: "l1", rule: "Intro at most 3 seconds.", feedback: "too slow at the start", addedAt: "2026-11-17T10:00:00.000Z", project: "Ep 12" };
     store.save({ ...a, name: "Renamed", rules: "New rules", autonomous: true, lessons: [lesson] });

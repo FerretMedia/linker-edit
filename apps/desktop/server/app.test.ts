@@ -1181,12 +1181,16 @@ describe("app projects", () => {
     it("lets a skill thread look, asking before it leaves what the user is working in, and goes back to that", async () => {
       const results: { text: string; isError: boolean }[] = [];
       const skill: SavedProject = { ...workspaceProject, id: "skill", setup: true, collection: { id: "c", name: "Ferret" } };
-      const { app, client, send, turnDone, opens, ran } = twoProjects([interview, promo, skill], async (call) => {
+      const { app, client, send, turnDone, opens, ran } = twoProjects([interview, promo, linked("Doc", "doc-id"), skill], async (call) => {
         for (const [tool, input] of [
           ["list_timelines", {}],
+          // Looking at what is open already doesn't make it the visit's to leave.
+          ["visit_project", { project: "Promo" }],
           ["visit_project", { project: "Interview" }],
           ["list_timelines", {}],
           ["create_timeline", { name: "X" }],
+          // The visit opened Interview, so this asks nothing.
+          ["visit_project", { project: "Doc" }],
         ] as const) results.push(await call(tool, input));
       });
       await app.refreshResolve();
@@ -1196,26 +1200,8 @@ describe("app projects", () => {
       expect(client.state.approvals[0]!.input).toMatchObject({ open: "Promo", wants: expect.stringContaining("Interview") });
       send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
       await turnDone();
-      expect(results.map((result) => result.isError)).toEqual([true, false, false, true]);
+      expect(results.map((result) => result.isError)).toEqual([true, false, false, false, true, false]);
       expect(ran).toEqual(["list_timelines in Interview"]);
-      expect(opens).toEqual(["Interview", "Promo"]);
-    });
-
-    it("asks before it leaves what the user is working in when the visits start there", async () => {
-      const results: boolean[] = [];
-      const skill: SavedProject = { ...workspaceProject, id: "skill", setup: true, collection: { id: "c", name: "Ferret" } };
-      const { app, client, send, turnDone, opens } = twoProjects([interview, promo, linked("Doc", "doc-id"), skill], async (call) => {
-        for (const project of ["Promo", "Interview", "Doc"]) results.push((await call("visit_project", { project })).isError);
-      });
-      await app.refreshResolve();
-      send({ type: "new_thread", projectId: "skill" });
-      send({ type: "send", text: "learn from all three" });
-      await client.until((state) => state.approvals.length > 0);
-      expect(client.state.approvals[0]!.input).toMatchObject({ open: "Promo", wants: expect.stringContaining("Interview") });
-      send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
-      // From Interview, which the visit opened, to Doc without another question.
-      await turnDone();
-      expect(results).toEqual([false, false, false]);
       expect(opens).toEqual(["Interview", "Doc", "Promo"]);
     });
 
