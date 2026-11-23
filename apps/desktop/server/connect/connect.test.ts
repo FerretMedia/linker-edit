@@ -57,6 +57,10 @@ function fakeRelay() {
     if (url.origin.startsWith("https://edit-") && url.pathname === "/api/connect/session") {
       return url.origin === "https://edit-0000000000000002.linker.example" ? json({ code: "one-time" }) : json({ error: "Not yours." }, 403);
     }
+    if (url.origin.startsWith("https://edit-") && url.pathname === "/api/connect/native") {
+      const { code } = JSON.parse(String(init?.body)) as { code: string };
+      return code === "one-time" ? json({ session: "s-office", expiresAt: "2026-12-16T10:00:00.000Z" }) : json({ error: "Ran out." }, 401);
+    }
     const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
     if (auth !== "Bearer token-jane") return json({ error: "unauthorized" }, 401);
     const id = decodeURIComponent(url.pathname.replace("/api/edit/computers", "").replace(/^\//, ""));
@@ -269,8 +273,8 @@ describe("Linker Connect", () => {
     expect(first.tunnels.runs).toHaveLength(2);
   });
 
-  it("opens your other computers with a one-time code, and lists only those", async () => {
-    const { connect, relay } = setup();
+  it("opens your other computers with a one-time code, or signs in there with a session, and lists only those", async () => {
+    const { connect, relay, linker } = setup();
     await connect.setEnabled(true);
     relay.addOther("user_jane", "office");
     relay.addOther("user_bob", "bobs");
@@ -283,6 +287,25 @@ describe("Linker Connect", () => {
       "https://edit-0000000000000002.linker.example/api/connect/enter?code=one-time",
     );
     await expect(connect.open("https://edit-0000000000000003.linker.example")).rejects.toThrow("isn't linked");
+    // This computer's server passing the window's requests on signs in the way the iPad app does.
+    expect(await connect.sessionOn("https://edit-0000000000000002.linker.example")).toEqual({
+      session: "s-office",
+      expiresAt: "2026-12-16T10:00:00.000Z",
+    });
+    expect(relay.calls.slice(-2)).toEqual([
+      "POST https://edit-0000000000000002.linker.example/api/connect/session",
+      "POST https://edit-0000000000000002.linker.example/api/connect/native",
+    ]);
+    // Kept for next time, so a restart doesn't add another device there; asked again once turned down.
+    const calls = relay.calls.length;
+    expect((await connect.sessionOn("https://edit-0000000000000002.linker.example"))?.session).toBe("s-office");
+    expect(relay.calls.length).toBe(calls);
+    await connect.sessionOn("https://edit-0000000000000002.linker.example", "s-office");
+    expect(relay.calls.length).toBe(calls + 2);
+    // Never shows the Linker token to a computer that isn't linked to the account.
+    await expect(connect.sessionOn("https://edit-0000000000000003.linker.example")).rejects.toThrow("isn't linked");
+    linker.fake.signOut();
+    expect(await connect.sessionOn("https://edit-0000000000000002.linker.example")).toBeNull();
   });
 
   it("links for Tailscale only without a tunnel, and lets the owner in there", async () => {

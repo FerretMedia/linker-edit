@@ -1,6 +1,7 @@
 <script lang="ts">
   // T3 Code's sidebar thread row (apps/web/src/components/sidebar/SidebarThreadRow.tsx; MIT, see NOTICE):
-  // "card" for pinned threads, "folder" inside a project folder, "slim" in the Snoozed and Settled shelves.
+  // "card" for pinned, active and working threads, "folder" inside a project folder, "slim" in the Snoozed and Settled
+  // shelves.
   import AlarmClock from "@lucide/svelte/icons/alarm-clock";
   import AlarmClockOff from "@lucide/svelte/icons/alarm-clock-off";
   import Check from "@lucide/svelte/icons/check";
@@ -10,6 +11,7 @@
   import Pin from "@lucide/svelte/icons/pin";
   import PinOff from "@lucide/svelte/icons/pin-off";
   import ShieldQuestion from "@lucide/svelte/icons/shield-question-mark";
+  import Monitor from "@lucide/svelte/icons/monitor";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import {
     activityTimestamp,
@@ -18,6 +20,7 @@
     shouldRecede,
     snoozeWakeLabel,
     topStatus,
+    workingDuration,
     type SidebarThread,
   } from "#lib/sidebar.ts";
   import ProjectIcon from "./ProjectIcon.svelte";
@@ -26,6 +29,7 @@
     thread,
     variant,
     action,
+    machine = null,
     active,
     nowMs,
     renaming,
@@ -44,6 +48,8 @@
     thread: SidebarThread;
     variant: "card" | "folder" | "slim";
     action: "settle" | "unsettle" | "unsnooze";
+    /** The machine it's on, when there's more than one. */
+    machine?: string | null;
     active: boolean;
     nowMs: number;
     renaming: boolean;
@@ -73,6 +79,16 @@
   const recede = $derived(shouldRecede(thread, nowMs, active));
   const pinned = $derived(!!thread.pinnedAt);
   const time = $derived(relativeTime(action === "unsettle" ? settledTimestamp(thread) : activityTimestamp(thread), nowMs));
+
+  // How long the turn has run, after "Working", ticking each second like T3 Code's. It started with the user's message.
+  const startedMs = $derived(thread.lastSentAt ? Date.parse(thread.lastSentAt) : null);
+  let secondNow = $state(Date.now());
+  $effect(() => {
+    if (status !== "working" || variant !== "card") return;
+    secondNow = Date.now();
+    const timer = setInterval(() => (secondNow = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
 
   let draft = $state("");
   let done = false;
@@ -124,6 +140,8 @@
           ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
           : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
       recede && status === "working" ? "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none" : "",
+      // Its machine is offline: shown as it was, and it doesn't open.
+      thread.project.offline ? "cursor-default opacity-60" : "",
     ].join(" "),
   );
 
@@ -142,7 +160,8 @@
     ].join(" "),
   );
 
-  const label = $derived([thread.title, top?.label, thread.project.name].filter(Boolean).join(", "));
+  const label = $derived([thread.title, top?.label, thread.project.name, machine && `on ${machine}`, thread.project.offline && "offline"].filter(Boolean).join(", "));
+  const tooltip = $derived([thread.title, machine ? `${thread.project.name} · ${machine}` : thread.project.name].join("\n"));
 </script>
 
 {#snippet title()}
@@ -211,7 +230,7 @@
       data-thread-id={thread.id}
       aria-label={label}
       aria-current={active ? "page" : undefined}
-      title={`${thread.title}\n${thread.project.name}`}
+      title={tooltip}
       class="{surface} flex h-9 items-center gap-2.5 px-2.5 {inFolder ? 'ps-9' : ''}"
       onclick={onSelect}
       ondblclick={onDblclick}
@@ -231,6 +250,9 @@
         </span>
       {/if}
       {@render title()}
+      {#if machine && !inFolder}
+        <span class="max-w-20 shrink-0 truncate text-2xs text-sidebar-muted-foreground">{machine}</span>
+      {/if}
       {@render pinIndicator()}
       <span
         class="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end {jumpLabel
@@ -310,7 +332,7 @@
       data-thread-id={thread.id}
       aria-label={label}
       aria-current={active ? "page" : undefined}
-      title={`${thread.title}\n${thread.project.name}`}
+      title={tooltip}
       class={surface}
       onclick={onSelect}
       ondblclick={onDblclick}
@@ -350,6 +372,9 @@
                 <span class="inline-flex items-center gap-1 font-medium {top.class}">
                   <top.Icon class="size-4 shrink-0" />
                   {top.label}
+                  {#if status === "working" && startedMs !== null}
+                    <span aria-hidden="true" class="tabular-nums">{workingDuration(secondNow - startedMs)}</span>
+                  {/if}
                 </span>
               {:else}
                 {time}
@@ -392,6 +417,16 @@
         <div class="mt-1 flex min-w-0 items-center gap-1.5">
           {@render title()}
         </div>
+        {#if machine}
+          <!-- T3 Code's meta line: the computer it's on, when there's more than one. -->
+          <div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-secondary-label" data-testid="sidebar-row-machine">
+            <Monitor aria-hidden="true" class="size-3.5 shrink-0 text-muted-foreground/70" />
+            <span class="min-w-0 flex-1 truncate">{machine}</span>
+            {#if thread.project.offline}
+              <span class="shrink-0">offline</span>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   </li>

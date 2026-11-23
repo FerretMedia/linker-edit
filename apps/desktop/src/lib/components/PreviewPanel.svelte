@@ -13,7 +13,7 @@
   import type { PlayableTimeline, PreviewState, ResolveStatus } from "#shared/protocol.ts";
   import PlayerControls from "#lib/components/PlayerControls.svelte";
   import TimelinePlayer from "#lib/components/TimelinePlayer.svelte";
-  import { host } from "#lib/host.ts";
+  import { useHost } from "#lib/hostContext.ts";
   import { nearestCut, type PreviewTarget } from "#lib/player.ts";
 
   let {
@@ -44,6 +44,7 @@
     onStop: () => void;
     onClose: () => void;
   } = $props();
+  const host = useHost();
 
   const MODES = [
     { value: "cut", label: "Cut preview", detail: "Instant, no color or effects", Icon: Scissors },
@@ -89,7 +90,7 @@
     const controller = new AbortController();
     loading = true;
     loadError = null;
-    host.api(`/api/timeline?${params}`, { signal: controller.signal })
+    host().api(`/api/timeline?${params}`, { signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as PlayableTimeline | { error: string };
         if ("error" in body) throw new Error(body.error);
@@ -309,7 +310,7 @@
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
             bind:this={video}
-            src={host.url(rendered.url)}
+            src={host().url(rendered.url)}
             bind:currentTime={time}
             bind:paused={() => !playing, (paused) => (playing = !paused)}
             {muted}
