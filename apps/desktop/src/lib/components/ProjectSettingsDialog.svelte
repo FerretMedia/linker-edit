@@ -6,6 +6,7 @@
   import type { CollectionSummary, ProjectIcon as Icon, ProjectSummary } from "#shared/protocol.ts";
   import { COLLECTION_LABEL, COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
+  import Switch from "./Switch.svelte";
   import IconPicker from "./sidebar/IconPicker.svelte";
   import ProjectIcon from "./sidebar/ProjectIcon.svelte";
 
@@ -24,7 +25,7 @@
     collections: CollectionSummary[];
     /** The project open in Resolve when no Linker-Edit project has it, to link this one to. */
     relinkTo: string | null;
-    onSave: (changes: { name?: string; icon?: Icon | null }) => void;
+    onSave: (changes: { name?: string; icon?: Icon | null; autonomous?: boolean }) => void;
     /** Puts the project in a workspace or series, or in none. */
     onMove: (collectionId: string | null) => void;
     onRelink: () => void;
@@ -38,6 +39,7 @@
   const initialName = initial.name === initial.link?.name ? "" : initial.name;
   let name = $state(initialName);
   let icon = $state<Icon | null>(initial.icon);
+  let autonomous = $state(initial.autonomous);
   let picking = $state(false);
   const KIND_ICON = { local: HardDrive, network: Server, cloud: Cloud };
   const initialCollection = untrack(() => collections.find((collection) => collection.projectIds.includes(initial.id))?.id ?? "");
@@ -62,6 +64,7 @@
     onSave({
       ...(name.trim() === initialName ? {} : { name }),
       ...(JSON.stringify(icon) === JSON.stringify(initial.icon) ? {} : { icon }),
+      ...(autonomous === initial.autonomous ? {} : { autonomous }),
     });
     if (collectionId !== initialCollection) onMove(collectionId || null);
     onClose();
@@ -114,6 +117,16 @@
       <span>Make {COLLECTION_LABEL.workspace.lowerMany} and {COLLECTION_LABEL.series.lowerMany} in Settings.</span>
     {/if}
   </label>
+
+  {#if !project.setup}
+    <div class="flex items-center gap-3 text-xs">
+      <div class="min-w-0 flex-1">
+        <p class="text-sm">Works on its own</p>
+        <p class="text-muted-foreground">Given footage, the agent makes the whole first cut without asking, then says what it decided.</p>
+      </div>
+      <Switch label="Works on its own" checked={autonomous} onChange={(on) => (autonomous = on)} />
+    </div>
+  {/if}
 
   <div class="flex flex-col gap-1 text-xs">
     <span class="text-muted-foreground">Resolve project</span>

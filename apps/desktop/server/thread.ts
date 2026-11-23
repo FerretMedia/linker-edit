@@ -30,7 +30,7 @@ export interface ThreadHost {
   /** Anything in the thread's meta or summary changed. */
   changed(): void;
   item(item: ChatItem): void;
-  /** The message didn't go to the agent; the client puts it back. */
+  /** The message didn't go to the agent; the client puts it back, unless it is empty. */
   refused(text: string, reason: string): void;
   persist(thread: SavedThread): void;
   refreshResolve(): void;
@@ -134,13 +134,13 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     return withHistoryContext(await history.recentContext().catch(() => ""), prompt);
   }
 
-  /** A null text only compacts the chat. */
-  async function runTurn(text: string | null, compactFirst = false) {
+  /** A null text only compacts the chat. begin runs once nothing else can refuse the turn; what it returns refuses it. */
+  async function runTurn(text: string | null, compactFirst = false, begin: (() => string | null) | null = null) {
     if (turn || disposed) return;
     if (text === null && !(session.compact && session.resumeId())) return;
     // Resolve does one thing at a time: a render switches timelines and pages while it runs.
     if (!host.claim()) {
-      if (text !== null) host.refused(text, "Resolve is busy with another thread's turn or a render. Send again when it's done.");
+      if (text !== null) host.refused(begin ? "" : text, "Resolve is busy with another thread's turn or a render. Send again when it's done.");
       return;
     }
     const controller = new AbortController();
@@ -157,11 +157,12 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     };
 
     const checked = await host.check(text === null ? null : ask).catch((error: unknown) => ({ refusal: error instanceof Error ? error.message : String(error) }));
-    if ("refusal" in checked) {
+    const refusal = "refusal" in checked ? checked.refusal : (begin?.() ?? null);
+    if ("refusal" in checked || refusal !== null) {
       turn = null;
       host.release();
       host.changed();
-      if (text !== null) host.refused(text, checked.refusal);
+      if (text !== null) host.refused(begin ? "" : text, refusal ?? "");
       return;
     }
 
@@ -363,7 +364,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       busy: turn !== null,
       waiting: approvals.size > 0,
     }),
-    send: (text: string, compactFirst: boolean) => void runTurn(text, compactFirst),
+    send: (text: string, compactFirst: boolean, begin?: () => string | null) => void runTurn(text, compactFirst, begin),
     compact: () => void runTurn(null),
     stop() {
       stop();

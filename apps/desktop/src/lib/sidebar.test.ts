@@ -45,7 +45,7 @@ function thread(id: string, fields: Partial<ThreadSummary> = {}): ThreadSummary 
 }
 
 function summary(id: string, threads: ThreadSummary[], fields: Partial<ProjectSummary> = {}): ProjectSummary {
-  return { id, name: id, dir: `/projects/${id}`, link: null, local: {}, open: false, threads, icon: null, pinned: false, archived: false, setup: false, ...fields };
+  return { id, name: id, dir: `/projects/${id}`, link: null, local: {}, open: false, threads, icon: null, pinned: false, archived: false, setup: false, autonomous: false, ...fields };
 }
 
 /** A project on this computer, as the sidebar lists it. */

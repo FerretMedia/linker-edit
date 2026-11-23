@@ -44,7 +44,7 @@ export function thread(id: string, title: string, fields: Partial<ThreadSummary>
 }
 
 export function project(id: string, name: string, threads: ThreadSummary[]): ProjectSummary {
-  return { id, name, dir: `/projects/${id}`, link: null, local: {}, open: false, threads, icon: null, pinned: false, archived: false, setup: false };
+  return { id, name, dir: `/projects/${id}`, link: null, local: {}, open: false, threads, icon: null, pinned: false, archived: false, setup: false, autonomous: false };
 }
 
 /**

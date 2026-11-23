@@ -118,6 +118,12 @@ export function createCollections(host: CollectionsHost) {
       .join("\n\n");
   }
 
+  /** Whether this project's agent makes the first cut without asking. */
+  function autonomous(project: SavedProject): boolean {
+    const { workspace, series } = collectionChain(collections, project);
+    return project.autonomous ?? (series ?? workspace)?.autonomous === true;
+  }
+
   /** Where this project's skills are, most general first. */
   function skillRoots(project: SavedProject): SkillRoot[] {
     const { workspace, series } = collectionChain(collections, project);
@@ -326,16 +332,12 @@ export function createCollections(host: CollectionsHost) {
       sources.push({ heading: `This project (${PROJECT_NOTES_FILE} in the working folder)`, text: readProjectNotes(project.dir) });
       const nearest = series ?? workspace;
       const skills = skillsSection(listSkills(skillRoots(project)));
-      return agentRules(sources, [PROJECT_RULES, ...(nearest ? [...(nearest.autonomous ? [AUTONOMOUS_RULES] : []), LEARNING_RULES] : []), ...(skills ? [skills] : [])]);
+      return agentRules(sources, [PROJECT_RULES, ...(autonomous(project) ? [AUTONOMOUS_RULES] : []), ...(nearest ? [LEARNING_RULES] : []), ...(skills ? [skills] : [])]);
     },
 
     skillRoots,
 
-    /** Whether this project's agent makes the first cut without asking. */
-    autonomous(project: SavedProject): boolean {
-      const { workspace, series } = collectionChain(collections, project);
-      return (series ?? workspace)?.autonomous === true;
-    },
+    autonomous,
 
     /** save_brief: new rules for the project's workspace or a series, shown to the user as a change. */
     proposeBrief(project: SavedProject, input: Record<string, unknown>): BriefProposal | { error: string } {

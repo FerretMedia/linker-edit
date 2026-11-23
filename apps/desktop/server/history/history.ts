@@ -5,7 +5,7 @@ import * as path from "node:path";
 import type { HistoryEntry, PlayableTimeline, Provider } from "../../shared/protocol.ts";
 import { isResolveWrite } from "../policy.ts";
 import { PROJECT_FILE } from "../projects/store.ts";
-import { PROJECT_NOTES_FILE } from "../rules.ts";
+import { PROJECT_NOTES_FILE, SCRIPT_FILE } from "../rules.ts";
 import type { ResolveConnection } from "../resolve/connection.ts";
 import { describeChanges, timelineStrips } from "./diff.ts";
 import { mediaType, playableTimeline } from "./playable.ts";
@@ -485,6 +485,7 @@ export function createHistory(options: {
     try {
       return await save(turn);
     } finally {
+      await commitFile(SCRIPT_FILE, `Update ${SCRIPT_FILE}`).catch((error: unknown) => console.error(`Couldn't save ${SCRIPT_FILE} to the edit history`, error));
       const message = turn ? `Update ${PROJECT_NOTES_FILE}: ${subjectOf(turn.prompt)}` : `Update ${PROJECT_NOTES_FILE}`;
       await commitFile(PROJECT_NOTES_FILE, message, turn?.provider).catch((error: unknown) => console.error(`Couldn't save ${PROJECT_NOTES_FILE} to the edit history`, error));
     }
