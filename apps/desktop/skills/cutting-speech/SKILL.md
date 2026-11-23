@@ -24,7 +24,7 @@ Work from the transcript's word times, not from the sentence times: the JSON fil
 
 ## Where to cut
 
-- Between words, in the quiet. Start 2 to 4 frames before the first word and end 4 to 8 frames after the last, so nothing is clipped. Whisper's word times can be off by a tenth of a second, so keep that margin.
+- Between words, in the quiet. Start about 0.12 seconds before the first word and end about 0.2 seconds after the last, in frames of the clip. Whisper's word times can be off by a tenth of a second, so a smaller margin clips words.
 - Never inside a word. After building, compare every cut's source frames with the word times.
 - After a full thought, with the voice going down. A cut in the middle of a rising sentence sounds broken.
 - Source frame = seconds × the clip's own frame rate, then round away from the word. A timeline with another frame rate changes timeline frames, not source frames.

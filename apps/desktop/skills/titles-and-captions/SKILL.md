@@ -12,6 +12,7 @@ Text in the picture competes with the face and the voice. Add it when it says so
 - As few as work. A lower third is a name and a role, nothing else. A title is up to about six words.
 - Spell names and companies as the user, the footage or the script spells them. A name you only heard in a transcript is a guess: mark it in your note.
 - Use the brand's words, capitals and language from the rules.
+- A brand often has finished graphics: look with `library_search` (`kind: graphics`) for its logo, lower thirds and end card before you make a title.
 
 ## Making one
 
@@ -24,14 +25,14 @@ Text in the picture competes with the face and the voice. Add it when it says so
 ## Where
 
 - Inside the middle 90% of the picture, and for vertical video inside the middle: the bottom fifth, the top tenth and the right edge are under the phone's buttons.
-- Not on a face, not on text in the picture, not on a busy part. Light text on dark, dark on light.
+- Not on a face, not on text in the picture, not on a busy part. `add_title` makes white text with nothing behind it, so it needs a dark, calm part of the picture. Where there is none, say so.
 - A name within 10 seconds of the person's first appearance, once they talk, and not on their first word.
 - On screen long enough to read twice: about 2 seconds plus a third of a second per word.
 
 ## Captions
 
 - Only when the user or the rules ask for them. Never add them because it is a short video.
-- When they do: from the transcript, one line of at most about 32 characters (20 in vertical), broken where a person breathes. Check names and numbers against the script.
+- You can't make them: a title's length is fixed, so it can't follow speech. When they are asked for, `transcribe_in_resolve` stores the words on the clips, and the user makes the subtitles in Resolve from there. Say that, and which names and numbers to check.
 
 ## Check
 

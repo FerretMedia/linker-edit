@@ -17,14 +17,14 @@ You have `set_color`: a LUT, a CDL (slope, offset, power, saturation), or the gr
 
 ## 2. Correct
 
-Set one hero shot per scene right, small steps, then look again:
+Set one hero shot per scene right, in small steps, then look again. Every CDL replaces the one before it, and what you leave out goes back to neutral, so pass slope, offset, power and saturation together each time:
 
 - **Exposure** with slope (brighter parts) and power (middle). Skin in the middle of the range, no detail lost in white or black. Power below 1 is brighter.
 - **White balance** with slope per channel: a warm cast needs less red and more blue, a green one less green. White and grey things should look white and grey. Steps of 0.02 to 0.05.
 - **Contrast** comes from slope and offset together. A little less offset gives black back.
 - **Saturation** 0.9 to 1.15. More than that looks cheap on skin.
 
-Log footage gets its maker's conversion LUT first (Resolve's `list_luts`, or the library's LUTs), on node 1. With a LUT there, a CDL on the same node changes the picture before the LUT.
+Log footage gets its maker's conversion LUT first, on node 1. Resolve takes LUTs from its own LUT folders, which `list_luts` shows. One from the library may be refused: say where it has to go. With a LUT on the node, a CDL on it changes the picture before the LUT.
 
 ## 3. Match
 
@@ -35,7 +35,7 @@ Log footage gets its maker's conversion LUT first (Resolve's `list_luts`, or the
 ## 4. Look
 
 - Only when the brief, the brand or the series asks for one, or the user does. Otherwise corrected and matched is done.
-- A look LUT from the library or the brand at the place the rules name. Skin still has to look like skin.
+- A clip has one node here, and a node holds one LUT. A look LUT fits footage that isn't log. On log footage the LUT is already used, so make the look with the CDL, and say what it can't do. Skin still has to look like skin.
 - Apply it to all shots of the video with the same values.
 
 ## 5. Check

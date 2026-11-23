@@ -25,14 +25,14 @@ You can't hear. You can read what is said, see where it is loud or quiet, and me
 ## Levels
 
 - `set_clip_properties` with `AudioVolume` in dB, per clip. There are no fades or automation here: start and end music under speech or exactly on a cut, and say where a fade is needed.
-- The voice comes first. Music under speech about 18 to 22 dB below the voice, music alone about 8 to 12 dB below. The library gives a song's loudness (LUFS): a song at -10 LUFS needs about 20 dB down to sit under a voice at -16.
+- The voice comes first. Music under speech about 18 to 22 dB below the voice, music alone about 8 to 12 dB below. The library gives a song's loudness (LUFS): a song at -10 LUFS needs about 26 dB down to sit 20 dB under a voice at -16.
 - Two clips of one speaker at different loudness: bring the quiet one up, at most 6 dB, more makes the noise loud.
 - B-roll's own sound at -20 dB or lower under speech. It makes a place feel real. Mute it when there is talk in it.
 
 ## Measuring
 
 - `render_timeline` with the picture or `audio_only`, then `study_media`. It gives the loudness of the whole and how quiet it gets.
-- Aim for what the rules say. With nothing said: about -14 LUFS for YouTube and social, -23 for broadcast in Europe. Off by more than 2: change all levels by the same amount.
+- Aim for what the rules say. With nothing said: about -14 LUFS for YouTube and social, -23 for broadcast in Europe. Off by more than 2: change all levels by the same amount, at most 6 dB up. Nothing here measures peaks, so say that they need a look before delivery.
 - A quiet stretch over a second that you didn't plan is usually a missing clip or a gap.
 
 In your note: the song and where it is from, its license note, the measured loudness, and "please listen to" with times: the start and end of music, and the loudest moment.

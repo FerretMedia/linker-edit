@@ -9,7 +9,7 @@ A cut is good when a viewer who knows nothing about the footage follows it and s
 
 ## 1. Take stock
 
-- Read the brief: PROJECT.md and SCRIPT.md in the working folder, when they are there. The user's rules say what the brand or series always does.
+- Read the brief: PROJECT.md and SCRIPT.md in the working folder, when they are there. Without PROJECT.md, write what the user and the footage say about the video under Brief in it. The user's rules say what the brand or series always does.
 - `import_media` what isn't in the media pool yet, sorted into bins, and list it (`list_media`).
 - `transcribe` everything with speech, in one call. Read it whole: most decisions come from what is said.
 - `view_frames` on each clip you may use: the start, the middle and the end. Note what is in it and what is wrong with it: focus, glare, a hand in frame.
@@ -26,7 +26,7 @@ Pick the kind of video and read its file with `read_skill` (`name: video-editing
 
 A video can be two of them, such as a short cut from an interview: read both. For another kind, follow the closest one.
 
-Then write the plan in PROJECT.md before any timeline: every part in order, with its purpose, the clip and the times it comes from, and its length. Add the lengths up and compare the total with the brief. Changing a list costs nothing, changing a built timeline does.
+Then write the plan in plan.md in the working folder before any timeline, so PROJECT.md stays short: every part in order, with its purpose, the clip and the times it comes from, and its length. Add the lengths up and compare the total with the brief. Changing a list costs nothing, changing a built timeline does.
 
 - With a script, take it line by line: which take says it, and which lines no take says. Never put words together that change what someone meant.
 - Without one, find the one thing the video is about, then keep what serves it. Cut the rest, also when it is nice.
@@ -41,7 +41,7 @@ Read `cutting-speech` before you cut anything that is said.
 3. Tighten it until the story works without pictures on top.
 4. Cover: B-roll on V2 over jump cuts and where a picture says more than the face. A B-roll shot shows what is being said then, starts on an action, and lasts 2 to 5 seconds.
 5. Sound: read `sound` first.
-6. Titles: read `titles-and-captions` first.
+6. Titles and the brand's graphics: read `titles-and-captions` first.
 7. Color: read `color-grading` first, also when the brief doesn't mention color. Shots next to each other should at least match.
 
 Change one thing at a time on a timeline that works, and read it back. When you change a cut after feedback, copy the timeline first (`duplicate_timeline`), and change only what the feedback is about.
@@ -52,7 +52,7 @@ Change one thing at a time on a timeline that works, and read it back. When you 
 - `get_timeline`: no gaps, nothing on a wrong track, sound where the picture is, music that stops before or with the last picture.
 - `view_frames` on the first and last frame, every title, and both sides of a few cuts. No black frames. Titles readable and inside the frame. If a title isn't there, it didn't work.
 - The word times at each cut in speech: no cut inside a word.
-- You can't hear it or see it move, so measure it: `render_timeline` (a small preset is enough) and `study_media` on the file. Compare length, aspect ratio, frame rate, loudness, the longest quiet stretch and shot lengths with the brief and the rules.
+- You can't hear it or see it move, so measure it: `render_timeline` and `study_media` on the file. Leave the preset out, or pick one that keeps the timeline's shape: a preset's size would change the aspect ratio you measure. Compare length, aspect ratio, frame rate, loudness, the longest quiet stretch and shot lengths with the brief, the rules and the numbers in the notes on example videos, when the rules name them.
 
 Fix what is off and measure again, at most twice. Then show it and say what is still off.
 

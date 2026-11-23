@@ -2,7 +2,7 @@
 
 Someone answers questions. You make a story out of answers without changing what the person meant.
 
-- **Find the story.** Mark the answers that make you want to hear more: a turn, a number, a feeling, a concrete scene. Three to five of those are a video. Write them on the plan as quotes with times.
+- **Find the story.** Mark the answers that make you want to hear more: a turn, a number, a feeling, a concrete scene. Three to five of those are a video. Write them in plan.md as quotes with times.
 - **Order.** Start with the strongest line, then who this is, then the story in the order a viewer needs it, not the order it was asked in. End on a line that looks forward or closes the opening.
 - **Questions.** Leave them out when an answer stands alone. When it doesn't, use the part of the answer that repeats the question, keep a short question, or put it in a title.
 - **Meaning.** Don't join halves of two answers into one claim, and don't drop a "but" or "maybe" that changes it. When you shorten an answer, read the transcript of the result: would the person agree they said this?
