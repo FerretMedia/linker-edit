@@ -47,6 +47,22 @@ function unparked(sidebar: Omit<ThreadSidebarState, "createdAt">, now: string): 
   };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ms = (iso: string | null) => (iso ? Date.parse(iso) || 0 : 0);
+
+/**
+ * When a quiet thread settles by itself, as T3 Code's auto-settle does (ThreadSettlementService): its last activity,
+ * once that's more than `days` ago. Null when it stays: a turn running or an approval waiting, pinned, snoozed,
+ * archived or settled already. Taking it out of Settled counts as activity.
+ */
+export function autoSettleAt(thread: ThreadSummary, nowMs: number, days: number | null): string | null {
+  if (days === null || thread.archived || thread.settledAt || thread.pinnedAt || thread.busy || thread.waiting) return null;
+  const wake = ms(thread.snoozedUntil);
+  if (wake > nowMs) return null;
+  const activity = Math.max(ms(thread.createdAt), ms(thread.lastSentAt), ms(thread.turnEndedAt), ms(thread.unsettledAt), wake);
+  return activity < nowMs - days * DAY_MS ? new Date(activity).toISOString() : null;
+}
+
 /** One conversation with an agent: its chat, its provider session and its turn. */
 export function createThread(saved: SavedThread, host: ThreadHost) {
   const id = saved.id;
@@ -387,6 +403,14 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
         : { ...sidebar, ...unparked(sidebar, now) };
       host.changed();
       save();
+    },
+    /** Settles it when it's been quiet for `days`, dated by its last activity. True when it did. */
+    autoSettle(nowMs: number, days: number | null): boolean {
+      const at = autoSettleAt(this.summary(), nowMs, days);
+      if (!at) return false;
+      sidebar = { ...sidebar, snoozedUntil: null, snoozedAt: null, settledAt: at, unsettledAt: null };
+      save();
+      return true;
     },
     /** Hides it until then; null wakes it now. A snoozed thread isn't settled. */
     snooze(until: string | null) {

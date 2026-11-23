@@ -1,6 +1,7 @@
 <script lang="ts">
   // T3 Code's sidebar thread row (apps/web/src/components/sidebar/SidebarThreadRow.tsx; MIT, see NOTICE):
-  // "card" for pinned threads, "folder" inside a project folder, "slim" in the Snoozed and Settled shelves.
+  // "card" for pinned, active and working threads, "folder" inside a project folder, "slim" in the Snoozed and Settled
+  // shelves.
   import AlarmClock from "@lucide/svelte/icons/alarm-clock";
   import AlarmClockOff from "@lucide/svelte/icons/alarm-clock-off";
   import Check from "@lucide/svelte/icons/check";
@@ -10,6 +11,7 @@
   import Pin from "@lucide/svelte/icons/pin";
   import PinOff from "@lucide/svelte/icons/pin-off";
   import ShieldQuestion from "@lucide/svelte/icons/shield-question-mark";
+  import Monitor from "@lucide/svelte/icons/monitor";
   import Undo2 from "@lucide/svelte/icons/undo-2";
   import {
     activityTimestamp,
@@ -18,6 +20,7 @@
     shouldRecede,
     snoozeWakeLabel,
     topStatus,
+    workingDuration,
     type SidebarThread,
   } from "#lib/sidebar.ts";
   import ProjectIcon from "./ProjectIcon.svelte";
@@ -76,6 +79,16 @@
   const recede = $derived(shouldRecede(thread, nowMs, active));
   const pinned = $derived(!!thread.pinnedAt);
   const time = $derived(relativeTime(action === "unsettle" ? settledTimestamp(thread) : activityTimestamp(thread), nowMs));
+
+  // How long the turn has run, after "Working", ticking each second like T3 Code's. It started with the user's message.
+  const startedMs = $derived(thread.lastSentAt ? Date.parse(thread.lastSentAt) : null);
+  let secondNow = $state(Date.now());
+  $effect(() => {
+    if (status !== "working" || variant !== "card") return;
+    secondNow = Date.now();
+    const timer = setInterval(() => (secondNow = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
 
   let draft = $state("");
   let done = false;
@@ -333,9 +346,7 @@
         <div class="flex h-5 min-w-0 items-center gap-1.5">
           <ProjectIcon icon={thread.project.icon} name={thread.project.name} class="size-4 shrink-0" />
           {@render pinIndicator()}
-          <span class="min-w-0 flex-1 truncate text-xs font-normal text-secondary-label">
-            {thread.project.name}{#if machine}<span class="text-sidebar-muted-foreground"> · {machine}</span>{/if}
-          </span>
+          <span class="min-w-0 flex-1 truncate text-xs font-normal text-secondary-label">{thread.project.name}</span>
           <span
             class="group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs {jumpLabel
               ? '[&>:not([data-jump-hint])]:invisible [&>:not([data-jump-hint])]:absolute'
@@ -361,6 +372,9 @@
                 <span class="inline-flex items-center gap-1 font-medium {top.class}">
                   <top.Icon class="size-4 shrink-0" />
                   {top.label}
+                  {#if status === "working" && startedMs !== null}
+                    <span aria-hidden="true" class="tabular-nums">{workingDuration(secondNow - startedMs)}</span>
+                  {/if}
                 </span>
               {:else}
                 {time}
@@ -403,6 +417,16 @@
         <div class="mt-1 flex min-w-0 items-center gap-1.5">
           {@render title()}
         </div>
+        {#if machine}
+          <!-- T3 Code's meta line: the computer it's on, when there's more than one. -->
+          <div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-secondary-label" data-testid="sidebar-row-machine">
+            <Monitor aria-hidden="true" class="size-3.5 shrink-0 text-muted-foreground/70" />
+            <span class="min-w-0 flex-1 truncate">{machine}</span>
+            {#if thread.project.offline}
+              <span class="shrink-0">offline</span>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   </li>

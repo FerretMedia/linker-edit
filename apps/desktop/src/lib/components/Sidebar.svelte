@@ -1,8 +1,16 @@
+<script lang="ts" module>
+  import { createWorkingTracker } from "#lib/sidebar.ts";
+
+  // Kept for the page's life, like T3 Code's inboxReturns, so a thread's grace on the Working shelf outlives a remount.
+  const workingTracker = createWorkingTracker();
+</script>
+
 <script lang="ts">
-  // A copy of T3 Code's sidebar (apps/web/src/components/Sidebar.tsx and sidebar/*; MIT, see NOTICE), in its
-  // project-folder layout: pinned threads, a folder per project, then the Snoozed and Settled shelves. Linker-Edit's
-  // own parts (Resolve, transcription, updates, Linker account) stay around it. Like T3 Code with several environments,
-  // it lists every machine's projects together, and says which machine each is on when there's more than one.
+  // A copy of T3 Code's sidebar (apps/web/src/components/Sidebar.tsx and sidebar/*; MIT, see NOTICE): one inbox of
+  // every project's threads in shelves, Pinned, Active, Working, Snoozed and Settled, scoped by the Projects button.
+  // Its "boring" layout, a folder per project, is a setting. Linker-Edit's own parts (Resolve, transcription,
+  // updates, Linker account) stay around it. Like T3 Code with several environments, it lists every machine's
+  // projects together, and says which machine each is on when there's more than one.
   import Archive from "@lucide/svelte/icons/archive";
   import ArchiveRestore from "@lucide/svelte/icons/archive-arrow-up";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -23,6 +31,7 @@
   import Trash from "@lucide/svelte/icons/trash";
   import type { AppMeta, ClientMessage } from "#shared/protocol.ts";
   import { releaseName } from "#shared/release-name.ts";
+  import { untrack } from "svelte";
   import { scopedKey } from "#lib/machines.ts";
   import {
     FOLDER_PREVIEW_COUNT,
@@ -30,18 +39,23 @@
     SETTLED_PAGE_COUNT,
     isUnread,
     isWoke,
+    listedThreads,
     nextThreadAfter,
     nextWake,
     partitionSidebar,
+    scopedProjects,
     searchThreads,
     snoozePresets,
+    sortProjects,
     type SidebarProject as Project,
     type SidebarThread,
   } from "#lib/sidebar.ts";
+  import { sidebarPrefs } from "#lib/sidebarPrefs.svelte.ts";
   import LinkerLogo from "./LinkerLogo.svelte";
   import ContextMenu, { type ContextMenuItem } from "./sidebar/ContextMenu.svelte";
   import SidebarFooter from "./sidebar/SidebarFooter.svelte";
   import SidebarProject from "./sidebar/SidebarProject.svelte";
+  import SidebarProjectScope from "./sidebar/SidebarProjectScope.svelte";
   import SidebarSearch from "./sidebar/SidebarSearch.svelte";
   import SidebarSearchResult from "./sidebar/SidebarSearchResult.svelte";
   import SidebarShelfHeader from "./sidebar/SidebarShelfHeader.svelte";
@@ -122,7 +136,6 @@
     return () => clearTimeout(timer);
   });
 
-  const lists = $derived(partitionSidebar(projects, nowMs));
   const current = $derived.by((): SidebarThread | null => {
     if (!selected) return null;
     for (const project of projects) {
@@ -153,11 +166,67 @@
   const COLLAPSED_KEY = "linker-edit.collapsed-projects";
   const SETTLED_KEY = "linker-edit.sidebar.settled-expanded";
   const SNOOZED_KEY = "linker-edit.sidebar.snoozed-expanded";
+  const WORKING_KEY = "linker-edit.sidebar.working-expanded";
+  const SCOPE_KEY = "linker-edit.sidebar.project-scope";
   let collapsed = $state(new Set<string>(stored<string[]>(COLLAPSED_KEY, [])));
+  // Every shelf starts closed, as in T3 Code; the open thread shows in a closed one all the same.
   let settledExpanded = $state(stored(SETTLED_KEY, false));
   let snoozedExpanded = $state(stored(SNOOZED_KEY, false));
+  let workingExpanded = $state(stored(WORKING_KEY, false));
   let expandedFolders = $state(new Set<string>());
-  let settledShown = $state(SETTLED_INITIAL_COUNT);
+
+  // --- The project scope: which projects' threads are listed, T3 Code's scopedProjectKeys ---
+  let savedScope = $state(stored<string[]>(SCOPE_KEY, []));
+  /** The picked projects still here and not archived; empty lists every project. */
+  const scope = $derived(savedScope.filter((key) => projects.some((project) => project.key === key && !project.archived)));
+  const scopeSet = $derived(scope.length > 0 ? new Set(scope) : null);
+  function setScope(keys: string[]) {
+    savedScope = keys;
+    store(SCOPE_KEY, keys);
+  }
+  // Opening a thread outside the scope, as a new one in another project, widens it to every project, as T3 Code's
+  // route reveal does. Picking a scope while a thread is open doesn't.
+  let revealed: string | null = null;
+  $effect(() => {
+    if (!current || current.key === revealed) return;
+    revealed = current.key;
+    const projectKey = current.project.key;
+    untrack(() => {
+      if (scopeSet && !scopeSet.has(projectKey)) setScope([]);
+    });
+  });
+
+  const lists = $derived(
+    partitionSidebar(projects, nowMs, {
+      scope: scopeSet,
+      folders: sidebarPrefs.folders,
+      working: sidebarPrefs.folders ? undefined : workingTracker.observe(listedThreads(projects), Date.now()),
+    }),
+  );
+  // Looks again when a thread's grace on the Working shelf ends.
+  $effect(() => {
+    void lists;
+    const deadline = workingTracker.nextDeadline();
+    if (deadline === null) return;
+    const timer = setTimeout(() => (nowMs = Date.now()), Math.max(0, deadline - Date.now()) + 20);
+    return () => clearTimeout(timer);
+  });
+
+  // The Settled shelf's page starts over when the scope changes, as in T3 Code.
+  let settledPage = $state({ scope: "", count: SETTLED_INITIAL_COUNT });
+  const settledShown = $derived(settledPage.scope === scope.join("\n") ? settledPage.count : SETTLED_INITIAL_COUNT);
+  const showMoreSettled = () => (settledPage = { scope: scope.join("\n"), count: settledShown + SETTLED_PAGE_COUNT });
+
+  /** A closed shelf still shows the open thread. */
+  const onShelf = (threads: SidebarThread[], expanded: boolean) => (expanded ? threads : threads.filter((thread) => thread.key === selectedKey));
+  const shownWorking = $derived(onShelf(lists.working, workingExpanded));
+  const shownSnoozed = $derived(onShelf(lists.snoozed, snoozedExpanded));
+  const shownSettled = $derived.by(() => {
+    const page = lists.settled.filter((thread, index) => index < settledShown || thread.key === selectedKey);
+    return onShelf(page, settledExpanded);
+  });
+  const hiddenSettled = $derived(settledExpanded ? lists.settled.length - shownSettled.length : 0);
+  const shelvesFirst = $derived(lists.working.length > 0 ? "working" : lists.snoozed.length > 0 ? "snoozed" : "settled");
 
   function toggleFolder(projectKey: string) {
     const next = new Set(collapsed);
@@ -184,7 +253,8 @@
   let searchInput: HTMLInputElement | undefined = $state();
   let activeResult = $state(0);
   const searching = $derived(query.trim().length > 0);
-  const results = $derived(searching ? searchThreads(projects, query) : []);
+  // Searches the scoped projects, as T3 Code does.
+  const results = $derived(searching ? searchThreads(scopedProjects(projects, scopeSet), query) : []);
   $effect(() => {
     void query;
     activeResult = 0;
@@ -254,9 +324,12 @@
     }
   }
 
-  /** In the open thread's project, else the first one listed on a machine that's connected. */
+  /** In the one project the scope lists, else the open thread's, else the first one listed on a machine that's connected. */
   function newThread() {
-    const project = [current?.project, ...lists.folders.map((folder) => folder.project), ...projects].find((entry) => entry && !entry.offline);
+    const scoped = scope.length === 1 ? projects.find((project) => project.key === scope[0]) : undefined;
+    const project = [scoped, current?.project, ...lists.order.map((thread) => thread.project), ...sortProjects(projects)].find(
+      (entry) => entry && !entry.offline,
+    );
     if (project) onNewThread(project.machineId, project.id);
     else onAddProject();
   }
@@ -477,9 +550,24 @@
       resultCount={results.length}
       {activeResult}
       onKeydown={onSearchKeydown}
-      {onAddProject}
       onNewThread={newThread}
-    />
+    >
+      {#snippet projectScope()}
+        {#if projects.length > 0}
+          <SidebarProjectScope
+            projects={sortProjects(projects)}
+            {scope}
+            {machineOf}
+            machineStatus={(project) => status.get(project.machineId) ?? "offline"}
+            onScope={setScope}
+            {onAddProject}
+            onPin={(project) => send(project.machineId, { type: "update_project", projectId: project.id, pinned: !project.pinned })}
+            onProjectSettings={(project) => onProjectSettings(project.machineId, project.id)}
+            onContextMenu={(project, x, y) => projectMenu(project, x, y)}
+          />
+        {/if}
+      {/snippet}
+    </SidebarSearch>
     {#if unlinkedOpen}
       <button
         type="button"
@@ -527,15 +615,43 @@
         </button>
       </div>
     {:else}
+      {@const scopedNames = projects.filter((project) => scopeSet?.has(project.key)).map((project) => project.name)}
+      {#if lists.order.length === 0 && lists.snoozed.length === 0 && (lists.folders ?? []).length === 0 && (lists.settled.length === 0 || scopedNames.length > 0)}
+        <!-- A scope can hide every active thread; it says so even when its project still has settled ones. -->
+        <div class="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60" data-testid="sidebar-empty">
+          {#if scopedNames.length > 0}
+            <span>
+              {#if lists.settled.length > 0}
+                {scopedNames.length > 1 ? "No active threads in these projects" : `No active threads in ${scopedNames[0]}`}
+              {:else}
+                {scopedNames.length > 1 ? "No threads in these projects yet" : `No threads in ${scopedNames[0]} yet`}
+              {/if}
+            </span>
+            <button
+              type="button"
+              onclick={() => setScope([])}
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+            >
+              Show all projects
+            </button>
+          {:else}
+            <span>No threads yet</span>
+          {/if}
+        </div>
+      {/if}
       <ul role="presentation" class="relative flex flex-1 flex-col gap-px">
         {#each lists.pinned as thread (thread.key)}
           {@render row(thread, "card", "settle")}
         {/each}
-        {#if lists.pinned.length > 0 && lists.folders.length > 0}
+        {#if lists.pinned.length > 0 && (lists.active.length > 0 || (lists.folders ?? []).length > 0)}
           <li class="h-1 list-none" aria-hidden="true"></li>
         {/if}
 
-        {#each lists.folders as folder (folder.project.key)}
+        {#each lists.active as thread (thread.key)}
+          {@render row(thread, "card", "settle")}
+        {/each}
+
+        {#each lists.folders ?? [] as folder (folder.project.key)}
           {@const isCollapsed = collapsed.has(folder.project.key)}
           {@const shown = folderRows(folder)}
           <SidebarProject
@@ -543,7 +659,7 @@
             machine={machineOf(folder.project)}
             machineStatus={status.get(folder.project.machineId) ?? "offline"}
             collapsed={isCollapsed}
-            hiddenThreads={isCollapsed ? folder.threads : []}
+            hiddenThreads={isCollapsed ? folder.threads.filter((thread) => thread.key !== selectedKey) : []}
             onToggle={() => toggleFolder(folder.project.key)}
             onNewThread={() => onNewThread(folder.project.machineId, folder.project.id)}
             onContextMenu={(x, y) => projectMenu(folder.project, x, y)}
@@ -570,48 +686,63 @@
                 </button>
               </li>
             {/if}
+          {:else}
+            <!-- A closed folder still shows the open thread. -->
+            {#each folder.threads.filter((thread) => thread.key === selectedKey) as thread (thread.key)}
+              {@render row(thread, "folder", "settle")}
+            {/each}
           {/if}
         {/each}
 
-        {#if lists.snoozed.length > 0}
+        {#if lists.working.length > 0}
           <SidebarShelfHeader
             class="mt-auto"
+            label="Working"
+            count={lists.working.length}
+            expanded={workingExpanded}
+            onToggle={() => store(WORKING_KEY, (workingExpanded = !workingExpanded))}
+          />
+          {#each shownWorking as thread (thread.key)}
+            {@render row(thread, "card", "settle")}
+          {/each}
+        {/if}
+
+        {#if lists.snoozed.length > 0}
+          <SidebarShelfHeader
+            class={shelvesFirst === "snoozed" ? "mt-auto" : ""}
             label="Snoozed"
             count={lists.snoozed.length}
             expanded={snoozedExpanded}
             onToggle={() => store(SNOOZED_KEY, (snoozedExpanded = !snoozedExpanded))}
           />
-          {#if snoozedExpanded}
-            {#each lists.snoozed as thread (thread.key)}
-              {@render row(thread, "slim", "unsnooze")}
-            {/each}
-          {/if}
+          {#each shownSnoozed as thread (thread.key)}
+            {@render row(thread, "slim", "unsnooze")}
+          {/each}
         {/if}
 
         {#if lists.settled.length > 0}
           <SidebarShelfHeader
-            class={lists.snoozed.length === 0 ? "mt-auto" : ""}
+            class={shelvesFirst === "settled" ? "mt-auto" : ""}
             label="Settled"
             count={lists.settled.length}
             expanded={settledExpanded}
             onToggle={() => store(SETTLED_KEY, (settledExpanded = !settledExpanded))}
           />
-          {#if settledExpanded}
-            {#each lists.settled.slice(0, settledShown) as thread (thread.key)}
-              {@render row(thread, "slim", "unsettle")}
-            {/each}
-            {#if lists.settled.length > settledShown}
-              <li class="list-none">
-                <button
-                  type="button"
-                  onclick={() => (settledShown += SETTLED_PAGE_COUNT)}
-                  class="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                >
-                  <ChevronDown aria-hidden="true" class="size-4 shrink-0" />
-                  Show {Math.min(lists.settled.length - settledShown, SETTLED_PAGE_COUNT)} more
-                </button>
-              </li>
-            {/if}
+          {#each shownSettled as thread (thread.key)}
+            {@render row(thread, "slim", "unsettle")}
+          {/each}
+          {#if hiddenSettled > 0}
+            <li class="list-none">
+              <button
+                type="button"
+                data-testid="sidebar-settled-more"
+                onclick={showMoreSettled}
+                class="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+              >
+                <ChevronDown aria-hidden="true" class="size-4 shrink-0" />
+                Show {Math.min(hiddenSettled, SETTLED_PAGE_COUNT)} more
+              </button>
+            </li>
           {/if}
         {/if}
       </ul>

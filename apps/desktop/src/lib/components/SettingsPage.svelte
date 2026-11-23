@@ -15,12 +15,13 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import UserRound from "@lucide/svelte/icons/user-round";
-  import type { AppMeta, ClientMessage } from "#shared/protocol.ts";
+  import { AUTO_SETTLE_DAYS, type AppMeta, type ClientMessage } from "#shared/protocol.ts";
   import { RELEASES_URL, releaseName } from "#shared/release-name.ts";
   import type { Host } from "#lib/host.ts";
   import { provideHost } from "#lib/hostContext.ts";
   import { PROVIDER_LABEL } from "#lib/labels.ts";
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
+  import { sidebarPrefs } from "#lib/sidebarPrefs.svelte.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
   import CollectionsSettings from "./CollectionsSettings.svelte";
   import LinkerConnectSettings from "./LinkerConnectSettings.svelte";
@@ -315,6 +316,45 @@
                 onChange={pickTheme}
               />
             </SettingsRow>
+          </SettingsGroup>
+
+          <SettingsGroup title="Sidebar">
+            <SettingsRow
+              label="Group threads into project folders"
+              description="A folder per project instead of one list of every project's threads. Pinned threads stay on top, Snoozed and Settled below the folders, and running threads stay in their folder. Kept per window."
+            >
+              <Switch label="Group threads into project folders" checked={sidebarPrefs.folders} onChange={(folders) => sidebarPrefs.setFolders(folders)} />
+            </SettingsRow>
+            <!-- Older Linker-Edits don't settle threads by themselves. -->
+            {#if app.autoSettleAfterDays !== undefined}
+              <SettingsRow
+                label="Settle quiet threads"
+                description="Threads with no activity for this long move to Settled by themselves. Writing in one brings it back. Each computer has its own."
+              >
+                <Switch
+                  label="Settle quiet threads"
+                  checked={app.autoSettleAfterDays !== null}
+                  onChange={(on) => send({ type: "set_auto_settle", days: on ? AUTO_SETTLE_DAYS.default : null })}
+                />
+              </SettingsRow>
+              {#if app.autoSettleAfterDays !== null}
+                <SettingsRow label="Days without activity" description="From {AUTO_SETTLE_DAYS.min} to {AUTO_SETTLE_DAYS.max}.">
+                  <input
+                    type="number"
+                    min={AUTO_SETTLE_DAYS.min}
+                    max={AUTO_SETTLE_DAYS.max}
+                    value={app.autoSettleAfterDays}
+                    aria-label="Days without activity before a thread settles"
+                    class="h-8 w-20 rounded-md border bg-transparent px-2.5 text-sm tabular-nums outline-none focus:border-primary"
+                    onchange={(event) => {
+                      const days = Number(event.currentTarget.value);
+                      if (Number.isInteger(days) && days >= AUTO_SETTLE_DAYS.min && days <= AUTO_SETTLE_DAYS.max) send({ type: "set_auto_settle", days });
+                      else event.currentTarget.value = String(app.autoSettleAfterDays);
+                    }}
+                  />
+                </SettingsRow>
+              {/if}
+            {/if}
           </SettingsGroup>
         {:else if section === "workspaces"}
           <CollectionsSettings {app} {send} />

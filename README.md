@@ -79,7 +79,7 @@ Linker-Edit opens in its own window. Closing the window stops it; `npx linker-ed
 
 ## Configuration
 
-**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
+**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, how the sidebar groups and settles threads, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
 
 The defaults work for a standard install. To change where things go, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
 
@@ -159,7 +159,9 @@ These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Cod
 
 ## Projects and threads
 
-A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
+A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon at the top of the sidebar; rename, archive or delete one with a right-click.
+
+The sidebar lists every project's threads together, like T3 Code: **pinned** threads on top, then the **active** ones, newest first. At the bottom are shelves you open and close: **Working** (turns running now; a thread that finishes or asks for an approval goes back to the top), **Snoozed** and **Settled**. Hover a thread to **Settle** it when you're done with it, or to snooze it; the open thread then moves on to the next one. Threads with no activity for a week settle by themselves (Settings → Sidebar: turn it off or pick 1 to 90 days), and writing in a settled thread brings it back. The folder button next to Search lists one project's threads: click a project, Shift+click to add another, **All projects** to list them all again. It also has **Add project**, and each project's pin, settings and right-click menu. Prefer a folder per project? Turn on **Group threads into project folders** in Settings.
 
 Resolve has one project open at a time, so Linker-Edit follows it:
 
@@ -167,7 +169,7 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 - One thread works in Resolve at a time. The others wait until it's done.
 - When Resolve has a project open that isn't in Linker-Edit yet, the sidebar offers to add it.
 
-**Adding a project** (the **+** next to Projects). With more than one computer, first choose the one the project is on: its threads run there, with that computer's Resolve. Then:
+**Adding a project** (**Add project** in the folder button's menu). With more than one computer, first choose the one the project is on: its threads run there, with that computer's Resolve. Then:
 
 - **Open in Resolve:** the project Resolve has open now.
 - **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
@@ -281,9 +283,9 @@ Ask for anything that depends on what's said, such as "transcribe the interview 
 
 ## Your computers
 
-The sidebar lists the projects of all your computers, like T3 Code with several environments. A project lives on one computer: its threads run there, with that computer's Resolve, footage and agents, and two threads on two computers can work at the same time. With more than one computer, a computer icon on each project says which one it's on (hover it for the name), and pinned, snoozed and settled threads show the computer's name.
+The sidebar lists the projects of all your computers, like T3 Code with several environments. A project lives on one computer: its threads run there, with that computer's Resolve, footage and agents, and two threads on two computers can work at the same time. With more than one computer, each thread shows the name of the computer it's on, and a computer icon next to each project in the folder button's menu says which one it's on (hover it for the name).
 
-When a computer is offline, its projects stay in the sidebar, greyed and marked *offline*, as they were when it was last seen. You can't open or change them until it's back. The sidebar's foot shows Resolve and updates of the computer whose thread is open; Settings shows each computer's own.
+When a computer is offline, its threads stay in the sidebar, greyed and marked *offline*, as they were when it was last seen. You can't open or change them until it's back. The sidebar's foot shows Resolve and updates of the computer whose thread is open; Settings shows each computer's own.
 
 Your other computers show up through Linker Connect or Tailscale, below.
 

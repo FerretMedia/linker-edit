@@ -27,7 +27,9 @@ describe("settings", () => {
     fs.writeFileSync(file, "{ not json");
     expect(fileSettings(file, (error) => errors.push(error)).load()).toEqual({});
     expect(errors).toHaveLength(1);
-    fs.writeFileSync(file, JSON.stringify({ approvalMode: "yes", resolveHere: "no" }));
+    fs.writeFileSync(file, JSON.stringify({ approvalMode: "yes", resolveHere: "no", autoSettleAfterDays: 0.5 }));
     expect(fileSettings(file).load()).toEqual({});
+    fs.writeFileSync(file, JSON.stringify({ autoSettleAfterDays: null }));
+    expect(fileSettings(file).load()).toEqual({ autoSettleAfterDays: null });
   });
 });

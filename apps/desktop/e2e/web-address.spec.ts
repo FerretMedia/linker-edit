@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import * as path from "node:path";
 import type { AppState } from "../shared/protocol.ts";
 import { fakeMachine, project, templateState, thread } from "./fake-machine.ts";
+import { openAddProject } from "./sidebar-helpers.ts";
 
 // The built UI served the way someone's own Cloudflare address serves it: files only, and the page itself for
 // every other path (/api/hello included). Linker and the edit computer are stand-ins on made-up addresses.
@@ -84,7 +85,7 @@ test("a web address signs in with Linker and lands in the app with every compute
 
   // Back from Linker: the code is swapped for a token, and gone from the address, and it's the app straight away.
   const sidebar = page.getByRole("navigation", { name: "Threads" });
-  await expect(sidebar.getByTestId("sidebar-project-folder").filter({ hasText: "Promo reel" })).toBeVisible();
+  await expect(sidebar.getByTestId("sidebar-row-card").filter({ hasText: "Promo reel" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Rough cut");
   expect(new URL(page.url()).hash).toBe("");
   expect(tokenRequests).toEqual([{ code: "c1", code_verifier: expect.stringMatching(/^[\w-]{43}$/), origin }]);
@@ -96,7 +97,7 @@ test("a web address signs in with Linker and lands in the app with every compute
   await expect(page.getByText("may ask to let this page reach devices on your local network")).toHaveCount(0);
 
   // The computer that can't be reached is offline, and a project can't be added there.
-  await page.getByRole("button", { name: "Add project" }).first().click();
+  await openAddProject(page);
   await expect(page.getByRole("dialog").getByRole("button", { name: /Old-Laptop/ })).toBeDisabled();
   await page.keyboard.press("Escape");
 

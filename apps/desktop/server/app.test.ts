@@ -1101,6 +1101,38 @@ describe("app sidebar (T3 Code)", () => {
     expect(client.state.projects[0]!.threads[0]).toMatchObject({ settledAt: null, unsettledAt: expect.any(String) });
   });
 
+  it("settles threads quiet for a week by themselves, dated by their last activity, and keeps the choice", () => {
+    const old = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+    const lastTurn = old(8);
+    const store = memoryProjectStore([
+      {
+        project: workspaceProject,
+        threads: [
+          savedThread({ id: "quiet", createdAt: old(30), lastSentAt: old(9), turnEndedAt: lastTurn }),
+          savedThread({ id: "recent", createdAt: old(30), turnEndedAt: old(2) }),
+          savedThread({ id: "pinned", createdAt: old(30), pinnedAt: old(30) }),
+          savedThread({ id: "back", createdAt: old(30), unsettledAt: old(1) }),
+          savedThread({ id: "snoozed", createdAt: old(30), snoozedUntil: new Date(Date.now() + 3_600_000).toISOString(), snoozedAt: old(30) }),
+        ],
+      },
+    ]);
+    const saved: Settings = {};
+    const settings = { load: () => ({ ...saved }), save: (changes: Settings) => void Object.assign(saved, changes) };
+    const { client, send } = setupWith({ store, settings });
+    const settled = () => Object.fromEntries(client.state.projects[0]!.threads.map((thread) => [thread.id, thread.settledAt]));
+    expect(client.state.autoSettleAfterDays).toBe(7);
+    expect(settled()).toEqual({ quiet: lastTurn, recent: null, pinned: null, back: null, snoozed: null });
+
+    // Shorter: the two-day-old one settles at once. Out of range is ignored; null never settles.
+    send({ type: "set_auto_settle", days: 1 });
+    expect(settled().recent).toEqual(expect.any(String));
+    send({ type: "set_auto_settle", days: 91 });
+    expect(client.state.autoSettleAfterDays).toBe(1);
+    send({ type: "set_auto_settle", days: null });
+    expect(saved).toEqual({ autoSettleAfterDays: null });
+    expect(setupWith({ store, settings }).client.state.autoSettleAfterDays).toBeNull();
+  });
+
   it("saves a project's icon in its project file, and its pin and archive on this machine", () => {
     const store = memoryProjectStore([{ project: workspaceProject }]);
     const { client, send } = setupWith({ store });

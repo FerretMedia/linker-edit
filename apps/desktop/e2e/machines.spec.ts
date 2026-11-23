@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { AppState } from "../shared/protocol.ts";
 import { fakeMachine, project, templateState, thread } from "./fake-machine.ts";
+import { openAddProject } from "./sidebar-helpers.ts";
 
 // This computer and an edit rig, both stand-ins, and a laptop that's offline with the projects it had last time.
 let template: AppState;
@@ -33,26 +34,43 @@ async function threeMachines(page: Page) {
   return { here, rig };
 }
 
-test("the sidebar lists every computer's projects, working at once, and an offline one's as they were", async ({ page }) => {
+test("the sidebar lists every computer's threads together, working at once, and an offline one's as they were", async ({ page }) => {
   const { here, rig } = await threeMachines(page);
   await page.goto("/");
   const sidebar = page.getByRole("navigation", { name: "Threads" });
-  const folder = (name: string) => sidebar.getByTestId("sidebar-project-folder").filter({ hasText: name });
+  const card = (title: string) => sidebar.getByTestId("sidebar-row-card").filter({ hasText: title });
 
-  await expect(folder("Wedding film").getByTestId("sidebar-machine-badge")).toHaveAttribute("title", "On Edit-Rig");
-  await expect(folder("Spring promo").getByTestId("sidebar-machine-badge")).toHaveAttribute("title", "On Studio-PC");
-  await expect(sidebar.getByText("Working")).toHaveCount(2);
-  await expect(folder("Old trailer")).toContainText("offline");
+  // One turn running on each computer: both on the Working shelf, each row saying its computer.
+  const working = sidebar.getByTestId("sidebar-working-shelf-toggle");
+  await expect(working).toContainText("2");
+  await working.click();
+  await expect(card("Cut the teaser")).toContainText("Working");
+  await expect(card("Cut the teaser").getByTestId("sidebar-row-machine")).toHaveText("Studio-PC");
+  await expect(card("Music edit").getByTestId("sidebar-row-machine")).toHaveText("Edit-Rig");
+  // The laptop's turn isn't shown as running: nobody can tell.
+  await expect(card("Trailer cut").getByTestId("sidebar-row-machine")).toHaveText(/Laptop\s*offline/);
+  await expect(card("Trailer cut")).not.toContainText("Working");
+
+  // The Projects menu says which computer each project is on, and scopes the list to one.
+  await page.getByRole("button", { name: "Projects" }).click();
+  const scopeRow = (name: string) => page.getByTestId("sidebar-scope-project").filter({ hasText: name });
+  await expect(scopeRow("Wedding film").getByTestId("sidebar-machine-badge")).toHaveAttribute("title", "On Edit-Rig");
+  await expect(scopeRow("Spring promo").getByTestId("sidebar-machine-badge")).toHaveAttribute("title", "On Studio-PC");
+  await scopeRow("Wedding film").click();
+  await expect(sidebar.getByTestId("sidebar-row-card")).toHaveText([/Color the ceremony/, /Music edit/]);
+  await page.getByRole("button", { name: "Projects: Wedding film" }).click();
+  await scopeRow("Wedding film").click();
+  await expect(card("Cut the teaser")).toBeVisible();
 
   // A thread on the rig opens there, and the page asks the rig for it.
-  await sidebar.getByTestId("sidebar-row-folder").filter({ hasText: "Color the ceremony" }).click();
+  await card("Color the ceremony").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Color the ceremony");
   await expect(page.locator("header").getByText("Edit-Rig")).toBeVisible();
   expect(rig).toContainEqual({ type: "select_thread", threadId: "t3" });
   expect(here.filter((message) => message.type === "select_thread")).toEqual([]);
 
   // An offline computer's thread doesn't open.
-  await sidebar.getByTestId("sidebar-row-folder").filter({ hasText: "Trailer cut" }).click();
+  await card("Trailer cut").click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Color the ceremony");
 
   // After a reload the rig picks its own thread for the new connection; the page asks for the one that was open.
@@ -64,7 +82,7 @@ test("the sidebar lists every computer's projects, working at once, and an offli
 test("a project is added on the computer chosen first, and settings are each computer's own", async ({ page }) => {
   const { here, rig } = await threeMachines(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Add project" }).first().click();
+  await openAddProject(page);
 
   const computers = page.getByRole("dialog").getByRole("list", { name: "Computers" });
   await expect(computers.getByRole("button")).toHaveText([/Studio-PC/, /Edit-Rig/, /Laptop\s*Offline/]);

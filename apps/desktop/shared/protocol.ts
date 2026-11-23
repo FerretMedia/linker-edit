@@ -476,6 +476,8 @@ export interface AppMeta {
   /** The agent new threads start with. */
   defaultProvider: Provider;
   approvalMode: ApprovalMode;
+  /** This computer's threads settle by themselves after this many days without activity; null never. */
+  autoSettleAfterDays: number | null;
   /** This thread's turn is running. */
   busy: boolean;
   approvals: ApprovalRequest[];
@@ -527,6 +529,8 @@ export type ClientMessage =
   /** The agent new threads start with, without changing the open thread's. */
   | { type: "set_default_provider"; provider: Provider }
   | { type: "set_approval_mode"; mode: ApprovalMode }
+  /** Days between AUTO_SETTLE_DAYS.min and max, or null to never settle threads by themselves. */
+  | { type: "set_auto_settle"; days: number | null }
   | { type: "approve"; id: string; allow: boolean }
   | { type: "refresh_resolve" }
   /** Whether this computer has Resolve (or will); see AppMeta.resolveHere. */
@@ -895,3 +899,6 @@ export type SidebarClientMessage =
   | { type: "snooze_thread"; threadId: string; until: string | null }
   /** read: false marks the last turn unread again. */
   | { type: "mark_read"; threadId: string; read: boolean };
+
+/** Quiet threads settle by themselves after this many days, as in T3 Code; AppMeta.autoSettleAfterDays. */
+export const AUTO_SETTLE_DAYS = { default: 7, min: 1, max: 90 } as const;

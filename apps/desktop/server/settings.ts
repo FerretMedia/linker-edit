@@ -2,7 +2,7 @@
 // linker-edit.config.json, which the user writes by hand and Linker-Edit only reads.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ApprovalMode, Provider } from "../shared/protocol.ts";
+import { AUTO_SETTLE_DAYS, type ApprovalMode, type Provider } from "../shared/protocol.ts";
 
 export interface Settings {
   approvalMode?: ApprovalMode;
@@ -10,7 +10,12 @@ export interface Settings {
   resolveHere?: boolean;
   /** The agent new threads start with: the one picked last. */
   defaultProvider?: Provider;
+  /** Quiet threads settle by themselves after this many days; null never. Missing is AUTO_SETTLE_DAYS.default. */
+  autoSettleAfterDays?: number | null;
 }
+
+export const isAutoSettleDays = (days: unknown): days is number =>
+  typeof days === "number" && Number.isInteger(days) && days >= AUTO_SETTLE_DAYS.min && days <= AUTO_SETTLE_DAYS.max;
 
 export interface SettingsStore {
   load(): Settings;
@@ -35,6 +40,7 @@ export function fileSettings(file: string, onError: (error: unknown) => void = c
     if (APPROVAL_MODES.has(values.approvalMode)) settings.approvalMode = values.approvalMode as ApprovalMode;
     if (typeof values.resolveHere === "boolean") settings.resolveHere = values.resolveHere;
     if (PROVIDERS.has(values.defaultProvider)) settings.defaultProvider = values.defaultProvider as Provider;
+    if (values.autoSettleAfterDays === null || isAutoSettleDays(values.autoSettleAfterDays)) settings.autoSettleAfterDays = values.autoSettleAfterDays;
     return settings;
   }
   return {
