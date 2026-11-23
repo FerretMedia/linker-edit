@@ -7,7 +7,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { APP_ROOT } from "../config.ts";
+import { createBootGuard } from "./boot.ts";
 import { MISSING_RESOLVE_MCP } from "./locate.ts";
+import type { ResolveProcesses } from "./program.ts";
 
 /** Resolve's MCP server stops a script after this many seconds, its maximum. */
 export const MAX_SCRIPT_SECONDS = 60;
@@ -91,9 +93,12 @@ export interface ConnectionOptions {
   command: string | null;
   /** Extra arguments, for tests that run a stand-in server through Node. */
   args?: string[];
+  /** Looks at this computer's processes; tests give their own. */
+  processes?: () => Promise<ResolveProcesses>;
 }
 
-export function createResolveConnection({ command, args = [] }: ConnectionOptions): ResolveConnection {
+export function createResolveConnection({ command, args = [], processes }: ConnectionOptions): ResolveConnection {
+  const boot = createBootGuard(processes);
   let child: ChildProcess | null = null;
   let ready: Promise<void> | null = null;
   let nextId = 0;
@@ -105,6 +110,7 @@ export function createResolveConnection({ command, args = [] }: ConnectionOption
     const dead = child;
     child = null;
     ready = null;
+    boot.forget();
     dead?.kill();
     for (const [id, waiter] of pending) {
       pending.delete(id);
@@ -137,8 +143,7 @@ export function createResolveConnection({ command, args = [] }: ConnectionOption
     });
   }
 
-  function start(): Promise<void> {
-    if (!command) return Promise.reject(new ResolveError("unavailable", MISSING_RESOLVE_MCP));
+  function start(command: string): Promise<void> {
     ready ??= (async () => {
       const spawned = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       child = spawned;
@@ -175,8 +180,8 @@ export function createResolveConnection({ command, args = [] }: ConnectionOption
     return ready;
   }
 
-  async function callNow(name: string, args: Record<string, unknown>, timeoutMs: number): Promise<string> {
-    await start();
+  async function callNow(command: string, name: string, args: Record<string, unknown>, timeoutMs: number): Promise<string> {
+    await start(command);
     const response = await request("tools/call", { name, arguments: args }, timeoutMs);
     if (response.error) throw new ResolveError("error", response.error.message ?? `Resolve's ${name} failed.`);
     const text = (response.result?.content ?? []).map((part) => (part.type === "text" ? (part.text ?? "") : `[${part.type}]`)).join("\n");
@@ -185,7 +190,9 @@ export function createResolveConnection({ command, args = [] }: ConnectionOption
   }
 
   function callTool(name: string, args: Record<string, unknown> = {}, timeoutMs = 30_000): Promise<string> {
-    const call = queue.then(() => callNow(name, args, timeoutMs));
+    if (!command) return Promise.reject(new ResolveError("unavailable", MISSING_RESOLVE_MCP));
+    // Starting ResolveMCP is part of the guarded call: it connects to Resolve by itself when it starts.
+    const call = queue.then(() => boot.call(name, () => callNow(command, name, args, timeoutMs)));
     queue = call.catch(() => {});
     return call;
   }
