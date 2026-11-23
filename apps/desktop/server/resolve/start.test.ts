@@ -59,19 +59,15 @@ function computer({ running = false, scriptServerAt = 0, answersAt = 0, failedLo
 }
 
 describe("startResolve", () => {
-  it("launches a closed Resolve once, and doesn't connect until its script server has run for 2 seconds", async () => {
-    const { start, launches, connections } = computer({ scriptServerAt: 20_000, answersAt: 30_000 });
-    expect(await start()).toMatchObject({ value: true });
-    expect(launches).toEqual(["ResolveMCP.exe"]);
+  it.each([
+    ["it launched, once", false, ["ResolveMCP.exe"]],
+    ["the user just started, without launching another", true, []],
+  ])("doesn't connect until the script server has run for 2 seconds, of a Resolve %s", async (_whose, running, launched) => {
+    const { start, launches, connections } = computer({ running, scriptServerAt: 20_000, answersAt: 30_000 });
+    expect(await start()).toMatchObject({ value: !running });
+    expect(launches).toEqual(launched);
     expect(connections[0]).toBeGreaterThanOrEqual(22_000);
     expect(connections[0]).toBeLessThan(25_000);
-  });
-
-  it("waits the same way for a Resolve the user just started", async () => {
-    const { start, launches, connections } = computer({ running: true, scriptServerAt: 20_000 });
-    expect(await start()).toMatchObject({ value: false });
-    expect(launches).toEqual([]);
-    expect(connections[0]).toBeGreaterThanOrEqual(22_000);
   });
 
   it("uses a Resolve that's already up without waiting", async () => {

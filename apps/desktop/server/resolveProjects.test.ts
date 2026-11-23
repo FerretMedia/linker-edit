@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ResolveError } from "./resolve/connection.ts";
 import { fakeConnection, hasPython, pythonConnection, RESOLVE_IS_UP } from "./resolve/testing.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
@@ -214,6 +214,27 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
       ["LoadProject", [], "Promo"],
     ]);
   });
+});
+
+it("doesn't let an agent leave what a Resolve it just started has open", async () => {
+  vi.useFakeTimers();
+  try {
+    const { connection, scripts } = fakeConnection({
+      script: (name) => (name === "status" ? { state: "connected" } : { project: { name: "Interview", id: "int-id" }, database: null, folder: null }),
+    });
+    let launched = false;
+    const projects = createResolveProjects(connection, 1, {
+      processes: async () => ({ resolve: launched, scriptServer: launched }),
+      launch: async () => void (launched = true),
+    });
+    const opening = projects.open({ kind: "local", name: "Interview", projectId: "int-id" }, {}, { onlyIfIdle: true });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await opening;
+    expect(launched).toBe(true);
+    expect(scripts.at(-1)).toMatchObject({ name: "open_project", args: { onlyIfIdle: true } });
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 describe("opening a project that takes longer than a script may run", () => {
