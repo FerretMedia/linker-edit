@@ -149,7 +149,7 @@ With a project in the series and the raw footage of one example, the AI edits th
 
 ### Where setup runs
 
-In a setup thread of the workspace or series. It is kept as a project of its own with no Resolve project, called "<name> setup" in the sidebar, so it reuses the chat, the threads and the agents as they are. It never links to Resolve, and tools that work in Resolve are refused in it.
+In a skill thread of the workspace or series. It is kept as a project of its own with no Resolve project, called "<name> skill" in the sidebar, so it reuses the chat, the threads and the agents as they are. It never links to Resolve, and tools that work in Resolve are refused in it, except for reading a project it visits.
 
 ## Part 3: editing on its own
 
@@ -194,7 +194,7 @@ So the first formats that will really work alone are the ones driven by speech: 
 Built in one PR:
 
 - `study_media` (measurements and contact sheets) and `compare_cut` (raw against final by transcript).
-- Setup threads with **Make the skill with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
+- Skill threads with **Make the skill with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
 - **Works on its own** per workspace or series, with the footage form in a new thread.
 - Lessons from feedback, the retro on "Use as main timeline", rounds until approved, and feedback at a moment of the preview.
 - `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from. **Project file** in the app shows it and lets you edit it.

@@ -37,7 +37,7 @@ export interface CollectionStore {
   save(collection: SavedCollection): void;
   /** Takes it out of the list and deletes its folder, rules included. */
   remove(id: string): void;
-  /** Where its SKILL.md is; null when it isn't in the list. */
+  /** Where its skill is: its SKILL.md, or a RULES.md not taken over yet. Null when it isn't in the list. */
   rulesFile(id: string): string | null;
   /** The agent's notes on example videos, one Markdown file each in its examples/ folder. */
   examples(id: string): { name: string; file: string }[];
@@ -48,7 +48,7 @@ export interface CollectionStore {
 
 export const COLLECTION_FILE = "collection.json";
 export const RULES_FILE = "SKILL.md";
-/** What SKILL.md was called before; read once, then replaced by it. */
+/** What SKILL.md was called before; read until the first save writes SKILL.md in its place. */
 const OLD_RULES_FILE = "RULES.md";
 export const EXAMPLES_DIR = "examples";
 
@@ -57,24 +57,22 @@ export function exampleName(name: string): string {
   return collectionSlug(name.replace(/\.[a-z0-9]{2,5}$/i, ""));
 }
 
-const FRONT_MATTER = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
+// Starts with a key, so a skill that begins with a rule (---) doesn't lose what is above the next one.
+const FRONT_MATTER = /^\uFEFF?---\r?\n(?=[\w-]+:)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
 
 /** SKILL.md without its front matter: what people edit in the app and agents read. */
 export const skillBody = (text: string): string => text.replace(FRONT_MATTER, "");
 
 /**
- * SKILL.md in the Agent Skills format, so the folder works as a skill in Claude Code and Codex too. Front matter
- * someone wrote by hand is kept as it is.
+ * The front matter Linker-Edit writes, so the folder works as a skill in Claude Code and Codex too. A skill's name
+ * is its folder's, as the Agent Skills format asks.
  */
-export function skillText(collection: Pick<SavedCollection, "kind" | "name" | "rules">, existing = ""): string {
-  if (!collection.rules.trim()) return "";
-  const kept = FRONT_MATTER.exec(existing)?.[1];
+function frontMatter(folder: string, { kind, name }: Pick<SavedCollection, "kind" | "name">): string {
   const about =
-    collection.kind === "workspace"
-      ? `How videos for ${collection.name} are edited. Use for every video of this brand.`
-      : `How ${collection.name} videos are edited. Use for every video in this series.`;
-  const front = kept ?? `name: ${collectionSlug(collection.name)}\ndescription: ${JSON.stringify(about)}`;
-  return `---\n${front}\n---\n\n${collection.rules}`;
+    kind === "workspace"
+      ? `How videos for ${name} are edited. Use for every video of this brand.`
+      : `How ${name} videos are edited. Use for every video in this series.`;
+  return `name: ${folder}\ndescription: ${JSON.stringify(about)}`;
 }
 
 // Bump when a file changes shape; a file with another version is left alone rather than misread.
@@ -216,7 +214,9 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
       if (saved.version !== VERSION || saved.id !== id) {
         throw new Error(`${file} is from another Linker-Edit version or another list, so it was left out and left as it is.`);
       }
-      const rules = skillBody(readText(path.join(dirOf(folder), RULES_FILE)) ?? readText(path.join(dirOf(folder), OLD_RULES_FILE)) ?? "");
+      const skill = readText(path.join(dirOf(folder), RULES_FILE));
+      // All of a RULES.md is rules, whatever it starts with.
+      const rules = skill === null ? (readText(path.join(dirOf(folder), OLD_RULES_FILE)) ?? "") : skillBody(skill);
       return {
         id,
         kind: saved.kind,
@@ -239,12 +239,19 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
 
   function write(folder: string, collection: SavedCollection) {
     const { rules, ...fields } = collection;
-    const file: CollectionFile = { version: VERSION, ...fields };
-    writeJson(path.join(dirOf(folder), COLLECTION_FILE), file);
+    const collectionFile = path.join(dirOf(folder), COLLECTION_FILE);
     const skillFile = path.join(dirOf(folder), RULES_FILE);
-    writeFile(skillFile, skillText(collection, readText(skillFile) ?? ""));
-    // Written into SKILL.md above, so two files never disagree.
-    fs.rmSync(path.join(dirOf(folder), OLD_RULES_FILE), { force: true });
+    const before = readJson<CollectionFile>(collectionFile);
+    const skill = readText(skillFile);
+    const found = FRONT_MATTER.exec(skill ?? "")?.[1];
+    // Front matter someone wrote or changed by hand stays as it is; ours follows a rename.
+    const own = before && found === frontMatter(folder, before) ? undefined : found;
+    const file: CollectionFile = { version: VERSION, ...fields };
+    writeJson(collectionFile, file);
+    const empty = own === undefined && !rules.trim();
+    writeFile(skillFile, empty ? "" : `---\n${own ?? frontMatter(folder, collection)}\n---\n\n${rules}`);
+    // Its rules are in SKILL.md now. A RULES.md next to a SKILL.md was never read, so it stays.
+    if (skill === null) fs.rmSync(path.join(dirOf(folder), OLD_RULES_FILE), { force: true });
   }
 
   function uniqueFolder(name: string): string {
@@ -292,7 +299,10 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
     },
     rulesFile(id) {
       const folder = folderOf(id);
-      return folder ? path.join(dirOf(folder), RULES_FILE) : null;
+      if (!folder) return null;
+      const file = path.join(dirOf(folder), RULES_FILE);
+      const old = path.join(dirOf(folder), OLD_RULES_FILE);
+      return !fs.existsSync(file) && fs.existsSync(old) ? old : file;
     },
     examples(id) {
       const folder = folderOf(id);

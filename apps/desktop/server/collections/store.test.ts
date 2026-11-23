@@ -69,6 +69,24 @@ describe("fileCollectionStore", () => {
     expect(again.load()[1]!.rules).toBe("End on the logo.");
     again.save({ ...series, rules: "End on black." });
     expect(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8").replaceAll("\r\n", "\n")).toBe("---\nname: my-podcast\ndescription: Mine.\n---\n\nEnd on black.");
+    again.save({ ...series, rules: "" });
+    expect(fs.readFileSync(path.join(dir, "SKILL.md"), "utf8")).toContain("description: Mine.");
+
+    // What is above a line of dashes is part of the skill.
+    const ruled = "---\nNo music.\n\n---\nEnd on the logo.";
+    fs.writeFileSync(path.join(dir, "SKILL.md"), ruled);
+    expect(open().load()[1]!.rules).toBe(ruled);
+  });
+
+  it("names the skill after its folder, and describes it by its new name after a rename", () => {
+    const { root, open } = setup();
+    const store = open();
+    store.create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "" });
+    const second = store.create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "Short." });
+    store.save({ ...second, name: "Vlog" });
+    expect(fs.readFileSync(path.join(root, "collections", "podcast-2", "SKILL.md"), "utf8")).toBe(
+      '---\nname: podcast-2\ndescription: "How Vlog videos are edited. Use for every video in this series."\n---\n\nShort.',
+    );
   });
 
   it("takes over the RULES.md of an earlier version, without losing it before SKILL.md is written", () => {
@@ -76,13 +94,20 @@ describe("fileCollectionStore", () => {
     const made = open().create({ kind: "series", name: "Podcast", parentId: null, icon: monogram, rules: "" });
     const dir = path.join(root, "collections", "podcast");
     fs.rmSync(path.join(dir, "SKILL.md"));
-    fs.writeFileSync(path.join(dir, "RULES.md"), "Keep it short.\n");
+    // With front matter of its own, as rules copied from elsewhere may have: it is kept too.
+    const rules = "---\nglobs: video\n---\n\nKeep it short.\n";
+    fs.writeFileSync(path.join(dir, "RULES.md"), rules);
     const store = open();
-    expect(store.load()).toEqual([{ ...made, rules: "Keep it short.\n" }]);
-    expect(fs.existsSync(path.join(dir, "RULES.md"))).toBe(true);
+    expect(store.load()).toEqual([{ ...made, rules }]);
+    expect(store.rulesFile(made.id)).toBe(path.join(dir, "RULES.md"));
     store.save(store.load()[0]!);
     expect(fs.readdirSync(dir).sort()).toEqual(["SKILL.md", "collection.json"]);
-    expect(open().load()).toEqual([{ ...made, rules: "Keep it short.\n" }]);
+    expect(open().load()).toEqual([{ ...made, rules }]);
+
+    // Written by an earlier version next to a SKILL.md: not read, but not deleted either.
+    fs.writeFileSync(path.join(dir, "RULES.md"), "Newer.");
+    store.save({ ...made, rules });
+    expect(fs.readFileSync(path.join(dir, "RULES.md"), "utf8")).toBe("Newer.");
   });
 
   it("gives each collection its own folder, and deletes it with the collection", () => {

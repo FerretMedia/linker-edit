@@ -95,7 +95,7 @@ export interface ProjectSummary extends ProjectSidebarState {
   /** Newest first, archived ones included. */
   threads: ThreadSummary[];
   /**
-   * A workspace's or series' setup threads: the agent studies example videos and writes the brief here. It has no
+   * A workspace's or series' skill threads: the agent studies finished videos and projects, and writes skills here. It has no
    * Resolve project and never gets one.
    */
   setup: boolean;
@@ -762,7 +762,7 @@ export interface CollectionSummary {
   lessons: Lesson[];
   /** The agent's notes on example videos it studied, kept as files next to the rules. */
   examples: { name: string; file: string }[];
-  /** The project that holds its setup threads; null until "Make the skill with AI" was used. */
+  /** The project that holds its skill threads; null until "Make the skill with AI" was used. */
   setupProjectId: string | null;
   /** Approved edits of its projects, newest first, to see whether the brief works. */
   edits: ApprovedEdit[];
@@ -796,7 +796,7 @@ export type CollectionMessage =
   /** Forgets a lesson or the notes on an example. */
   | { type: "remove_lesson"; id: string; lessonId: string }
   | { type: "remove_example"; id: string; name: string }
-  /** Opens its setup thread, where the agent studies example videos and writes the brief; made on first use. */
+  /** Opens its skill thread, where the agent studies finished videos and projects; made on first use. */
   | { type: "setup_collection"; id: string }
   /** Refused while projects or series are in it. */
   | { type: "delete_collection"; id: string }

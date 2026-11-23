@@ -52,12 +52,12 @@ export const BRIEF_TOOLS = [
   {
     name: SAVE_EXAMPLE,
     description:
-      "Keep your notes on one example video of this brand, as a Markdown file next to its rules: what it is, its numbers, its structure with times, what stands out. Saving again under the same name replaces them.",
+      "Keep your notes on one example of this brand, a video or a finished project, as a Markdown file next to its skill: what it is, its numbers, its structure with times, what stands out. Saving again under the same name replaces them.",
     inputSchema: {
       type: "object",
       properties: {
         ...where,
-        name: { type: "string", description: "The video's file name or title." },
+        name: { type: "string", description: "The video's file name or title, or the project's name." },
         notes: { type: "string", description: "Your notes, in Markdown." },
       },
       required: ["name", "notes"],

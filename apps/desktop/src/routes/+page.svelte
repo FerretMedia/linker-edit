@@ -443,7 +443,7 @@
             {#if app.items.length === 0 && project?.setup && collection}
               <ThreadStarter
                 title="Teach Linker-Edit how {collection.name} is edited"
-                intro="The agent studies videos and Resolve projects you've finished, asks what it can't see, and proposes a skill file for you to accept. It only looks at your projects, and opens them one by one in Resolve."
+                intro="The agent studies videos and Resolve projects you've finished, asks what it can't see, and proposes a skill file for you to accept. It only looks at projects you've added here, opening them one by one in Resolve."
                 fields={[
                   { key: "finished", label: "Finished videos", hint: "A folder of videos as they were published. Leave it empty to learn from your Resolve projects only.", required: false },
                   { key: "raw", label: "Raw footage", hint: "What some of them were cut from. It shows what an editor leaves out.", required: false },

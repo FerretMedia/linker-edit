@@ -1201,6 +1201,24 @@ describe("app projects", () => {
       expect(opens).toEqual(["Interview", "Promo"]);
     });
 
+    it("asks before it leaves what the user is working in when the visits start there", async () => {
+      const results: boolean[] = [];
+      const skill: SavedProject = { ...workspaceProject, id: "skill", setup: true, collection: { id: "c", name: "Ferret" } };
+      const { app, client, send, turnDone, opens } = twoProjects([interview, promo, linked("Doc", "doc-id"), skill], async (call) => {
+        for (const project of ["Promo", "Interview", "Doc"]) results.push((await call("visit_project", { project })).isError);
+      });
+      await app.refreshResolve();
+      send({ type: "new_thread", projectId: "skill" });
+      send({ type: "send", text: "learn from all three" });
+      await client.until((state) => state.approvals.length > 0);
+      expect(client.state.approvals[0]!.input).toMatchObject({ open: "Promo", wants: expect.stringContaining("Interview") });
+      send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
+      // From Interview, which the visit opened, to Doc without another question.
+      await turnDone();
+      expect(results).toEqual([false, false, false]);
+      expect(opens).toEqual(["Interview", "Doc", "Promo"]);
+    });
+
     it("comes back when the user stops the turn", async () => {
       let visited = () => {};
       const visiting = new Promise<void>((resolve) => (visited = resolve));

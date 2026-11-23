@@ -192,8 +192,11 @@ export function createApp(options: AppOptions) {
   // New threads start with the agent picked last.
   let lastProvider: Provider = options.settings?.load().defaultProvider ?? "claude";
   const watch = createResolveWatch();
-  /** The running turn looks at another project, read only; back is where Resolve goes after it. */
-  let visit: { projectId: string; back: Away | null } | null = null;
+  /**
+   * The running turn looks at another project, read only; back is where Resolve goes after it, and opened says the
+   * visit opened it rather than finding it open.
+   */
+  let visit: { projectId: string; back: Away | null; opened: boolean } | null = null;
   /** What a message made Resolve leave, to open again with one click. */
   let previous: Away | null = null;
   const projects = new Map<string, ProjectState>();
@@ -468,14 +471,16 @@ export function createApp(options: AppOptions) {
     if (back?.link.kind === "cloud") throw new Error(`Resolve has the Blackmagic Cloud project "${back.link.name}" open, and only the user can open that again, so no other project is visited.`);
     const askUser: Ask = (tool, shown) => thread.requestApproval(tool, shown);
     if (!isOpen(target)) {
-      // Leaving the thread's own project or another visited one needs no question in full access.
-      if (approvalMode === "ask" || (!visit && !isOpen(own))) await leaveOpenProject(`${target.saved.link.name} (only to look, then back)`, askUser);
-      visit = { projectId: target.saved.id, back };
+      // Leaving the thread's own project, or one a visit opened, needs no question in full access.
+      const visited = visit?.opened ? projects.get(visit.projectId) : undefined;
+      if (approvalMode === "ask" || !(isOpen(own) || (visited && isOpen(visited)))) await leaveOpenProject(`${target.saved.link.name} (only to look, then back)`, askUser);
+      visit = { projectId: target.saved.id, back, opened: true };
       await openLinked(target, target.saved.link, { onlyIfIdle: !open, signal });
       await refreshResolve();
       if (!isOpen(target)) throw new Error(`Resolve didn't open "${target.saved.link.name}".`);
+    } else if (visit?.projectId !== target.saved.id) {
+      visit = { projectId: target.saved.id, back, opened: false };
     }
-    visit = { projectId: target.saved.id, back };
     return `Resolve has "${target.saved.link.name}" open, read only. Call end_visit when you're done looking.`;
   }
 
