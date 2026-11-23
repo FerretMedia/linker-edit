@@ -161,7 +161,7 @@
 {#if open}
   <div
     bind:this={popup}
-    class="fixed z-[120] flex max-h-[min(28rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-lg border border-foreground/10 bg-popover text-popover-foreground shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)]"
+    class="fixed z-[120] flex max-h-[min(28rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-lg border border-foreground/10 bg-popover text-foreground shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)]"
     style="left: {position.left}px; top: {position.top}px"
   >
     <label class="block min-w-0 shrink-0 cursor-text px-3 pt-2.5">
