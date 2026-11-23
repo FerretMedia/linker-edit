@@ -91,11 +91,9 @@ export interface ConnectionOptions {
   command: string | null;
   /** Extra arguments, for tests that run a stand-in server through Node. */
   args?: string[];
-  /** In its own process group, so stopping Linker-Edit's group leaves what it starts running. Windows has none. */
-  ownGroup?: boolean;
 }
 
-export function createResolveConnection({ command, args = [], ownGroup = false }: ConnectionOptions): ResolveConnection {
+export function createResolveConnection({ command, args = [] }: ConnectionOptions): ResolveConnection {
   let child: ChildProcess | null = null;
   let ready: Promise<void> | null = null;
   let nextId = 0;
@@ -142,11 +140,7 @@ export function createResolveConnection({ command, args = [], ownGroup = false }
   function start(): Promise<void> {
     if (!command) return Promise.reject(new ResolveError("unavailable", MISSING_RESOLVE_MCP));
     ready ??= (async () => {
-      const spawned = spawn(command, args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        detached: ownGroup && process.platform !== "win32",
-      });
+      const spawned = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       child = spawned;
       let stderr = "";
       spawned.stderr?.on("data", (chunk: Buffer) => (stderr = (stderr + chunk.toString()).slice(-2000)));

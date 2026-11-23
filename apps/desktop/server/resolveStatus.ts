@@ -1,7 +1,6 @@
 import type { ResolveStatus } from "../shared/protocol.ts";
 import { ResolveError, type ResolveConnection } from "./resolve/connection.ts";
 import { MISSING_RESOLVE_MCP } from "./resolve/locate.ts";
-import { resolveRunning } from "./resolve/start.ts";
 
 const BLOCKED_HINT =
   "Resolve answers but refuses edits while the Project Manager or a dialog, such as an update prompt, is open. Open a project and close the dialog in Resolve, then refresh.";
@@ -31,7 +30,7 @@ export async function checkResolve(connection: ResolveConnection): Promise<Resol
   if (!connection.command) return { state: "setup_needed", hint: MISSING_RESOLVE_MCP };
   let running: boolean;
   try {
-    running = await resolveRunning(connection);
+    running = (JSON.parse(await connection.callTool("get_resolve_status", {}, 15_000)) as { running?: boolean }).running === true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // An older Resolve's server can start but lack what Linker-Edit needs.

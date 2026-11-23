@@ -1,24 +1,27 @@
-// Starts DaVinci Resolve with its own launch_resolve tool and waits until it answers scripts.
-import { createResolveConnection, ResolveError, type ResolveConnection } from "./connection.ts";
+// Starts DaVinci Resolve and waits until it answers scripts. Resolve's script server quits when a client
+// connects before Resolve itself did; Resolve retries once, and after that never answers scripts until it's
+// restarted. So nothing connects until the script server has run for a moment. That's also why this doesn't
+// use ResolveMCP's launch_resolve, which keeps connecting while Resolve boots.
+import { ResolveError, type ResolveConnection } from "./connection.ts";
 import { MISSING_RESOLVE_MCP } from "./locate.ts";
+import { launchResolve, resolveProcesses, type ResolveProcesses } from "./program.ts";
 
-/** launch_resolve itself gives up after 60 seconds; a slow computer or a big database needs longer. */
-const LAUNCH_TIMEOUT_MS = 3 * 60_000;
-/** A Resolve that was running already should answer soon, unless it's still starting or a dialog is up. */
-const RUNNING_TIMEOUT_MS = 30_000;
+const POLL_MS = 1000;
+/** How long the script server runs before something may connect to it. */
+const SETTLE_MS = 2000;
+/** Then something connects anyway: the script server's name is unverified on macOS and Linux. */
+const SCRIPT_SERVER_TIMEOUT_MS = 90_000;
+/** A slow computer or a big database needs long. */
+const START_TIMEOUT_MS = 3 * 60_000;
+/** A Resolve that was up already should answer soon, unless a dialog is up. */
+const UP_TIMEOUT_MS = 30_000;
 
 export interface StartOptions {
   /** Aborts when the user stops the turn. Resolve goes on starting; only the waiting stops. */
   signal?: AbortSignal;
-  pollMs?: number;
-  launchTimeoutMs?: number;
-  runningTimeoutMs?: number;
-  /** The connection that launches Resolve; tests pass their own. */
-  launcher?: () => ResolveConnection;
-}
-
-export async function resolveRunning(connection: ResolveConnection): Promise<boolean> {
-  return (JSON.parse(await connection.callTool("get_resolve_status", {}, 15_000)) as { running?: boolean }).running === true;
+  /** This computer's processes and how to start Resolve; tests pass their own. */
+  processes?: () => Promise<ResolveProcesses>;
+  launch?: (resolveMcp: string) => Promise<void>;
 }
 
 const answers = (connection: ResolveConnection) =>
@@ -27,49 +30,47 @@ const answers = (connection: ResolveConnection) =>
     () => false,
   );
 
-/** Resolves when the signal aborts, or never. */
-const aborted = (signal?: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    if (signal?.aborted) resolve();
-    signal?.addEventListener("abort", () => resolve(), { once: true });
-  });
-
 /** Starts Resolve when it isn't running, and waits until it answers. True when this started it. */
 export async function startResolve(connection: ResolveConnection, options: StartOptions = {}): Promise<boolean> {
-  const { signal, pollMs = 2000, launchTimeoutMs = LAUNCH_TIMEOUT_MS, runningTimeoutMs = RUNNING_TIMEOUT_MS } = options;
+  const { signal, processes = resolveProcesses, launch = launchResolve } = options;
   const { command } = connection;
   if (!command) throw new ResolveError("unavailable", MISSING_RESOLVE_MCP);
-  const stopped = aborted(signal);
-  const waitUntilAnswering = async (deadline: number): Promise<boolean> => {
-    while (!signal?.aborted) {
-      if (await answers(connection)) return true;
-      if (Date.now() >= deadline) return false;
-      await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, pollMs))]);
+  const stopped = new Promise<never>((_resolve, reject) => {
+    const stop = () => reject(new ResolveError("unavailable", "Stopped while waiting for Resolve."));
+    if (signal?.aborted) stop();
+    signal?.addEventListener("abort", stop, { once: true });
+  });
+  stopped.catch(() => {});
+  const unlessStopped = <T>(work: Promise<T>) => Promise.race([stopped, work]);
+  const pause = () => unlessStopped(new Promise((resolve) => setTimeout(resolve, POLL_MS)));
+
+  // When this look fails, it ends here: Resolve may be running, and a second one must never start.
+  const first = await unlessStopped(processes());
+  if (!first.resolve) await unlessStopped(launch(command));
+
+  // With both there at the first look, the script server may have appeared just now, but nearly always it's a
+  // Resolve that has been up for long, and Open in Resolve shouldn't wait on that chance every time.
+  const up = first.resolve && first.scriptServer;
+  const begun = Date.now();
+  if (!up) {
+    let seenAt: number | null = null;
+    while (Date.now() - begun < SCRIPT_SERVER_TIMEOUT_MS) {
+      const scriptServer = await unlessStopped(processes().then((seen) => seen.scriptServer, () => false));
+      seenAt = scriptServer ? (seenAt ?? Date.now()) : null;
+      if (seenAt !== null && Date.now() - seenAt >= SETTLE_MS) break;
+      await pause();
     }
-    throw new ResolveError("unavailable", "Stopped while waiting for Resolve.");
-  };
-
-  if (await resolveRunning(connection)) {
-    if (await waitUntilAnswering(Date.now() + runningTimeoutMs)) return false;
-    throw new ResolveError(
-      "unavailable",
-      "Resolve is running but doesn't answer. Close any dialog in Resolve and try again; if that doesn't help, restart Resolve.",
-    );
   }
 
-  const deadline = Date.now() + launchTimeoutMs;
-  // Through a server of its own that ends once Resolve is up: quitting Linker-Edit stops every process it
-  // started, down the tree, and must never take Resolve and the user's unsaved work with it.
-  const launcher = options.launcher?.() ?? createResolveConnection({ command, ownGroup: true });
-  let problem = "";
-  try {
-    const launched = launcher.callTool("launch_resolve", {}, 90_000).catch((error: unknown) => {
-      problem = error instanceof Error ? error.message : String(error);
-    });
-    await Promise.race([stopped, launched]);
-    if (await waitUntilAnswering(deadline)) return true;
-  } finally {
-    launcher.close();
+  const deadline = begun + (up ? UP_TIMEOUT_MS : START_TIMEOUT_MS);
+  while (!(await unlessStopped(answers(connection)))) {
+    if (Date.now() >= deadline) {
+      throw new ResolveError(
+        "unavailable",
+        `${first.resolve ? "Resolve is running but doesn't answer scripts" : "Resolve was started but didn't get ready in time"}. Close any dialog in Resolve and try again; if that doesn't help, save your work and restart Resolve.`,
+      );
+    }
+    await pause();
   }
-  throw new ResolveError("unavailable", `Resolve didn't start in time${problem ? ` (${problem})` : ""}. Is a dialog open in Resolve?`);
+  return !first.resolve;
 }

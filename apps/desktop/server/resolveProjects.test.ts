@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ResolveError } from "./resolve/connection.ts";
-import { fakeConnection, hasPython, pythonConnection } from "./resolve/testing.ts";
+import { fakeConnection, hasPython, pythonConnection, RESOLVE_IS_UP } from "./resolve/testing.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 
 // Stands in for Resolve's scripting module: a Project Manager over folder trees from a JSON file,
@@ -118,7 +118,7 @@ function fakeResolve(state: Record<string, unknown>) {
       ...state,
     }),
   );
-  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }));
+  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }), 1, RESOLVE_IS_UP);
   const calls = () =>
     fs.existsSync(`${stateFile}.log`)
       ? fs
@@ -222,7 +222,6 @@ describe("opening a project that takes longer than a script may run", () => {
     let polls = 0;
     let opening = false;
     const { connection } = fakeConnection({
-      tool: () => JSON.stringify({ running: true }),
       script: (name) => {
         if (name === "open_project") {
           opening = true;
@@ -232,7 +231,7 @@ describe("opening a project that takes longer than a script may run", () => {
         return { state: "connected", project: polls < 3 ? "Promo" : "Client X", projectId: polls < 3 ? "promo-id" : "cx-id", database: null };
       },
     });
-    const opened = await createResolveProjects(connection, 1).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
+    const opened = await createResolveProjects(connection, 1, RESOLVE_IS_UP).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
     expect(opened).toEqual({ project: { name: "Client X", id: "cx-id" }, database: null, folder: null });
     expect(polls).toBe(3);
   });
