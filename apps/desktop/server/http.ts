@@ -517,8 +517,8 @@ export function createServer(
       handleAgentCall(apiToken, req, res, (body) => libraryTool(app, body));
       return;
     }
-    if (urlPath === "/api/study-tool" || urlPath === "/api/brief-tool") {
-      const run = urlPath === "/api/study-tool" ? app.studyTool : app.briefTool;
+    const run = { "/api/study-tool": app.studyTool, "/api/brief-tool": app.briefTool, "/api/skill-tool": app.skillTool }[urlPath];
+    if (run) {
       handleAgentCall(apiToken, req, res, async ({ tool, input }) => {
         if (typeof tool !== "string") throw new Error("tool must be a tool name.");
         return run(tool, input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {});

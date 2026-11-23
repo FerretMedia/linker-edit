@@ -58,7 +58,7 @@ export function exampleName(name: string): string {
 }
 
 // Starts with a key, so a file that begins with a line of dashes doesn't lose what is above the next one.
-const FRONT_MATTER = /^\uFEFF?---\r?\n(?=[\w-]+:)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
+export const FRONT_MATTER = /^\uFEFF?---\r?\n(?=[\w-]+:)([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)(?:[ \t]*\r?\n)*/;
 
 /** SKILL.md without its front matter: what people edit in the app and agents read. */
 export const skillBody = (text: string): string => text.replace(FRONT_MATTER, "");
