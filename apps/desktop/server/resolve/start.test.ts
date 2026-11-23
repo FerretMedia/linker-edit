@@ -1,70 +1,133 @@
-import { describe, expect, it } from "vitest";
-import type { ResolveConnection } from "./connection.ts";
-import { startResolve, type StartOptions } from "./start.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startResolve } from "./start.ts";
 import { fakeConnection } from "./testing.ts";
 
-/** A Resolve that answers scripts after `readyAfter` status checks; launching it can fail. */
-function closedResolve({ running = false, readyAfter = 1, launchError = "" } = {}) {
-  let checks = 0;
+const MINUTE = 60_000;
+
+beforeEach(() => void vi.useFakeTimers({ now: 0 }));
+afterEach(() => void vi.useRealTimers());
+
+interface Computer {
+  running?: boolean;
+  scriptServerAt?: number;
+  answersAt?: number;
+  failedLooks?: number[];
+  launchError?: string;
+  hangs?: boolean;
+}
+
+function computer({ running = false, scriptServerAt = 0, answersAt = 0, failedLooks = [], launchError, hangs = false }: Computer = {}) {
   const launches: string[] = [];
-  let closed = 0;
+  const connections: number[] = [];
+  let looks = 0;
+  const connected = () => {
+    connections.push(Date.now());
+    if (Date.now() < answersAt) throw new Error("DaVinci Resolve isn't running.");
+  };
   const { connection } = fakeConnection({
-    tool: (name) => {
-      if (name !== "get_resolve_status") throw new Error(`${name} must not go through the lasting connection.`);
-      return JSON.stringify({ running });
+    tool: () => {
+      connected();
+      return JSON.stringify({ running: true });
     },
     script: () => {
-      checks += 1;
-      if (checks < readyAfter) throw new Error("DaVinci Resolve isn't running.");
+      connected();
+      if (hangs) return new Promise(() => {});
       return { state: "connected", page: null };
     },
   });
-  const launcher = (): ResolveConnection => ({
-    ...connection,
-    callTool: async (name) => {
-      launches.push(name);
-      if (launchError) throw new Error(launchError);
-      return "DaVinci Resolve is running";
-    },
-    close: () => void (closed += 1),
-  });
-  const start = (options: StartOptions = {}) => startResolve(connection, { pollMs: 1, launcher, ...options });
-  return { start, launches, closed: () => closed };
+  const start = async (signal?: AbortSignal) => {
+    const started = startResolve(connection, {
+      signal,
+      processes: async () => {
+        if (failedLooks.includes(looks++)) throw new Error("can't see whether Resolve is running");
+        const resolve = running || launches.length > 0;
+        return { resolve, scriptServer: resolve && Date.now() >= scriptServerAt };
+      },
+      launch: async (resolveMcp) => {
+        launches.push(resolveMcp);
+        if (launchError) throw new Error(launchError);
+      },
+    });
+    const result = started.then(
+      (value) => ({ value, error: undefined, after: Date.now() }),
+      (error: Error) => ({ value: undefined, error: error.message, after: Date.now() }),
+    );
+    await vi.advanceTimersByTimeAsync(5 * MINUTE);
+    return result;
+  };
+  return { start, launches, connections };
 }
 
 describe("startResolve", () => {
-  it("launches Resolve through a connection of its own, and ends that one when Resolve answers", async () => {
-    const { start, launches, closed } = closedResolve({ readyAfter: 3 });
-    expect(await start()).toBe(true);
-    expect(launches).toEqual(["launch_resolve"]);
-    expect(closed()).toBe(1);
+  it.each([
+    ["it launched, once", false, ["ResolveMCP.exe"]],
+    ["the user just started, without launching another", true, []],
+  ])("doesn't connect until the script server has run for 2 seconds, of a Resolve %s", async (_whose, running, launched) => {
+    const { start, launches, connections } = computer({ running, scriptServerAt: 20_000, answersAt: 30_000 });
+    expect(await start()).toMatchObject({ value: !running });
+    expect(launches).toEqual(launched);
+    expect(connections[0]).toBeGreaterThanOrEqual(22_000);
+    expect(connections[0]).toBeLessThan(25_000);
   });
 
-  it("launches nothing when Resolve is running", async () => {
-    const { start, launches } = closedResolve({ running: true });
-    expect(await start()).toBe(false);
+  it("uses a Resolve that's already up without waiting", async () => {
+    const { start, launches } = computer({ running: true });
+    expect(await start()).toEqual({ value: false, after: 0 });
     expect(launches).toEqual([]);
   });
 
-  it("goes on waiting when launch_resolve gives up before Resolve is ready", async () => {
-    const { start } = closedResolve({ readyAfter: 3, launchError: "Timed out after 60s" });
-    expect(await start()).toBe(true);
+  it("connects anyway when it doesn't see a script server within 90 seconds", async () => {
+    const { start, connections } = computer({ scriptServerAt: Infinity });
+    expect(await start()).toMatchObject({ value: true });
+    expect(connections[0]).toBeGreaterThanOrEqual(90_000);
   });
 
-  it("says why when Resolve doesn't come up, and when a running one doesn't answer", async () => {
-    const never = closedResolve({ readyAfter: Infinity, launchError: "Timed out after 60s" });
-    await expect(never.start({ launchTimeoutMs: 0 })).rejects.toThrow("Resolve didn't start in time (Timed out after 60s).");
-    expect(never.closed()).toBe(1);
-    const stuck = closedResolve({ running: true, readyAfter: Infinity });
-    await expect(stuck.start({ runningTimeoutMs: 0 })).rejects.toThrow("doesn't answer");
+  it("launches nothing when it can't see whether Resolve is running", async () => {
+    const { start, launches } = computer({ failedLooks: [0] });
+    expect(await start()).toMatchObject({ error: expect.stringContaining("can't see") });
+    expect(launches).toEqual([]);
   });
 
-  it("stops waiting when the user stops the turn", async () => {
+  it("goes on waiting when a later look fails", async () => {
+    const { start, launches } = computer({ scriptServerAt: 5000, failedLooks: [1, 2] });
+    expect(await start()).toMatchObject({ value: true });
+    expect(launches).toHaveLength(1);
+  });
+
+  it("says why when Resolve can't be launched", async () => {
+    const { start, connections } = computer({ launchError: "Resolve.exe is missing" });
+    expect(await start()).toEqual({ error: "Resolve.exe is missing", after: 0 });
+    expect(connections).toEqual([]);
+  });
+
+  it("gives up after 3 minutes on a Resolve that doesn't come up", async () => {
+    const { error, after } = await computer({ answersAt: Infinity }).start();
+    expect(error).toContain("didn't get ready in time");
+    expect(after).toBeGreaterThanOrEqual(3 * MINUTE);
+  });
+
+  it("gives up after 30 seconds on a Resolve that's up but doesn't answer", async () => {
+    const { error, after } = await computer({ running: true, answersAt: Infinity }).start();
+    expect(error).toContain("doesn't answer");
+    expect(after).toBeGreaterThanOrEqual(30_000);
+    expect(after).toBeLessThan(MINUTE);
+  });
+
+  it.each([
+    ["for the script server", { scriptServerAt: Infinity }],
+    ["for an answer", { answersAt: Infinity }],
+    ["during a call to Resolve", { hangs: true }],
+  ])("stops waiting %s at once when the user stops the turn", async (_what, options) => {
     const controller = new AbortController();
-    const { start, closed } = closedResolve({ readyAfter: Infinity });
-    const waiting = start({ signal: controller.signal, pollMs: 60_000 });
-    controller.abort();
-    await expect(waiting).rejects.toThrow("Stopped");
-    expect(closed()).toBe(1);
+    const { start, launches } = computer(options);
+    setTimeout(() => controller.abort(), 10_500);
+    expect(await start(controller.signal)).toEqual({ error: expect.stringContaining("Stopped"), after: 10_500 });
+    expect(launches).toHaveLength(1);
+  });
+
+  it("launches nothing for a turn that was stopped already", async () => {
+    const { start, launches } = computer();
+    expect(await start(AbortSignal.abort())).toEqual({ error: expect.stringContaining("Stopped"), after: 0 });
+    expect(launches).toEqual([]);
   });
 });

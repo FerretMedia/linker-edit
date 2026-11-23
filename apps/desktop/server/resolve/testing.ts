@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { parseScriptResult, scriptSource, type ResolveConnection } from "./connection.ts";
+import type { StartOptions } from "./start.ts";
 
 export const PYTHON = process.platform === "win32" ? "python" : "python3";
 export const hasPython = spawnSync(PYTHON, ["--version"]).status === 0;
@@ -30,8 +31,7 @@ export function pythonConnection(module: string, env: Record<string, string> = {
   fs.writeFileSync(path.join(dir, "DaVinciResolveScript.py"), module);
   return {
     command: PYTHON,
-    callTool: async (name) => {
-      if (name === "get_resolve_status") return JSON.stringify({ running: true });
+    callTool: async () => {
       throw new Error("pythonConnection only runs scripts.");
     },
     runScript: async <T>(name: string, args?: unknown) => {
@@ -45,6 +45,8 @@ export function pythonConnection(module: string, env: Record<string, string> = {
     close: () => {},
   };
 }
+
+export const RESOLVE_IS_UP: StartOptions = { processes: async () => ({ resolve: true, scriptServer: true }) };
 
 export interface FakeResolve {
   /** A ResolveMCP tool other than run_script; returns its text. */

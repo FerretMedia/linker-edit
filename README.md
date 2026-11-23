@@ -157,7 +157,7 @@ Claude also gets Resolve's own MCP server:
 - **Its `run_script` tool**, as an escape hatch for what Linker-Edit's tools can't do yet. The project is backed up first. With full access a script runs straight away; in Supervised mode it shows Allow/Deny with the full script.
 - **Refused outright, in both modes:** scripts that open, close or switch projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media.
 
-These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Codex gets only the read-only docs tools, because it has no hook to check a script or back the project up first. No agent gets Resolve's `run_script_unsafe` tool, its `launch_resolve` tool (`start_resolve` uses it), or its tools for deleting LUTs.
+These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Codex gets only the read-only docs tools, because it has no hook to check a script or back the project up first. No agent gets Resolve's `run_script_unsafe` tool, its `launch_resolve` tool (`start_resolve` replaces it), or its tools for deleting LUTs.
 
 ## Projects and threads
 

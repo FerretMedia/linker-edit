@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ResolveError } from "./resolve/connection.ts";
-import { fakeConnection, hasPython, pythonConnection } from "./resolve/testing.ts";
+import { fakeConnection, hasPython, pythonConnection, RESOLVE_IS_UP } from "./resolve/testing.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 
 // Stands in for Resolve's scripting module: a Project Manager over folder trees from a JSON file,
@@ -119,7 +119,7 @@ function fakeResolve(state: Record<string, unknown>) {
       ...state,
     }),
   );
-  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }));
+  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }), 1, RESOLVE_IS_UP);
   const calls = () =>
     fs.existsSync(`${stateFile}.log`)
       ? fs
@@ -199,7 +199,6 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     const working = fakeResolve({});
     await expect(working.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
     expect(working.calls()).toEqual([]);
-    // A saved project counts as open, however empty.
     const empty = fakeResolve({ current: ["Promo", "untitled-id"] });
     await expect(empty.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
   });
@@ -227,12 +226,32 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
   });
 });
 
+it("doesn't let an agent leave what a Resolve it just started has open", async () => {
+  vi.useFakeTimers();
+  try {
+    const { connection, scripts } = fakeConnection({
+      script: (name) => (name === "status" ? { state: "connected" } : { project: { name: "Interview", id: "int-id" }, database: null, folder: null }),
+    });
+    let launched = false;
+    const projects = createResolveProjects(connection, 1, {
+      processes: async () => ({ resolve: launched, scriptServer: launched }),
+      launch: async () => void (launched = true),
+    });
+    const opening = projects.open({ kind: "local", name: "Interview", projectId: "int-id" }, {}, { onlyIfIdle: true });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await opening;
+    expect(launched).toBe(true);
+    expect(scripts.at(-1)).toMatchObject({ name: "open_project", args: { onlyIfIdle: true } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 describe("opening a project that takes longer than a script may run", () => {
   it("waits for Resolve to show it open", async () => {
     let polls = 0;
     let opening = false;
     const { connection } = fakeConnection({
-      tool: () => JSON.stringify({ running: true }),
       script: (name) => {
         if (name === "open_project") {
           opening = true;
@@ -242,7 +261,7 @@ describe("opening a project that takes longer than a script may run", () => {
         return { state: "connected", project: polls < 3 ? "Promo" : "Client X", projectId: polls < 3 ? "promo-id" : "cx-id", database: null };
       },
     });
-    const opened = await createResolveProjects(connection, 1).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
+    const opened = await createResolveProjects(connection, 1, RESOLVE_IS_UP).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
     expect(opened).toEqual({ project: { name: "Client X", id: "cx-id" }, database: null, folder: null });
     expect(polls).toBe(3);
   });

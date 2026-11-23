@@ -39,7 +39,10 @@ const RESOLVE_LOOK_WRITES = new Set(["update_dctl", "generate_lut"]);
  */
 export const RUN_SCRIPT = "run_script";
 
-/** Starts Resolve and leaves it at its Project Manager. Agents get Linker-Edit's own start_resolve instead. */
+/**
+ * Starts Resolve and leaves it at its Project Manager, and connecting while Resolve boots can leave it without
+ * scripting until it's restarted. Agents get Linker-Edit's own start_resolve instead.
+ */
 const LAUNCH_RESOLVE = "launch_resolve";
 
 /**
