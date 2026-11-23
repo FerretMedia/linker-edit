@@ -48,7 +48,8 @@ import type { RemoteAccessService } from "./remote.ts";
 import { createResolveWatch } from "./resolve/watch.ts";
 import type { ResolveCheck } from "./resolveStatus.ts";
 import type { OpenOptions, ResolveProjects } from "./resolveProjects.ts";
-import type { SettingsStore } from "./settings.ts";
+import { isAutoSettleDays, type SettingsStore } from "./settings.ts";
+import { AUTO_SETTLE_DAYS } from "../shared/protocol.ts";
 import { APP_TOOLS, findResolveTool, refusedInVisit } from "./resolve/tools.ts";
 import { readOrigins, type Applied } from "./resolve/versions.ts";
 import { LINKER_MCP_NAME, PROJECT_NOTES_FILE, readProjectFile, writeProjectFile } from "./rules.ts";
@@ -174,6 +175,9 @@ export function createApp(options: AppOptions) {
   let approvalMode: ApprovalMode = options.settings?.load().approvalMode ?? "auto";
   let resolve: ResolveStatus = { state: "checking" };
   let resolveHere = options.settings?.load().resolveHere ?? true;
+  // T3 Code's auto-settle: on by default, after a week without activity.
+  const savedAutoSettle = options.settings?.load().autoSettleAfterDays;
+  let autoSettleAfterDays: number | null = savedAutoSettle === undefined ? AUTO_SETTLE_DAYS.default : savedAutoSettle;
   let preview: PreviewState = { state: "idle" };
   // The project the preview is of: other projects' threads see none. Resolve renders one at a time.
   let previewProject: string | null = null;
@@ -640,6 +644,7 @@ export function createApp(options: AppOptions) {
       provider: entry?.thread.provider ?? lastProvider,
       defaultProvider: lastProvider,
       approvalMode,
+      autoSettleAfterDays,
       busy: entry?.thread.busy ?? false,
       approvals: entry?.thread.approvals() ?? [],
       resolve,
@@ -1508,6 +1513,13 @@ export function createApp(options: AppOptions) {
       case "setup_collection":
         if (typeof message.id === "string") openSetup(client, message.id);
         break;
+      case "set_auto_settle":
+        if (message.days !== null && !isAutoSettleDays(message.days)) break;
+        autoSettleAfterDays = message.days;
+        options.settings?.save({ autoSettleAfterDays });
+        settleQuietThreads();
+        sendMeta();
+        break;
       default:
         if (!handleSidebarMessage(message)) handleCollectionMessage(client, message);
     }
@@ -1539,6 +1551,16 @@ export function createApp(options: AppOptions) {
     }
     return true;
   }
+
+  /** Settles every thread that's been quiet longer than the setting; at start, each minute, and when it changes. */
+  function settleQuietThreads(nowMs = Date.now()) {
+    let settled = false;
+    for (const { thread } of threads.values()) settled = thread.autoSettle(nowMs, autoSettleAfterDays) || settled;
+    if (settled) sendMeta();
+  }
+  settleQuietThreads();
+  // Unref'd: it never keeps a server, or a test, from exiting.
+  setInterval(() => settleQuietThreads(), 60_000).unref();
 
   function updateProjectSidebar(projectId: string, changes: ProjectSidebarChanges) {
     const project = projects.get(projectId);

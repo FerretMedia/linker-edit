@@ -381,6 +381,32 @@ export interface LinkerConnect {
   devices: ConnectDevice[];
 }
 
+/**
+ * One of the user's computers in the desktop app's sidebar, like a T3 Code environment: its projects show next to
+ * this computer's, and their threads run there. GET /api/machines lists them, this computer first.
+ */
+export interface Machine {
+  /** "this" for this computer; a Linker Connect computer's id; "tailscale-<host>" for one found over Tailscale only. */
+  id: string;
+  name: string;
+  /** Its Linker-Edit's version; "" when it didn't answer. */
+  version: string;
+  /** How this computer reaches it. */
+  via: "this" | "linker" | "tailscale";
+  /** Whether it answered just now. */
+  online: boolean;
+  /**
+   * Where the page reaches its server, as a path on this computer's server: "" for this computer, "/machines/<id>"
+   * for the others, which this computer's server passes on with its own sign-in (server/machines.ts).
+   */
+  base: string;
+}
+
+/** GET /api/machines. */
+export interface Machines {
+  machines: Machine[];
+}
+
 /** GET /api/computers: this computer's name, and the user's other computers found over Tailscale. */
 export interface Computers {
   name: string;
@@ -450,6 +476,8 @@ export interface AppMeta {
   /** The agent new threads start with. */
   defaultProvider: Provider;
   approvalMode: ApprovalMode;
+  /** This computer's threads settle by themselves after this many days without activity; null never. */
+  autoSettleAfterDays: number | null;
   /** This thread's turn is running. */
   busy: boolean;
   approvals: ApprovalRequest[];
@@ -508,6 +536,8 @@ export type ClientMessage =
   /** The agent new threads start with, without changing the open thread's. */
   | { type: "set_default_provider"; provider: Provider }
   | { type: "set_approval_mode"; mode: ApprovalMode }
+  /** Days between AUTO_SETTLE_DAYS.min and max, or null to never settle threads by themselves. */
+  | { type: "set_auto_settle"; days: number | null }
   | { type: "approve"; id: string; allow: boolean }
   | { type: "refresh_resolve" }
   /** Opens AppMeta.reopen in Resolve again. */
@@ -878,3 +908,6 @@ export type SidebarClientMessage =
   | { type: "snooze_thread"; threadId: string; until: string | null }
   /** read: false marks the last turn unread again. */
   | { type: "mark_read"; threadId: string; read: boolean };
+
+/** Quiet threads settle by themselves after this many days, as in T3 Code; AppMeta.autoSettleAfterDays. */
+export const AUTO_SETTLE_DAYS = { default: 7, min: 1, max: 90 } as const;

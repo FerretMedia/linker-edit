@@ -316,6 +316,7 @@ describe("Linker Connect", () => {
         // Linked for Tailscale only: no address at Linker, so not in the computer menu.
         { id: "den", name: "Den", url: null, tailnetUrl: "https://den.tail1234.ts.net:8443", online: null, linkedAt: "", lastSeenAt: null },
       ],
+      sessionOn: async () => null,
       sessions,
       webOrigins: { allows: async (origin) => origin === WEB },
       probe: async (url) => (url.includes("1111") ? { name: "Office PC", version: "2026.1114.1" } : null),
@@ -665,6 +666,28 @@ describe("Linker Connect", () => {
     const fromWebsite = await request("POST", "/api/connect/open", { origin: "https://evil.example" }, { url: "https://x" });
     expect(fromWebsite.status).toBe(403);
     expect(opened).toEqual(["https://edit-1111111111111111.linker.example"]);
+  });
+
+  it("lists your computers and passes requests on to them only for this computer's own window", async () => {
+    const own = { origin: `http://127.0.0.1:${port}`, "sec-fetch-site": "same-origin" };
+    const list = await request("GET", "/api/machines", own);
+    expect(JSON.parse(list.body).machines).toEqual([
+      { id: "this", name: os.hostname(), version: "0.0.0", via: "this", online: true, base: "" },
+      { id: "office", name: "Office PC", version: "2026.1114.1", via: "linker", online: true, base: "/machines/office" },
+      { id: "away", name: "Away", version: "", via: "linker", online: false, base: "/machines/away" },
+    ]);
+    // Reaching Office needs this computer's Linker sign-in, which the fake doesn't have.
+    expect(JSON.parse((await request("GET", "/machines/office/api/hello", own)).body)).toEqual({
+      error: "Sign in with Linker on this computer to reach Office PC.",
+    });
+    for (const headers of [{ origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }, viaTunnel, viaTailscale]) {
+      expect((await request("GET", "/api/machines", headers)).status).toBe(403);
+      expect((await request("GET", "/machines/office/api/hello", headers)).status).toBe(403);
+    }
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/machines/office/ws`, { origin: "https://evil.example" });
+    const [refused, response] = (await once(socket, "unexpected-response")) as [http.ClientRequest, http.IncomingMessage];
+    expect(response.statusCode).toBe(403);
+    refused.destroy();
   });
 });
 

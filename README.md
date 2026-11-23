@@ -24,7 +24,7 @@ It isn't a new editor or a black-box render service. Your footage, project and t
 - **Edit history.** Every change to your Resolve project is saved to Git with what was asked and what changed, so you can ask the agent what it did, or to undo it.
 - **Preview in the app.** Watch what the agent made beside the chat: a cut preview of it or any earlier version right away, or a full render with color and effects.
 - **Live Resolve status** in the header: whether Resolve is reachable, and which project and timeline are open.
-- **Use it from your other computers.** Over your own Tailscale, the app on a laptop or another PC drives the agents and Resolve on your edit machine. On a computer that only does that, click **Resolve won't be on this computer** under *Setup needed*, or turn off *Resolve is on this computer* in Settings: the setup and the speech engine are left out there.
+- **All your computers in one sidebar.** Like T3 Code, each project lives on one computer, and the sidebar lists the projects of all your computers together, so two threads can work on two edit machines at once. Over Linker Connect or your own Tailscale, a laptop drives the agents and Resolve on your edit machines. On a computer that only does that, click **Resolve won't be on this computer** under *Setup needed*, or turn off *Resolve is on this computer* in Settings: the setup and the speech engine are left out there.
 - **Sign in with Linker, if you like.** Your [Linker](https://linker.cool) account in the sidebar; nothing needs it.
 - **Long chats stay affordable.** A context meter, compaction, chats that survive restarts, and switching between Claude and Codex mid-chat.
 - **Uses the subscriptions you already have.** Linker-Edit drives your logged-in `claude` and `codex` CLIs, with no extra API keys.
@@ -79,7 +79,7 @@ Linker-Edit opens in its own window. Closing the window stops it; `npx linker-ed
 
 ## Configuration
 
-**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files.
+**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, how the sidebar groups and settles threads, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
 
 The defaults work for a standard install. To change where things go, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
 
@@ -161,7 +161,9 @@ These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Cod
 
 ## Projects and threads
 
-A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon next to a project; rename, archive or delete one from its **⋯** menu.
+A **project** is one Resolve project with its own folder: its edit history, `PROJECT.md` (what this video is, kept by the agent), exports, and its **threads**. A thread is one chat with an agent. Start a new one with the pen icon at the top of the sidebar; rename, archive or delete one with a right-click.
+
+The sidebar lists every project's threads together, like T3 Code: **pinned** threads on top, then the **active** ones, newest first. At the bottom are shelves you open and close: **Working** (turns running now; a thread that finishes or asks for an approval goes back to the top), **Snoozed** and **Settled**. Hover a thread to **Settle** it when you're done with it, or to snooze it; the open thread then moves on to the next one. Threads with no activity for a week settle by themselves (Settings → Sidebar: turn it off or pick 1 to 90 days), and writing in a settled thread brings it back. The folder button next to Search lists one project's threads: click a project, Shift+click to add another, **All projects** to list them all again. It also has **Add project**, and each project's pin, settings and right-click menu. Prefer a folder per project? Turn on **Group threads into project folders** in Settings.
 
 Resolve has one project open at a time, so Linker-Edit follows it:
 
@@ -183,14 +185,14 @@ Resolve doesn't have to be running when you send a message. When the task needs 
 
 **Looking at another project:** say "use the same intro as in Promo", and the agent visits that project: Resolve saves yours, opens the other, and the agent reads its timelines, media and frames. Every change is refused there, including scripts. After that, or when the turn ends or you stop it, Resolve goes back to your project. It only visits projects you've added to Linker-Edit, and neither to nor from a Blackmagic Cloud project. To take something along, it exports a timeline there and imports it in your project.
 
-**Adding a project** (the **+** next to Projects):
+**Adding a project** (**Add project** in the folder button's menu). With more than one computer, first choose the one the project is on: its threads run there, with that computer's Resolve. Then:
 
 - **Open in Resolve:** the project Resolve has open now.
 - **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
 - **Cloud:** a Blackmagic Cloud project, by its name. You open it in Resolve's Project Manager yourself, and Linker-Edit picks it up once it's open: [Blackmagic Cloud's terms](https://static.cloud.blackmagicdesign.com/html/terms) don't allow scripts to use the service, so Linker-Edit never opens, creates, uploads or syncs cloud projects. If it's open in Resolve now, use **Open in Resolve** instead.
 - **Folder:** a project folder from another computer, such as a teammate's edit history you cloned.
 
-Folder fields list the folders as you type, like T3 Code's **Add project**. Use ↑/↓ to choose a folder, and Enter or Tab to open it. Enter with no folder chosen picks the path you typed. Project folders are marked **Linker-Edit project**. The folders listed are on the computer running Linker-Edit, even when you use it from another one. In the desktop app on that computer, **Browse…** also opens the system's folder dialog.
+Folder fields list the folders as you type, like T3 Code's **Add project**. Use ↑/↓ to choose a folder, and Enter or Tab to open it. Enter with no folder chosen picks the path you typed. Project folders are marked **Linker-Edit project**. The folders listed are on the project's computer, even when you use it from another one. For a project on the computer in front of you, **Browse…** in the desktop app also opens the system's folder dialog.
 
 A project with no Resolve project yet links itself to the one open in Resolve with its first message. To link it to another one later, open that one in Resolve and use **Project settings**. Projects stay linked when you rename them in Resolve.
 
@@ -298,12 +300,20 @@ Ask for anything that depends on what's said, such as "transcribe the interview 
 - **Languages are detected per clip** by sampling it from start to end, so a clip that opens in English and goes on in Dutch is transcribed as Dutch, with the English parts kept in English. If you know the language, say so in your prompt.
 - **Transcripts in Resolve itself:** ask for it, and the agent uses Resolve's own transcription instead. It stores the transcript on the clip, where you can edit by text. It never adds subtitles to a timeline unless you ask.
 
+## Your computers
+
+The sidebar lists the projects of all your computers, like T3 Code with several environments. A project lives on one computer: its threads run there, with that computer's Resolve, footage and agents, and two threads on two computers can work at the same time. With more than one computer, each thread shows the name of the computer it's on, and a computer icon next to each project in the folder button's menu says which one it's on (hover it for the name).
+
+When a computer is offline, its threads stay in the sidebar, greyed and marked *offline*, as they were when it was last seen. You can't open or change them until it's back. The sidebar's foot shows Resolve and updates of the computer whose thread is open; Settings shows each computer's own.
+
+Your other computers show up through Linker Connect or Tailscale, below.
+
 ## Linker Connect
 
 Open your edit machine from your other computers, from anywhere, with your [Linker](https://linker.cool) account and nothing else to set up. It works like T3 Code's T3 Connect: Resolve, your footage and the agents stay on the edit machine, and your other computers show it live.
 
 1. On the edit machine, sign in with Linker, then turn on **Linker Connect** in Settings → Remote access. It gets its own address, like `https://edit-0123456789abcdef.linker.cool`.
-2. On the other computer, run Linker-Edit, sign in with the **same** Linker account, open the computer menu at the top of the sidebar and pick the edit machine.
+2. On the other computer, run Linker-Edit and sign in with the **same** Linker account. The edit machine's projects show up in its sidebar next to its own.
 
 - **Up to 3 edit computers per Linker account.** The computers you only work from don't count. Unlink one in the same settings to make room.
 - **Only your account gets in.** The edit machine asks Linker who a sign-in belongs to, and only lets in the account it was linked with. Each computer that opened it is listed under *Signed-in devices*, where you can sign it out at once; the iPad app, once it's out, shows there as a *Native app*. A sign-in lasts 30 days. Turning Linker Connect off, or signing out of Linker on the edit machine, signs every device out.
@@ -318,10 +328,10 @@ See [docs/sync-plan.md](docs/sync-plan.md) for how it's built.
 Chat from another computer, such as a laptop on the couch or a PC at the office, while Resolve, your footage and the agents stay on your edit machine. It goes over your own [Tailscale](https://tailscale.com) network, so nothing is opened to the internet.
 
 1. Install Tailscale on both computers and log in to the same account.
-2. On the edit machine, open the computer menu at the top of the sidebar, choose **Remote access…**, then **Turn on** under Tailscale.
-3. On the other computer, run Linker-Edit too, open the same computer menu and pick the edit machine. Everything you send now goes to the edit machine; pick **this computer** to go back.
+2. On the edit machine, open Settings → Remote access, then **Turn on** under Tailscale.
+3. On the other computer, run Linker-Edit too. The edit machine's projects show up in its sidebar next to its own, and their threads run on the edit machine.
 
-Only your own computers show up in that menu, and only once remote access is on and Linker-Edit is running on them. The menu shows each computer's version, and marks one that's behind; open it, and its sidebar offers to restart Linker-Edit there into the new version. The address in the dialog, like `https://studio.tail1234.ts.net:8443`, also works in a browser on your devices, such as a tablet.
+Only your own computers show up, and only once remote access is on and Linker-Edit is running on them. To update one, open its settings (choose it at the top of Settings) and use **About & updates**: it restarts Linker-Edit there into the new version. The address in the dialog, like `https://studio.tail1234.ts.net:8443`, also works in a browser on your devices, such as a tablet.
 
 - **Only your devices get in.** Linker-Edit lets in devices logged in to the Tailscale account that owns the edit machine. Other people on a shared tailnet and tagged devices are turned away.
 - **The first time, Tailscale may ask you to allow it.** If Tailscale Serve or HTTPS certificates are off for your tailnet, the dialog shows Tailscale's link to turn them on. Then click **Turn on** again.
@@ -332,7 +342,7 @@ Only your own computers show up in that menu, and only once remote access is on 
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/FerretMedia/linker-edit/tree/main/apps/web)
 
-Put Linker-Edit on your own free Cloudflare address and open your edit machine from any browser: sign in with Linker, allow the address once, and pick the computer. It goes over Tailscale when it can and through Linker Connect otherwise; see [apps/web](apps/web/README.md).
+Put Linker-Edit on your own free Cloudflare address and use your edit machines from any browser: sign in with Linker, allow the address once, and you're in the app with the projects of all your computers. It reaches each one over Tailscale when it can and through Linker Connect otherwise. **Sign out** is in Settings and at the bottom of the sidebar; see [apps/web](apps/web/README.md).
 
 ## Sign in with Linker
 

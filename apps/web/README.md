@@ -7,7 +7,7 @@ Put Linker-Edit on your own Cloudflare address, open it in any browser, sign in 
 1. Click **Deploy to Cloudflare**. Cloudflare asks you to sign in to Cloudflare and GitHub, copies this folder into a new small repository in your GitHub, and deploys it. There's nothing to fill in.
 2. You get an address like `https://linker-edit-web.<your-name>.workers.dev`. You can add your own domain to it in Cloudflare.
 3. Open it and click **Sign in with Linker**. The first time, Linker asks whether this address may reach your edit computers: **Allow**. Only allow an address you deployed yourself.
-4. Pick one of your edit computers. It needs Linker-Edit running, signed in to the same Linker account, with Linker Connect on (Settings → Remote access).
+4. You're in the app, with the projects of all your edit computers in the sidebar. Each one needs Linker-Edit running, signed in to the same Linker account, with Linker Connect on (Settings → Remote access). A computer that can't be reached shows its projects greyed, as they were when this browser last saw them.
 
 *Prefer a fork?* Fork [FerretMedia/linker-edit](https://github.com/FerretMedia/linker-edit), then in Cloudflare → Workers → **Create** → **Import a repository**, pick your fork and set the root directory to `apps/web`.
 

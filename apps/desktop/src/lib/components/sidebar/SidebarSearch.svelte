@@ -1,7 +1,7 @@
 <script lang="ts">
   // T3 Code's sidebar thread header (apps/web/src/components/sidebar/SidebarThreadHeader.tsx; MIT, see NOTICE):
-  // the search box, then Add project and New thread.
-  import FolderPlus from "@lucide/svelte/icons/folder-plus";
+  // the search box, then the project scope (Add project is in it) and New thread.
+  import type { Snippet } from "svelte";
   import Search from "@lucide/svelte/icons/search";
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import X from "@lucide/svelte/icons/x";
@@ -13,7 +13,7 @@
     resultCount,
     activeResult,
     onKeydown,
-    onAddProject,
+    projectScope,
     onNewThread,
   }: {
     query?: string;
@@ -22,7 +22,8 @@
     resultCount: number;
     activeResult: number;
     onKeydown: (event: KeyboardEvent) => void;
-    onAddProject: () => void;
+    /** T3 Code's Projects button; the sidebar leaves it out until there are projects. */
+    projectScope: Snippet;
     onNewThread: () => void;
   } = $props();
 
@@ -66,11 +67,7 @@
     {/if}
   </div>
   <div class="flex shrink-0 items-center">
-    {#if hasProjects}
-      <button type="button" class={iconButton} aria-label="Add project" title="Add project" onclick={onAddProject}>
-        <FolderPlus />
-      </button>
-    {/if}
+    {@render projectScope()}
     <button type="button" class={iconButton} aria-label="New thread" title="New thread (Ctrl+N)" onclick={onNewThread} disabled={!hasProjects}>
       <SquarePen />
     </button>

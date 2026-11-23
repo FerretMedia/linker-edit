@@ -31,8 +31,9 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
   await expect(page.getByRole("button", { name: "Delete" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Back" }).click();
-  const sidebar = page.getByRole("navigation");
-  await sidebar.getByRole("button", { name: "workspace", exact: true }).click({ button: "right" });
+  // A project's menu is in the Projects menu, as in T3 Code.
+  await page.getByRole("button", { name: "Projects" }).click();
+  await page.getByRole("option", { name: "workspace", exact: true }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Project settings" }).click();
   await page.getByRole("combobox", { name: "Workspace / series" }).selectOption({ label: "Ferret Media / Podcast" });
   await page.getByRole("button", { name: "Save" }).click();
@@ -66,7 +67,7 @@ test("a workspace is set up with AI in a thread of its own, and can be set to wo
   // The setup thread opens behind the settings page, without the panels that need a Resolve project.
   await page.getByRole("button", { name: "Set up with AI" }).click();
   await expect(page.getByRole("heading", { name: "Teach Linker-Edit how Studio North is edited" })).toBeVisible();
-  await expect(page.getByRole("navigation").getByRole("button", { name: "Studio North setup", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Threads" }).getByTestId("sidebar-row-card").filter({ hasText: "Studio North setup" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0);
 
   // It can start from Resolve projects alone. Not sent here: chat.spec.ts has the one turn that may run.

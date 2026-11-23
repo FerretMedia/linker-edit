@@ -12,6 +12,7 @@ import type { LinkerService } from "./linker.ts";
 import type { ConnectService } from "./connect/connect.ts";
 import type { Sessions } from "./connect/sessions.ts";
 import type { WebOrigins } from "./connect/webOrigins.ts";
+import { createMachines } from "./machines.ts";
 import { probeLinkerEdit, requestSource, type Probe, type RemoteGate } from "./remote.ts";
 
 const MIME: Record<string, string> = {
@@ -176,7 +177,7 @@ const noRemote: RemoteRoutes = { gate: () => null, computers: async () => [] };
 export type LinkerRoutes = Pick<LinkerService, "start" | "finish">;
 
 /** Linker Connect (server/connect/connect.ts): this computer's tunnel, and opening your other computers. */
-export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "redeem" | "open" | "others"> & {
+export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "redeem" | "open" | "others" | "sessionOn"> & {
   sessions: Pick<Sessions, "enter" | "check" | "onRevoke" | "ticket" | "checkTicket">;
   /** The web addresses the owner put Linker-Edit's UI on and allowed at Linker (connect/webOrigins.ts). */
   webOrigins?: Pick<WebOrigins, "allows">;
@@ -289,6 +290,23 @@ export function createServer(
     if (bearer !== null) return sessions.check(bearer, "native");
     return (cookie ? sessions.check(cookieValue(req.headers.cookie, SESSION_COOKIE), "cookie") : null) ?? (ticket ? sessions.checkTicket(ticket) : null);
   };
+  // Your other computers, whose projects the window shows next to this one's, reached through this server.
+  const machines = createMachines({
+    name: os.hostname(),
+    version: app.version,
+    linked: async (fresh) => (connect ? connect.others(fresh) : []),
+    tailscale: remote.computers,
+    probe: connect?.probe ?? probeLinkerEdit,
+    sessionOn: async (url, failed) => (connect ? connect.sessionOn(url, failed) : null),
+  });
+  /**
+   * Only this computer's own window may list them and reach them through here. A <video> or <img> sends no Origin,
+   * so another site's page is also told apart by Sec-Fetch-Site.
+   */
+  const fromOwnWindow = (req: http.IncomingMessage) =>
+    sourceOf(req) === "local" &&
+    isAllowedOrigin(req.headers.origin, req.headers.host) &&
+    [undefined, "same-origin", "none"].includes(req.headers["sec-fetch-site"] as string | undefined);
   const server = http.createServer((req, res) => {
     handle(req, res).catch((error: unknown) => {
       console.error(error);
@@ -340,6 +358,15 @@ export function createServer(
     // How the desktop app on the user's other computers, and a page on your own web address, recognize this one.
     if (urlPath === "/api/hello") {
       json(200, { app: "linker-edit", name: os.hostname(), version: app.version, protocol: PROTOCOL_VERSION } satisfies Hello);
+      return;
+    }
+    if (urlPath === "/api/machines" || urlPath.startsWith("/machines/")) {
+      if (!fromOwnWindow(req)) {
+        json(403, { error: "Not allowed." });
+        return;
+      }
+      if (urlPath.startsWith("/machines/")) await machines.proxy(req, res);
+      else json(200, await machines.list(query.get("fresh") === "1"));
       return;
     }
     if (source !== "local" && connect) {
@@ -595,6 +622,15 @@ export function createServer(
   const local = new WebSocketServer({ noServer: true, verifyClient, handleProtocols });
   const fromAfar = new WebSocketServer({ noServer: true, verifyClient, handleProtocols, perMessageDeflate: { threshold: 1024 } });
   server.on("upgrade", (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
+    if ((req.url ?? "/").startsWith("/machines/")) {
+      if (!fromOwnWindow(req)) socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      else
+        machines.upgrade(req, socket, head).catch((error: unknown) => {
+          console.error(error);
+          socket.destroy();
+        });
+      return;
+    }
     if ((req.url ?? "/").split("?")[0] !== "/ws") {
       socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
       return;

@@ -1,6 +1,6 @@
 import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibrarySort, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
-import { host } from "./host.ts";
+import type { Host } from "./host.ts";
 
 export interface Toast {
   id: number;
@@ -11,8 +11,8 @@ export interface Toast {
 const TOAST_MS = 6000;
 const LOST = "Lost the connection to the Linker-Edit server.";
 
-/** One WebSocket to the server, reconnecting; the server owns all state. */
-class ServerConnection {
+/** One WebSocket to a machine's server, reconnecting; the server owns all state. */
+export class ServerConnection {
   state = $state<AppState | null>(null);
   connected = $state(false);
   /** Null until the history panel first asks for it. */
@@ -28,7 +28,13 @@ class ServerConnection {
   onRefused: ((threadId: string, text: string) => void) | null = null;
   /** Web mode: checks the session before connecting again, as a browser hides why a socket was refused. */
   beforeReconnect: (() => Promise<void>) | null = null;
+  /** The first snapshot after each connect, when the server has just picked a thread for this page. */
+  onConnected: ((state: AppState) => void) | null = null;
+  readonly host: Host;
+  /** Only the page's own server: its restart into a new release brought new page code with it. */
+  readonly #reloads: boolean;
   #socket: WebSocket | null = null;
+  #fresh = false;
   /** The server's version when this page connected; a restart into a new release reloads the page. */
   #version: string | null = null;
   #toastId = 0;
@@ -36,12 +42,20 @@ class ServerConnection {
   #folderReplies = new Map<number, (listing: FolderListing | { error: string }) => void>();
   #sortReplies = new Map<number, (sort: LibrarySort | { error: string }) => void>();
 
+  constructor(host: Host, options: { reloads?: boolean } = {}) {
+    this.host = host;
+    this.#reloads = options.reloads ?? false;
+  }
+
   connect() {
     if (this.#socket && this.#socket.readyState !== WebSocket.CLOSED) return;
-    const { url, protocols } = host.ws("/ws?meta=patch");
+    const { url, protocols } = this.host.ws("/ws?meta=patch");
     const socket = new WebSocket(url, protocols);
     this.#socket = socket;
-    socket.onopen = () => (this.connected = true);
+    socket.onopen = () => {
+      this.connected = true;
+      this.#fresh = true;
+    };
     socket.onclose = () => {
       // Closed by disconnect(): nothing to reconnect.
       if (this.#socket !== socket) return;
@@ -70,20 +84,24 @@ class ServerConnection {
       else if (message.type === "toast") this.toast(message.text, message.tone);
       else {
         if (message.type === "snapshot") {
-          // This page's code came from the old version, as when another computer restarted to update. A web
-          // address's page doesn't come from the computer, so reloading wouldn't update it.
-          if (this.#version !== null && message.state.version !== this.#version && !host.web) {
+          // This page's code came from the old version. Another computer's or a web address's page doesn't come
+          // from that computer, so reloading wouldn't update it.
+          if (this.#version !== null && message.state.version !== this.#version && this.#reloads) {
             location.reload();
             return;
           }
           this.#version = message.state.version;
         }
         this.state = applyServerMessage(this.state, message);
+        if (message.type === "snapshot" && this.#fresh && this.state) {
+          this.#fresh = false;
+          this.onConnected?.(this.state);
+        }
       }
     };
   }
 
-  /** Web mode, leaving a computer: closes the socket for good and forgets that computer's state. */
+  /** Leaving a machine: closes the socket for good and forgets its state. */
   disconnect() {
     const socket = this.#socket;
     this.#socket = null;
@@ -140,5 +158,3 @@ class ServerConnection {
     this.#sortReplies.clear();
   }
 }
-
-export const server = new ServerConnection();

@@ -22,6 +22,17 @@ describe("host", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/timeline?id=1", {});
   });
 
+  it("reaches another of the user's computers through this computer's server, which signs in for the page", async () => {
+    const host = new Host("/machines/rig");
+    expect(host.web).toBe(false);
+    // Only this very computer's own folders and Linker sign-in work from here.
+    expect(host.local).toBe(false);
+    expect(host.url("/preview/p.mp4")).toBe("/machines/rig/preview/p.mp4");
+    expect(host.ws("/ws?meta=patch")).toEqual({ url: "ws://127.0.0.1:4317/machines/rig/ws?meta=patch" });
+    await host.api("/api/timeline?id=1");
+    expect(fetchMock).toHaveBeenCalledWith("/machines/rig/api/timeline?id=1", {});
+  });
+
   it("on a web address, is the computer picked, with the session in a header and a subprotocol, never in a URL", async () => {
     const host = new Host();
     host.use({ base: "https://pc.tail1.ts.net:8443", session: "s1" });
