@@ -24,10 +24,10 @@ function computer({ running = false, scriptServerAt = 0, answersAt = 0, failedLo
   let looks = 0;
   const processes = async (): Promise<ResolveProcesses> => {
     if (failedLooks.includes(looks++)) throw new Error("can't see whether Resolve is running");
-    const resolve = running || launches.length > 0;
-    return { resolve, scriptServer: resolve && Date.now() >= scriptServerAt };
+    const resolve = running || launches.length > 0 ? 900 : null;
+    return { resolve, scriptServer: resolve !== null && Date.now() >= scriptServerAt };
   };
-  const boot = createBootGuard(processes);
+  const boot = createBootGuard({ processes, alive: () => true });
   const { connection } = fakeConnection({
     script: async () => {
       const text = await boot.call("run_script", async () => {

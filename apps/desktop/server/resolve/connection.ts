@@ -7,9 +7,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { APP_ROOT } from "../config.ts";
-import { createBootGuard } from "./boot.ts";
+import { createBootGuard, type BootOptions } from "./boot.ts";
 import { MISSING_RESOLVE_MCP } from "./locate.ts";
-import type { ResolveProcesses } from "./program.ts";
 
 /** Resolve's MCP server stops a script after this many seconds, its maximum. */
 export const MAX_SCRIPT_SECONDS = 60;
@@ -89,16 +88,14 @@ interface Pending {
   reject(error: Error): void;
 }
 
-export interface ConnectionOptions {
+export interface ConnectionOptions extends BootOptions {
   command: string | null;
   /** Extra arguments, for tests that run a stand-in server through Node. */
   args?: string[];
-  /** Looks at this computer's processes; tests give their own. */
-  processes?: () => Promise<ResolveProcesses>;
 }
 
-export function createResolveConnection({ command, args = [], processes }: ConnectionOptions): ResolveConnection {
-  const boot = createBootGuard(processes);
+export function createResolveConnection({ command, args = [], processes, alive }: ConnectionOptions): ResolveConnection {
+  const boot = createBootGuard({ processes, alive });
   let child: ChildProcess | null = null;
   let ready: Promise<void> | null = null;
   let nextId = 0;

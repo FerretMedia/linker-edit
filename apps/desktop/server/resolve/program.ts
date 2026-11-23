@@ -4,19 +4,20 @@ import * as path from "node:path";
 import { ResolveError } from "./connection.ts";
 
 export interface ResolveProcesses {
-  resolve: boolean;
+  /** Resolve's process id, or null when it isn't running. */
+  resolve: number | null;
   /** fuscript, which answers scripts. Resolve starts it late in its boot. */
   scriptServer: boolean;
 }
 
 export function parseProcesses(output: string, platform: NodeJS.Platform): ResolveProcesses {
-  const programs =
-    platform === "win32"
-      ? [...output.matchAll(/^"([^"]+)","\d+",/gm)].map((row) => row[1]!)
-      : output.split("\n").flatMap((line) => line.trim() || []);
-  if (!programs.length) throw new Error("no processes listed");
-  const names = new Set(programs.map((program) => path.posix.basename(program).toLowerCase().replace(/\.exe$/, "")));
-  return { resolve: names.has("resolve"), scriptServer: names.has("fuscript") };
+  const rows = platform === "win32" ? /^"(?<program>[^"]+)","(?<pid>\d+)",/gm : /^ *(?<pid>\d+) +(?<program>.*\S)/gm;
+  const pids = new Map<string, number>();
+  for (const { groups } of output.matchAll(rows)) {
+    pids.set(path.posix.basename(groups!.program!).toLowerCase().replace(/\.exe$/, ""), Number(groups!.pid));
+  }
+  if (!pids.size) throw new Error("no processes listed");
+  return { resolve: pids.get("resolve") ?? null, scriptServer: pids.has("fuscript") };
 }
 
 const unavailable = (what: string, error: unknown) =>
@@ -24,7 +25,7 @@ const unavailable = (what: string, error: unknown) =>
 
 export function resolveProcesses(): Promise<ResolveProcesses> {
   // -ww: macOS's ps can cut lines, and Resolve's programs have long paths there.
-  const [command, args] = process.platform === "win32" ? ["tasklist.exe", ["/nh", "/fo", "csv"]] : ["ps", ["-A", "-ww", "-o", "comm="]];
+  const [command, args] = process.platform === "win32" ? ["tasklist.exe", ["/nh", "/fo", "csv"]] : ["ps", ["-A", "-ww", "-o", "pid=,comm="]];
   return new Promise((resolve, reject) => {
     execFile(command, args, { windowsHide: true, timeout: 10_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
       try {
@@ -35,6 +36,14 @@ export function resolveProcesses(): Promise<ResolveProcesses> {
       }
     });
   });
+}
+
+export function isAlive(pid: number): boolean {
+  try {
+    return process.kill(pid, 0);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 export function launchCommand(resolveMcp: string, platform: NodeJS.Platform): { program: string; command: string; args: string[] } {
