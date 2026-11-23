@@ -65,7 +65,8 @@ describe.skipIf(!hasPython)("Resolve scripts", () => {
   it("has a script or a Node handler for every tool", () => {
     for (const tool of RESOLVE_TOOLS) {
       const script = fs.existsSync(path.join(import.meta.dirname, "scripts", `tool_${tool.name}.py`));
-      expect(script || NODE_TOOLS.has(tool.name), tool.name).toBe(true);
+      // start_resolve is the app's: it opens the thread's own project.
+      expect(script || NODE_TOOLS.has(tool.name) || tool.name === "start_resolve", tool.name).toBe(true);
     }
   });
 

@@ -96,9 +96,12 @@ describe("decideToolCall", () => {
     }
   });
 
-  it("lets agents start Resolve, asking only in ask mode", async () => {
-    expect(await decide("mcp__resolve__launch_resolve", {}, "auto")).toEqual({ decision: { allow: true }, asked: [] });
-    expect(await decide("mcp__resolve__launch_resolve", {}, "ask")).toEqual({ decision: { allow: true }, asked: ["mcp__resolve__launch_resolve"] });
+  it("points agents that launch Resolve to start_resolve, in both modes", async () => {
+    for (const mode of ["auto", "ask"] as const) {
+      const { decision, asked } = await decide("mcp__resolve__launch_resolve", {}, mode);
+      expect(decision).toMatchObject({ allow: false, message: expect.stringContaining("start_resolve") });
+      expect(asked).toEqual([]);
+    }
   });
 
   it.each(["run_script_unsafe", "delete_lut", "delete_dctl", "a_tool_from_a_newer_resolve"])(

@@ -117,12 +117,11 @@ describe("Codex session", () => {
   it("gives Codex forward-slash paths, which its --config parsing needs, and only Resolve's read tools", () => {
     const options = codexOptions(testConfig);
     expect(JSON.stringify(options.config)).not.toContain("\\\\");
-    expect(JSON.stringify(options.config)).not.toContain("launch_resolve");
     expect(options.config).toMatchObject({
       mcp_servers: {
         resolve: {
           command: "C:/Program Files/Blackmagic Design/DaVinci Resolve/ResolveMCP.exe",
-          disabled_tools: expect.arrayContaining(["run_script", "run_script_unsafe", "delete_lut"]),
+          disabled_tools: expect.arrayContaining(["launch_resolve", "run_script", "run_script_unsafe", "delete_lut"]),
         },
         linker: { env: { LINKER_EDIT_TOKEN: "test-token" } },
       },

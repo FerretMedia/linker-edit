@@ -208,6 +208,7 @@ describe("app turns", () => {
     let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
     const { app, client, send, turnDone } = setupWith(
       {
+        checkResolve: async () => connected(null),
         resolveTools: (_tool, _input, _dir, signal) => {
           toolSignal = signal;
           return new Promise((resolve) => (finish = () => resolve({ text: "stopped" })));
@@ -271,6 +272,7 @@ describe("app approvals", () => {
     let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
     const { app, client, send, turnDone } = setupWith(
       {
+        checkResolve: async () => connected(null),
         resolveTools: async (tool, input, dir) => {
           ran.push(`${tool} in ${dir}`);
           if (tool === "add_markers") throw new Error("Cut is not an AI timeline.");
@@ -311,6 +313,7 @@ describe("app approvals", () => {
     let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
     const { app, client, send, turnDone } = setupWith(
       {
+        checkResolve: async () => connected(null),
         resolveTools: async (tool) => {
           if (tool === "add_markers") throw new Error("Cut is not an AI timeline.");
           return { text: tool };
@@ -405,6 +408,7 @@ describe("app approvals", () => {
     let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
     const { app, client, send, turnDone } = setupWith(
       {
+        checkResolve: async () => connected(null),
         resolveTools: async (tool) => {
           ran.push(tool);
           return { text: tool };
@@ -975,12 +979,82 @@ describe("app projects", () => {
     expect(store.projects.size).toBe(4);
   });
 
+  describe("a turn that starts Resolve", () => {
+    function closedResolve(project: SavedProject, opensAs: ResolveStatus) {
+      const resolve = resolveWith({ state: "not_running" });
+      const opens: unknown[] = [];
+      const ran: string[] = [];
+      const results: { text: string; isError: boolean }[] = [];
+      const history = fakeHistory();
+      let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+      const harness = setupWith(
+        {
+          store: memoryProjectStore([{ project }]),
+          checkResolve: resolve.checkResolve,
+          history,
+          resolveTools: async (tool) => (ran.push(tool), { text: tool }),
+          backupProject: async () => "backup.drp",
+          resolveProjects: {
+            library: async () => ({ database: null, databases: [], projects: [] }),
+            start: async () => {
+              resolve.current.status = opensAs;
+              return true;
+            },
+            open: async (link, _local, options) => {
+              opens.push([link.name, options?.onlyIfIdle]);
+              resolve.current.status = opensAs;
+              return { project: { name: link.name, id: "int-id" }, database: null, folder: null };
+            },
+          },
+        },
+        async () => {
+          for (const tool of ["create_timeline", "start_resolve", "create_timeline"]) results.push(await call(tool, {}));
+        },
+      );
+      call = harness.app.resolveTool;
+      return { ...harness, opens, ran, results, history };
+    }
+
+    it("opens the thread's own project, saves the user's changes and goes on, without asking in supervised mode", async () => {
+      const { send, client, turnDone, opens, ran, results, history } = closedResolve(linked("Interview", "int-id"), connected("Interview", "int-id"));
+      send({ type: "set_approval_mode", mode: "ask" });
+      send({ type: "send", text: "cut it" });
+      await client.until((state) => state.approvals.length > 0);
+      expect(client.state.approvals).toMatchObject([{ tool: "mcp__linker__create_timeline" }]);
+      expect(history.records).toEqual([undefined]);
+      send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
+      await turnDone();
+      expect(opens).toEqual([["Interview", true]]);
+      expect(results).toEqual([
+        { text: "Resolve isn't running. Start it with start_resolve.", isError: true },
+        { text: 'Resolve is running with "Interview" open.', isError: false },
+        { text: "create_timeline", isError: false },
+      ]);
+      expect(ran).toEqual(["create_timeline"]);
+    });
+
+    it("changes nothing when Resolve ends up with another project, or the folder has none yet", async () => {
+      const other = closedResolve(linked("Interview", "int-id"), connected("Promo", "promo-id"));
+      other.send({ type: "send", text: "cut it" });
+      await other.turnDone();
+      expect(other.results.slice(1).map((result) => result.text)).toEqual(Array(2).fill(expect.stringContaining('Resolve has "Promo" open')));
+
+      const unlinked = closedResolve({ ...workspaceProject }, connected("Promo", "promo-id"));
+      unlinked.send({ type: "send", text: "cut it" });
+      await unlinked.turnDone();
+      expect(unlinked.opens).toEqual([]);
+      expect(unlinked.results.at(-1)).toMatchObject({ isError: true, text: expect.stringContaining("isn't linked") });
+      expect([...other.ran, ...unlinked.ran]).toEqual([]);
+    });
+  });
+
   it("opens a project in Resolve, and says when it couldn't", async () => {
     const resolve = resolveWith(connected("Promo", "promo-id"));
     const opens: string[] = [];
     let fail = false;
     const resolveProjects: AppOptions["resolveProjects"] = {
       library: async () => ({ database: null, databases: [], projects: [] }),
+      start: async () => false,
       open: async (link) => {
         opens.push(link.name);
         if (fail) throw new Error("Resolve couldn't find or open the project.");

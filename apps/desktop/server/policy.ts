@@ -39,25 +39,25 @@ const RESOLVE_LOOK_WRITES = new Set(["update_dctl", "generate_lut"]);
  */
 export const RUN_SCRIPT = "run_script";
 
-/** Starts Resolve when it isn't running. It changes no project, so it's fine for agents. */
-export const LAUNCH_RESOLVE = "launch_resolve";
+/** Starts Resolve and leaves it at its Project Manager. Agents get Linker-Edit's own start_resolve instead. */
+const LAUNCH_RESOLVE = "launch_resolve";
 
 /**
- * Resolve's own MCP tools agents never get: scripts with full system access and deleting LUTs. Unknown
- * tools from a newer Resolve land here too, until they're reviewed.
+ * Resolve's own MCP tools agents never get: launching it, scripts with full system access and deleting
+ * LUTs. Unknown tools from a newer Resolve land here too, until they're reviewed.
  */
 export function isDeniedResolveTool(tool: string): boolean {
-  return !RESOLVE_READS.has(tool) && !RESOLVE_LOOK_WRITES.has(tool) && tool !== RUN_SCRIPT && tool !== LAUNCH_RESOLVE;
+  return !RESOLVE_READS.has(tool) && !RESOLVE_LOOK_WRITES.has(tool) && tool !== RUN_SCRIPT;
 }
 
 /**
  * Codex has no per-call hook to check a script or back the project up first, so it gets only Resolve's
- * read tools and launch_resolve; these are switched off for it.
+ * read tools; these are switched off for it.
  */
-export const CODEX_DISABLED_RESOLVE_TOOLS = ["run_script", "run_script_unsafe", "update_dctl", "generate_lut", "delete_dctl", "delete_lut"];
+export const CODEX_DISABLED_RESOLVE_TOOLS = [LAUNCH_RESOLVE, "run_script", "run_script_unsafe", "update_dctl", "generate_lut", "delete_dctl", "delete_lut"];
 
 /** For Claude's tool list: the tools of Resolve's own MCP server it never gets. */
-export const CLAUDE_DISALLOWED_RESOLVE_TOOLS = ["run_script_unsafe", "delete_dctl", "delete_lut"].map((tool) => `${RESOLVE_PREFIX}${tool}`);
+export const CLAUDE_DISALLOWED_RESOLVE_TOOLS = [LAUNCH_RESOLVE, "run_script_unsafe", "delete_dctl", "delete_lut"].map((tool) => `${RESOLVE_PREFIX}${tool}`);
 
 /** Resolve's own run_script, as agents see it. It changes the project, so the project is backed up first. */
 export const RESOLVE_RUN_SCRIPT = `${RESOLVE_PREFIX}${RUN_SCRIPT}`;
@@ -107,6 +107,8 @@ const FORBIDDEN_CALLS =
 export const FORBIDDEN_SCRIPT =
   "Linker-Edit doesn't let scripts open, close, create or switch Resolve projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media, and scripts may not name those calls or use getattr, eval or exec. Use the linker tools (remove_clips takes clips off an AI timeline), or ask the user to switch projects in Linker-Edit's sidebar.";
 
+const START_INSTEAD = "Use the linker tool start_resolve: it starts Resolve and opens this folder's project.";
+
 export type ToolDecision = { allow: true } | { allow: false; message: string };
 
 /**
@@ -117,6 +119,7 @@ export type ToolDecision = { allow: true } | { allow: false; message: string };
 export function refusal(toolName: string, input: Record<string, unknown>): string | null {
   if (!toolName.startsWith(RESOLVE_PREFIX)) return null;
   const tool = toolName.slice(RESOLVE_PREFIX.length);
+  if (tool === LAUNCH_RESOLVE) return START_INSTEAD;
   if (isDeniedResolveTool(tool)) return `Linker-Edit doesn't let agents use ${tool}.`;
   if (tool === RUN_SCRIPT) {
     // A script that can't be checked doesn't run.

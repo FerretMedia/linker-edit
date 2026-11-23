@@ -47,7 +47,7 @@ describe("parseScriptResult", () => {
     ['{"error": "Traceback (most recent call last):\\n  File \\"<script>\\", line 3\\nRefused: \\"Edit\\" isn\'t an AI timeline."}', "refused", '"Edit" isn\'t an AI timeline.'],
     ['{"error": "Traceback (most recent call last):\\r\\n  ...\\r\\nAttributeError: \'NoneType\' object has no attribute \'GetName\'\\r\\n"}', "error", "AttributeError: 'NoneType' object has no attribute 'GetName'"],
     ['{"error": "Script timed out after 60s. Avoid long iterations; fetch only what you need."}', "timeout", "Script timed out after 60s. Avoid long iterations; fetch only what you need."],
-    ["Error: Resolve is not running", "error", "Error: Resolve is not running"],
+    ["Error: DaVinci Resolve is not running, start it with the `launch_resolve` tool.", "error", "DaVinci Resolve isn't running."],
   ])("turns %s into a %s error", async (text, kind, message) => {
     expect(await failure(Promise.resolve().then(() => parseScriptResult(text)))).toEqual({ kind, message });
   });

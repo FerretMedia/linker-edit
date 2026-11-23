@@ -71,6 +71,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
   let turn: AbortController | null = null;
   // The running turn's sink, for approvals asked outside the provider session, as by the Resolve guard.
   let activeSink: TurnSink | null = null;
+  // Saves what the user changed in Resolve, for a turn that started it only now.
+  let saveUserChanges: (() => Promise<void>) | null = null;
   // Set once the thread is deleted, so a turn that is still winding down can't write into it.
   let disposed = false;
   const approvals = new Map<string, { request: ApprovalRequest; settle: (allow: boolean) => void }>();
@@ -223,7 +225,10 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       if (text === null) {
         await turnSession.compact!(sink, signal);
       } else {
-        if (host.history() && host.resolveConnected()) await saveHistory();
+        saveUserChanges = async () => {
+          if (host.history() && host.resolveConnected()) await saveHistory();
+        };
+        await saveUserChanges();
         if (compactFirst && turnSession.compact && turnSession.resumeId() && !signal.aborted) {
           // A failed compaction shouldn't cost the user their message.
           await turnSession.compact(sink, signal).catch((error: unknown) => {
@@ -246,6 +251,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       if (!signal.aborted) sink.notice(message(error), "error");
     } finally {
       activeSink = null;
+      saveUserChanges = null;
       if (controller.signal.aborted) sink.notice("Stopped.");
       for (const item of items) {
         if (item.kind === "tool" && item.status === "running") sink.upsert({ id: item.id, status: "error" });
@@ -353,6 +359,8 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       activeSink ? activeSink.requestApproval(tool, input) : Promise.resolve(false),
     /** Backs the project up before the running turn's first change; rejects when that fails. */
     backup: (): Promise<void> => activeSink?.backup?.() ?? Promise.reject(new Error("No turn is running.")),
+    /** Saves what the user changed in Resolve before the agent goes on, as at the start of a turn. */
+    saveUserChanges: (): Promise<void> => saveUserChanges?.() ?? Promise.resolve(),
     /** A line in the chat from Linker-Edit itself, such as an approved edit. */
     note(text: string) {
       if (disposed) return;

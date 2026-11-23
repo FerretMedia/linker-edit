@@ -74,6 +74,7 @@ function scriptError(text: string): ResolveError {
   if (/^Script timed out/i.test(trimmed)) return new ResolveError("timeout", trimmed);
   // A traceback's last line names the exception; our own refusals carry a message for people.
   const last = trimmed.split(/\r?\n/).filter((line) => line.trim()).at(-1) ?? trimmed;
+  if (/DaVinci Resolve is not running/.test(last)) return new ResolveError("error", "DaVinci Resolve isn't running.");
   const refused = /^Refused: (.*)$/.exec(last);
   if (refused) return new ResolveError("refused", refused[1]!);
   return new ResolveError("error", last || "Resolve's script failed without saying why.");
@@ -90,9 +91,11 @@ export interface ConnectionOptions {
   command: string | null;
   /** Extra arguments, for tests that run a stand-in server through Node. */
   args?: string[];
+  /** In its own process group, so stopping Linker-Edit's group leaves what it starts running. Windows has none. */
+  ownGroup?: boolean;
 }
 
-export function createResolveConnection({ command, args = [] }: ConnectionOptions): ResolveConnection {
+export function createResolveConnection({ command, args = [], ownGroup = false }: ConnectionOptions): ResolveConnection {
   let child: ChildProcess | null = null;
   let ready: Promise<void> | null = null;
   let nextId = 0;
@@ -139,7 +142,11 @@ export function createResolveConnection({ command, args = [] }: ConnectionOption
   function start(): Promise<void> {
     if (!command) return Promise.reject(new ResolveError("unavailable", MISSING_RESOLVE_MCP));
     ready ??= (async () => {
-      const spawned = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      const spawned = spawn(command, args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        detached: ownGroup && process.platform !== "win32",
+      });
       child = spawned;
       let stderr = "";
       spawned.stderr?.on("data", (chunk: Buffer) => (stderr = (stderr + chunk.toString()).slice(-2000)));

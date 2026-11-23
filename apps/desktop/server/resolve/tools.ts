@@ -23,6 +23,7 @@ export interface ResolveTool {
  * they cost no context in every chat.
  */
 export const CORE_TOOLS = new Set([
+  "start_resolve",
   "resolve_context",
   "list_timelines",
   "get_timeline",
@@ -48,6 +49,13 @@ const itemIds = { type: "array", items: { type: "string" }, description: "Timeli
 const mediaIds = { type: "array", items: { type: "string" }, description: "Media pool item ids, as list_media or get_timeline list them." };
 
 const tools: ResolveTool[] = [
+  {
+    name: "start_resolve",
+    kind: "view",
+    description:
+      "Starts DaVinci Resolve when it isn't running, and opens this folder's project in it. Use it when a tool says Resolve isn't running or sits at its Project Manager. Takes up to a few minutes. It never switches away from another project the user has open.",
+    inputSchema: { type: "object", properties: {} },
+  },
   {
     name: "resolve_context",
     kind: "read",

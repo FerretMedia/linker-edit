@@ -30,7 +30,8 @@ export function pythonConnection(module: string, env: Record<string, string> = {
   fs.writeFileSync(path.join(dir, "DaVinciResolveScript.py"), module);
   return {
     command: PYTHON,
-    callTool: async () => {
+    callTool: async (name) => {
+      if (name === "get_resolve_status") return JSON.stringify({ running: true });
       throw new Error("pythonConnection only runs scripts.");
     },
     runScript: async <T>(name: string, args?: unknown) => {

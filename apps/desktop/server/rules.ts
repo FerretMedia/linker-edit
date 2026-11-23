@@ -19,10 +19,11 @@ Rules:
 4. Never delete media pool items, bins, projects, or files on disk.
 5. After building a timeline, read it back (get_timeline) and summarize what is on it: clips, durations, total length.
 6. When the brief is ambiguous (duration, which clips, tone), ask before building.
-7. If the Resolve tools report that Resolve is unreachable, say so plainly and stop; do not guess at project contents.
-8. Never open, close, create or switch Resolve projects or databases. This working folder belongs to one Resolve project, and the user switches projects in Linker-Edit.
+7. If Resolve isn't running, or sits at its Project Manager, and the task needs it, call start_resolve yourself: it starts Resolve and opens this folder's project. If that fails, or the Resolve tools report that Resolve is unreachable, say so plainly and stop; do not guess at project contents.
+8. Never open, close, create or switch Resolve projects or databases any other way. This working folder belongs to one Resolve project, and the user switches projects in Linker-Edit.
 
 Resolve tools:
+- Start: start_resolve, only when Resolve isn't running or has no project open.
 - Read: resolve_context, list_timelines, get_timeline, list_media, get_clip_properties, get_transcription. Narrow get_timeline and list_media to what you need on long projects.
 - Edit: create_timeline, duplicate_timeline, add_clips, remove_clips, set_clip_properties, add_markers, remove_markers, set_tracks, add_title, set_color, detect_scene_cuts, import_timeline, restore_timeline (a saved version from the edit history), and set_current_timeline to show a timeline.
 - Media pool: import_media, organize_media (bins, clip colors, flags, metadata such as "Comments" for selects), transcribe_in_resolve.

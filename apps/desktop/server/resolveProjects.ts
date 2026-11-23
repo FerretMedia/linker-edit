@@ -1,5 +1,6 @@
 import type { LocalLink, ResolveDatabase, ResolveLibrary, ResolveLink } from "../shared/protocol.ts";
 import { ResolveError, type ResolveConnection } from "./resolve/connection.ts";
+import { startResolve, type StartOptions } from "./resolve/start.ts";
 
 // The scripts are server/resolve/scripts/list_projects.py and open_project.py.
 
@@ -12,17 +13,28 @@ export interface OpenedProject {
 
 export interface ResolveProjects {
   library(): Promise<ResolveLibrary>;
-  /** Saves Resolve's open project, then opens this one. */
-  open(link: ResolveLink, local: LocalLink): Promise<OpenedProject>;
+  /** Starts Resolve when it isn't running, and waits until it answers. True when this started it. */
+  start(signal?: AbortSignal): Promise<boolean>;
+  /** Starts Resolve when it isn't running, saves the project it has open, then opens this one. */
+  open(link: ResolveLink, local: LocalLink, options?: OpenOptions): Promise<OpenedProject>;
+}
+
+export interface OpenOptions {
+  /** Refuse when Resolve was running already with another project open: for agents, which never switch projects. */
+  onlyIfIdle?: boolean;
+  signal?: AbortSignal;
 }
 
 /** How long opening may take: a big project can take minutes to load. */
 const OPEN_TIMEOUT_MS = 5 * 60_000;
 
-export function createResolveProjects(connection: ResolveConnection, pollMs = 3000): ResolveProjects {
+export function createResolveProjects(connection: ResolveConnection, pollMs = 3000, startOptions: StartOptions = {}): ResolveProjects {
+  const start = (signal?: AbortSignal) => startResolve(connection, { ...startOptions, signal });
   return {
+    start,
     library: () => connection.runScript<ResolveLibrary>("list_projects", {}, 60),
-    async open(link, local) {
+    async open(link, local, { onlyIfIdle = false, signal } = {}) {
+      const started = await start(signal);
       try {
         return await connection.runScript<OpenedProject>(
           "open_project",
@@ -32,21 +44,24 @@ export function createResolveProjects(connection: ResolveConnection, pollMs = 30
             projectId: link.projectId,
             database: local.database ?? null,
             folder: local.folder ?? [],
+            // A Resolve that just started may have opened the last project by itself; nobody is working in it.
+            onlyIfIdle: onlyIfIdle && !started,
           },
           60,
         );
       } catch (error) {
         // Scripts stop after 60 seconds, but Resolve goes on opening: wait for the project to show up.
         if (!(error instanceof ResolveError && (error.kind === "timeout" || error.kind === "unavailable"))) throw error;
-        return waitForProject(connection, link, pollMs);
+        return waitForProject(connection, link, pollMs, signal);
       }
     },
   };
 }
 
-async function waitForProject(connection: ResolveConnection, link: ResolveLink, pollMs: number): Promise<OpenedProject> {
+async function waitForProject(connection: ResolveConnection, link: ResolveLink, pollMs: number, signal?: AbortSignal): Promise<OpenedProject> {
   const deadline = Date.now() + OPEN_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error("Stopped while waiting for Resolve.");
     await new Promise((resolve) => setTimeout(resolve, pollMs));
     const status = await connection
       .runScript<{ project: string | null; projectId: string | null; database: ResolveDatabase | null }>("status", {}, 10)

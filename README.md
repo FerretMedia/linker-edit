@@ -131,6 +131,7 @@ Three things keep full access safe:
 Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server. Each tool either reads the project or changes it:
 
 - **Reads** run straight away:
+  - `start_resolve`, which starts Resolve when it isn't running and opens the thread's own project; see [Starting Resolve](#projects-and-threads);
   - looking at the project: `resolve_context`, `list_timelines`, `get_timeline`, `list_media`, `get_clip_properties`, `get_transcription`, `render_options`;
   - looking at footage: `view_frames`, which moves Resolve's playhead and puts it back, and `find_silences`;
   - `export_timeline`, which only writes a file into the project folder;
@@ -148,14 +149,14 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
 The rules are built into the tools, not only into the agent's instructions:
 - they only change timelines named `AI - …`;
 - none of them deletes media, bins or projects;
-- none of them opens another project. You switch projects in Linker-Edit.
+- none of them switches to another project. You do that in Linker-Edit.
 
 Claude also gets Resolve's own MCP server:
-- **Its scripting API and docs**, to look things up, and `launch_resolve` to start Resolve. These run straight away.
+- **Its scripting API and docs**, to look things up. These run straight away.
 - **Its `run_script` tool**, as an escape hatch for what Linker-Edit's tools can't do yet. The project is backed up first. With full access a script runs straight away; in Supervised mode it shows Allow/Deny with the full script.
 - **Refused outright, in both modes:** scripts that open, close or switch projects or databases, delete media, bins, timelines, render jobs or render presets, or replace a clip's media.
 
-These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Codex gets only the read-only docs tools and `launch_resolve`, because it has no hook to check a script or back the project up first. No agent gets Resolve's `run_script_unsafe` tool, or its tools for deleting LUTs.
+These refusals run in a hook that Claude's `bypassPermissions` doesn't skip. Codex gets only the read-only docs tools, because it has no hook to check a script or back the project up first. No agent gets Resolve's `run_script_unsafe` tool, its `launch_resolve` tool (`start_resolve` uses it), or its tools for deleting LUTs.
 
 ## Projects and threads
 
@@ -166,6 +167,16 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 - A thread only runs when its project is the one open in Resolve. When another project is open, the composer says so, and **Open in Resolve** saves the project Resolve has open and opens this one. You can also switch in Resolve yourself.
 - One thread works in Resolve at a time. The others wait until it's done.
 - When Resolve has a project open that isn't in Linker-Edit yet, the sidebar offers to add it.
+
+**Starting Resolve:**
+
+Resolve doesn't have to be running when you send a message. When the task needs it, Claude or Codex starts it on the edit computer with `start_resolve`, waits until it's ready (up to a few minutes), and opens the thread's project. Closing Linker-Edit leaves Resolve running.
+
+- It never switches away from a project you have open. Then it asks you to use **Open in Resolve**.
+- A Blackmagic Cloud project, or a project not linked to Resolve yet, you open in Resolve yourself after it has started.
+- If you stop the turn, Resolve still finishes starting.
+
+**Open in Resolve** starts Resolve too.
 
 **Adding a project** (the **+** next to Projects):
 

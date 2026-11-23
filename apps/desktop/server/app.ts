@@ -45,7 +45,7 @@ import { parseProjectIcon } from "../shared/project-icon.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
-import type { ResolveProjects } from "./resolveProjects.ts";
+import type { OpenOptions, ResolveProjects } from "./resolveProjects.ts";
 import type { SettingsStore } from "./settings.ts";
 import { findResolveTool } from "./resolve/tools.ts";
 import { readOrigins, type Applied } from "./resolve/versions.ts";
@@ -236,7 +236,12 @@ export function createApp(options: AppOptions) {
       createSession: (provider, resumeId) =>
         options.createSession(provider, () => approvalMode, project.saved.dir, resumeId, () => collections.rulesFor(project.saved)),
       history: () => project.history,
-      backup: () => (options.backupProject ? options.backupProject(project.saved.dir) : Promise.resolve(null)),
+      backup: async () => {
+        // Resolve's own run_script comes through here too: the last stop before any change.
+        const refusal = await midTurnRefusal(project);
+        if (refusal) throw new Error(refusal);
+        return options.backupProject ? options.backupProject(project.saved.dir) : null;
+      },
       claim() {
         if (resolveBusy()) return false;
         turnOwner = saved.id;
@@ -333,6 +338,46 @@ export function createApp(options: AppOptions) {
     if (!open || project.saved.link) return { notice: null };
     setLink(project, linkFromOpen(open), `Link to Resolve project "${open.name}"`);
     return { notice: `Linked this project to the Resolve project "${open.name}" in ${describeLibrary(project.saved.link!, open)}.` };
+  }
+
+  /**
+   * Why a running turn can't use Resolve now; null when it can. A turn may start while Resolve is closed, so
+   * which project it has open is checked once it's there.
+   */
+  async function midTurnRefusal(project: ProjectState): Promise<string | null> {
+    if (project.saved.setup) return null;
+    if (!openProject(resolve)) await refreshResolve();
+    if (resolve.state === "not_running") return "Resolve isn't running. Start it with start_resolve.";
+    if (resolve.state === "blocked") {
+      return `${resolve.hint} If Resolve sits at its Project Manager, start_resolve opens this folder's project.`;
+    }
+    const open = openProject(resolve);
+    // Only a message links a folder to the project open in Resolve, never an agent halfway through a turn.
+    if (open && !project.saved.link) {
+      return `This folder isn't linked to a Resolve project yet. Ask the user to send a message while the project they want is open in Resolve: now that's "${open.name}".`;
+    }
+    return projectRefusal(project);
+  }
+
+  /** The start_resolve tool: starts Resolve and opens the thread's own project, never another one. */
+  async function startResolve(thread: Thread, project: ProjectState, signal: AbortSignal | undefined): Promise<string> {
+    if (!options.resolveProjects) throw new Error("Linker-Edit can't start Resolve here.");
+    const { link } = project.saved;
+    if (!link) {
+      await options.resolveProjects.start(signal);
+      await refreshResolve();
+      return "Resolve is running, but this folder isn't linked to a Resolve project yet. Ask the user to open or create the project in Resolve and send a message: that links it.";
+    }
+    try {
+      await openLinked(project, link, { onlyIfIdle: true, signal });
+    } finally {
+      await refreshResolve();
+    }
+    const refusal = projectRefusal(project);
+    if (refusal) throw new Error(refusal);
+    // The turn began without Resolve, so the user's own changes are saved now, before the agent's.
+    await thread.saveUserChanges();
+    return `Resolve is running with "${project.saved.link?.name}" open.`;
   }
 
   function describeLibrary(link: ResolveLink, open: OpenProject): string {
@@ -788,6 +833,16 @@ export function createApp(options: AppOptions) {
     sendMeta();
   }
 
+  async function openLinked(project: ProjectState, link: ResolveLink, openOptions?: OpenOptions) {
+    const opened = await options.resolveProjects!.open(link, project.saved.local, openOptions);
+    const open: OpenProject = { name: opened.project.name, id: opened.project.id, database: opened.database };
+    if (link.projectId && open.id && link.projectId !== open.id) {
+      throw new Error(`Resolve opened a different project named "${open.name}" than the one this project is linked to.`);
+    }
+    const next = refreshedLink(link, project.saved.local, open);
+    setLink(project, { ...next, local: opened.folder ? { ...next.local, folder: opened.folder } : next.local }, `Link to Resolve project "${open.name}"`);
+  }
+
   async function openInResolve(client: Client, projectId: string) {
     const project = projects.get(projectId);
     const link = project?.saved.link;
@@ -799,14 +854,7 @@ export function createApp(options: AppOptions) {
     opening = projectId;
     sendMeta();
     try {
-      const opened = await options.resolveProjects.open(link, project.saved.local);
-      const open: OpenProject = { name: opened.project.name, id: opened.project.id, database: opened.database };
-      if (link.projectId && open.id && link.projectId !== open.id) {
-        toast(client, `Resolve opened a different project named "${open.name}" than the one this project is linked to.`);
-      } else {
-        const next = refreshedLink(link, project.saved.local, open);
-        setLink(project, { ...next, local: opened.folder ? { ...next.local, folder: opened.folder } : next.local }, `Link to Resolve project "${open.name}"`);
-      }
+      await openLinked(project, link);
     } catch (error) {
       toast(client, `Couldn't open "${link.name}" in Resolve: ${errorText(error)}`);
     } finally {
@@ -1369,11 +1417,17 @@ export function createApp(options: AppOptions) {
       const turn = runningTurn();
       if ("refusal" in turn) return { text: turn.refusal, isError: true };
       if (projects.get(turn.projectId)?.saved.setup && !usesNoResolve(tool, input)) return { text: SETUP_REFUSAL, isError: true };
-      if (definition.kind === "write") {
-        const refusal = await allowChange(turn.thread, tool, input);
-        if (refusal) return { text: refusal, isError: true };
-      }
+      const project = projects.get(turn.projectId)!;
       try {
+        if (tool === "start_resolve") {
+          return { text: await holdingResolve(() => startResolve(turn.thread, project, turn.signal)), isError: false };
+        }
+        const wrong = usesNoResolve(tool, input) ? null : await midTurnRefusal(project);
+        if (wrong) return { text: wrong, isError: true };
+        if (definition.kind === "write") {
+          const refusal = await allowChange(turn.thread, tool, input);
+          if (refusal) return { text: refusal, isError: true };
+        }
         return { ...(await holdingResolve(() => run(tool, input, turn.dir, turn.signal))), isError: false };
       } catch (error) {
         return { text: errorText(error), isError: true };
