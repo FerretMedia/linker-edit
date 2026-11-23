@@ -1,14 +1,10 @@
-// Starts DaVinci Resolve and waits until it answers scripts. Resolve's script server quits when a client
-// connects before Resolve itself did; Resolve retries once, and after that never answers scripts until it's
-// restarted. So nothing connects until the script server has run for a moment. That's also why this doesn't
-// use ResolveMCP's launch_resolve, which keeps connecting while Resolve boots.
+// Starts DaVinci Resolve and waits until it answers scripts. The connection doesn't connect while Resolve boots
+// (boot.ts); ResolveMCP's launch_resolve does, so this doesn't use it.
 import { ResolveError, type ResolveConnection } from "./connection.ts";
 import { MISSING_RESOLVE_MCP } from "./locate.ts";
 import { launchResolve, resolveProcesses, type ResolveProcesses } from "./program.ts";
 
 const POLL_MS = 1000;
-const SETTLE_MS = 2000;
-const CONNECT_ANYWAY_MS = 90_000;
 const START_TIMEOUT_MS = 3 * 60_000;
 const UP_TIMEOUT_MS = 30_000;
 
@@ -41,21 +37,7 @@ export async function startResolve(connection: ResolveConnection, options: Start
   const first = await unlessStopped(processes());
   if (!first.resolve) await unlessStopped(launch(command));
 
-  // The script server may have appeared just now, but nearly always Resolve has been up for long, and Open in
-  // Resolve shouldn't wait on that chance every time.
-  const up = first.resolve && first.scriptServer;
-  const begun = Date.now();
-  if (!up) {
-    let seenAt: number | null = null;
-    while (Date.now() - begun < CONNECT_ANYWAY_MS) {
-      const scriptServer = await unlessStopped(processes().then((seen) => seen.scriptServer, () => false));
-      seenAt = scriptServer ? (seenAt ?? Date.now()) : null;
-      if (seenAt !== null && Date.now() - seenAt >= SETTLE_MS) break;
-      await pause();
-    }
-  }
-
-  const deadline = begun + (up ? UP_TIMEOUT_MS : START_TIMEOUT_MS);
+  const deadline = Date.now() + (first.resolve && first.scriptServer ? UP_TIMEOUT_MS : START_TIMEOUT_MS);
   while (!(await unlessStopped(answers(connection)))) {
     if (Date.now() >= deadline) {
       throw new ResolveError(
