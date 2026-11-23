@@ -7,19 +7,13 @@ import { MISSING_RESOLVE_MCP } from "./locate.ts";
 import { launchResolve, resolveProcesses, type ResolveProcesses } from "./program.ts";
 
 const POLL_MS = 1000;
-/** How long the script server runs before something may connect to it. */
 const SETTLE_MS = 2000;
-/** Then something connects anyway: the script server's name is unverified on macOS and Linux. */
-const SCRIPT_SERVER_TIMEOUT_MS = 90_000;
-/** A slow computer or a big database needs long. */
+const CONNECT_ANYWAY_MS = 90_000;
 const START_TIMEOUT_MS = 3 * 60_000;
-/** A Resolve that was up already should answer soon, unless a dialog is up. */
 const UP_TIMEOUT_MS = 30_000;
 
 export interface StartOptions {
-  /** Aborts when the user stops the turn. Resolve goes on starting; only the waiting stops. */
   signal?: AbortSignal;
-  /** This computer's processes and how to start Resolve; tests pass their own. */
   processes?: () => Promise<ResolveProcesses>;
   launch?: (resolveMcp: string) => Promise<void>;
 }
@@ -30,7 +24,6 @@ const answers = (connection: ResolveConnection) =>
     () => false,
   );
 
-/** Starts Resolve when it isn't running, and waits until it answers. True when this started it. */
 export async function startResolve(connection: ResolveConnection, options: StartOptions = {}): Promise<boolean> {
   const { signal, processes = resolveProcesses, launch = launchResolve } = options;
   const { command } = connection;
@@ -48,13 +41,13 @@ export async function startResolve(connection: ResolveConnection, options: Start
   const first = await unlessStopped(processes());
   if (!first.resolve) await unlessStopped(launch(command));
 
-  // With both there at the first look, the script server may have appeared just now, but nearly always it's a
-  // Resolve that has been up for long, and Open in Resolve shouldn't wait on that chance every time.
+  // The script server may have appeared just now, but nearly always Resolve has been up for long, and Open in
+  // Resolve shouldn't wait on that chance every time.
   const up = first.resolve && first.scriptServer;
   const begun = Date.now();
   if (!up) {
     let seenAt: number | null = null;
-    while (Date.now() - begun < SCRIPT_SERVER_TIMEOUT_MS) {
+    while (Date.now() - begun < CONNECT_ANYWAY_MS) {
       const scriptServer = await unlessStopped(processes().then((seen) => seen.scriptServer, () => false));
       seenAt = scriptServer ? (seenAt ?? Date.now()) : null;
       if (seenAt !== null && Date.now() - seenAt >= SETTLE_MS) break;

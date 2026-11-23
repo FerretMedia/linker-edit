@@ -46,7 +46,6 @@ export function pythonConnection(module: string, env: Record<string, string> = {
   };
 }
 
-/** A computer where Resolve is up, so starting it looks at no real processes. */
 export const RESOLVE_IS_UP: StartOptions = { processes: async () => ({ resolve: true, scriptServer: true }) };
 
 export interface FakeResolve {

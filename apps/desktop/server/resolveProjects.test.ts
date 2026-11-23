@@ -198,7 +198,6 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     const working = fakeResolve({});
     await expect(working.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
     expect(working.calls()).toEqual([]);
-    // A saved project counts as open, however empty.
     const empty = fakeResolve({ current: ["Promo", "untitled-id"] });
     await expect(empty.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
   });

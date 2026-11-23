@@ -7,15 +7,12 @@ const MINUTE = 60_000;
 beforeEach(() => void vi.useFakeTimers({ now: 0 }));
 afterEach(() => void vi.useRealTimers());
 
-/** What a computer does after startResolve begins, in milliseconds from then; Infinity is never. */
 interface Computer {
   running?: boolean;
   scriptServerAt?: number;
   answersAt?: number;
-  /** Looks at the process list that fail, by number from 0. */
   failedLooks?: number[];
   launchError?: string;
-  /** Scripts never end. */
   hangs?: boolean;
 }
 

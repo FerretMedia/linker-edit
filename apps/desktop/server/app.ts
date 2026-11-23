@@ -340,10 +340,6 @@ export function createApp(options: AppOptions) {
     return { notice: `Linked this project to the Resolve project "${open.name}" in ${describeLibrary(project.saved.link!, open)}.` };
   }
 
-  /**
-   * Why a running turn can't use Resolve now; null when it can. A turn may start while Resolve is closed, so
-   * which project it has open is checked once it's there.
-   */
   async function midTurnRefusal(project: ProjectState): Promise<string | null> {
     if (project.saved.setup) return null;
     if (!openProject(resolve)) await refreshResolve();
@@ -359,7 +355,6 @@ export function createApp(options: AppOptions) {
     return projectRefusal(project);
   }
 
-  /** The start_resolve tool: starts Resolve and opens the thread's own project, never another one. */
   async function startResolve(thread: Thread, project: ProjectState, signal: AbortSignal | undefined): Promise<string> {
     if (!options.resolveProjects) throw new Error("Linker-Edit can't start Resolve here.");
     const { link } = project.saved;
