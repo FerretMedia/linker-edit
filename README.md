@@ -132,6 +132,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
 
 - **Reads** run straight away:
   - `start_resolve`, which starts Resolve when it isn't running and opens the thread's own project; see [Starting Resolve](#projects-and-threads);
+  - `list_projects`, `visit_project` and `end_visit`, to look at your other projects;
   - looking at the project: `resolve_context`, `list_timelines`, `get_timeline`, `list_media`, `get_clip_properties`, `get_transcription`, `render_options`;
   - looking at footage: `view_frames`, which moves Resolve's playhead and puts it back, and `find_silences`;
   - `export_timeline`, which only writes a file into the project folder;
@@ -149,7 +150,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
 The rules are built into the tools, not only into the agent's instructions:
 - they only change timelines named `AI - …`;
 - none of them deletes media, bins or projects;
-- none of them switches to another project. You do that in Linker-Edit.
+- an agent only ever changes its own thread's project. Others it can visit, read only; see [Projects and threads](#projects-and-threads).
 
 Claude also gets Resolve's own MCP server:
 - **Its scripting API and docs**, to look things up. These run straight away.
@@ -164,7 +165,9 @@ A **project** is one Resolve project with its own folder: its edit history, `PRO
 
 Resolve has one project open at a time, so Linker-Edit follows it:
 
-- A thread only runs when its project is the one open in Resolve. When another project is open, the composer says so, and **Open in Resolve** saves the project Resolve has open and opens this one. You can also switch in Resolve yourself.
+- A thread only changes its own project. When Resolve has another one open, sending a message saves that one and opens the thread's project, and **Open it again** brings the other one back. **Open in Resolve** switches without a message. A Blackmagic Cloud project you open in Resolve yourself.
+- **You're asked first when you may be working in the open project.** Resolve doesn't say whether a project was changed, so Linker-Edit watches it: when the page, the playhead, the timeline or its clips changed in the last 15 minutes, or the project was just opened, you get **Save and switch** or **Not now**. In Supervised mode you're always asked. What it can't see are changes that leave those alone, such as a grade.
+- It never leaves a project that is rendering, or one with work in it that was never saved.
 - One thread works in Resolve at a time. The others wait until it's done.
 - When Resolve has a project open that isn't in Linker-Edit yet, the sidebar offers to add it.
 
@@ -172,11 +175,13 @@ Resolve has one project open at a time, so Linker-Edit follows it:
 
 Resolve doesn't have to be running when you send a message. When the task needs it, Claude or Codex starts it on the edit computer with `start_resolve`, waits until it's ready (up to a few minutes), and opens the thread's project. Closing Linker-Edit leaves Resolve running.
 
-- It never switches away from a project you have open. Then it asks you to use **Open in Resolve**.
+- With another project open, the same questions are asked as when you send a message.
 - A Blackmagic Cloud project, or a project not linked to Resolve yet, you open in Resolve yourself after it has started.
 - If you stop the turn, Resolve still finishes starting.
 
 **Open in Resolve** starts Resolve too.
+
+**Looking at another project:** say "use the same intro as in Promo", and the agent visits that project: Resolve saves yours, opens the other, and the agent reads its timelines, media and frames. Every change is refused there, including scripts. After that, or when the turn ends or you stop it, Resolve goes back to your project. It only visits projects you've added to Linker-Edit, and neither to nor from a Blackmagic Cloud project. To take something along, it exports a timeline there and imports it in your project.
 
 **Adding a project** (the **+** next to Projects):
 

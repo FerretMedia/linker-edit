@@ -19,15 +19,18 @@ const unreachable = (detail: string): ResolveStatus => ({
 /** What status.py returns. */
 type Probe = { state: string; page?: string | null } & Record<string, unknown>;
 
-export function statusFromProbe(probe: Probe | null): ResolveStatus {
+/** A status check, with what status.py says about whether the user is working; see resolve/watch.ts. */
+export type ResolveCheck = ResolveStatus & { activity?: string };
+
+export function statusFromProbe(probe: Probe | null): ResolveCheck {
   if (probe?.state !== "connected") return unreachable("Resolve's scripting isn't reachable");
   const { page, ...status } = probe;
   // No page means Resolve is on the Project Manager or behind a modal dialog.
   if (page === null || page === undefined) return { state: "blocked", hint: BLOCKED_HINT };
-  return { projectId: null, database: null, ...status } as unknown as ResolveStatus;
+  return { projectId: null, database: null, ...status } as unknown as ResolveCheck;
 }
 
-export async function checkResolve(connection: ResolveConnection): Promise<ResolveStatus> {
+export async function checkResolve(connection: ResolveConnection): Promise<ResolveCheck> {
   if (!connection.command) return { state: "setup_needed", hint: MISSING_RESOLVE_MCP };
   let running: boolean;
   try {

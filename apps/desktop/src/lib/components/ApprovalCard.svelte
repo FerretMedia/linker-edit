@@ -1,13 +1,15 @@
 <script lang="ts">
+  import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import type { ApprovalRequest } from "#shared/protocol.ts";
-  import { approvalDetail, briefRequest, isResolveTool, lineDiff, toolLabel } from "#lib/labels.ts";
+  import { approvalDetail, briefRequest, isResolveTool, lineDiff, switchRequest, toolLabel } from "#lib/labels.ts";
 
   let { request, onAnswer }: { request: ApprovalRequest; onAnswer: (allow: boolean) => void } = $props();
 
   // A change to the brief reads as what it is: new rules against the old, or a lesson next to the user's words.
   const brief = $derived(briefRequest(request.tool, request.input));
+  const leaving = $derived(switchRequest(request.tool, request.input));
   const diff = $derived(brief?.kind === "rules" ? lineDiff(brief.was, brief.rules) : []);
   const LINE = { same: "text-muted-foreground", added: "bg-success/10 text-foreground", removed: "bg-destructive/10 text-muted-foreground line-through" };
   const MARK = { same: " ", added: "+", removed: "−" };
@@ -48,6 +50,17 @@
         ? "Decline it if this isn't what you meant. You can remove a lesson later in Settings."
         : "Every edit in it follows these. You can change them later in Settings."}
     </p>
+  {:else if leaving}
+    <div class="flex items-center gap-2 text-sm">
+      <ArrowLeftRight class="size-4 shrink-0 text-warning" />
+      <span class="min-w-0 flex-1">
+        Open <span class="font-medium">{leaving.wants}</span> in Resolve?
+      </span>
+    </div>
+    <p class="mt-2 ms-6 text-sm text-muted-foreground select-text">
+      {leaving.why || `Resolve has "${leaving.open}" open.`}
+      "{leaving.open}" is saved first.
+    </p>
   {:else}
     <div class="flex items-center gap-2 text-sm">
       <ShieldAlert class="size-4 shrink-0 text-warning" />
@@ -68,14 +81,14 @@
       class="h-7 rounded-md border px-3 text-xs font-medium transition-colors hover:bg-accent"
       onclick={() => onAnswer(false)}
     >
-      {brief ? "Decline" : "Deny"}
+      {leaving ? "Not now" : brief ? "Decline" : "Deny"}
     </button>
     <button
       type="button"
       class="h-7 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
       onclick={() => onAnswer(true)}
     >
-      {brief ? "Accept" : "Allow"}
+      {leaving ? "Save and switch" : brief ? "Accept" : "Allow"}
     </button>
   </div>
 </div>

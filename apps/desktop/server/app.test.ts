@@ -3,6 +3,8 @@ import { applyServerMessage } from "../src/lib/appState.ts";
 import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
+import { QUIET_MS } from "./resolve/watch.ts";
+import type { ResolveCheck } from "./resolveStatus.ts";
 import { NEW_THREAD_SIDEBAR, type SavedProject, type SavedThread } from "./projects/store.ts";
 import { memoryProjectStore, workspaceProject } from "./projects/testing.ts";
 import type { PreviewEvent, PreviewRenderer } from "./preview/preview.ts";
@@ -1045,6 +1047,172 @@ describe("app projects", () => {
       expect(unlinked.opens).toEqual([]);
       expect(unlinked.results.at(-1)).toMatchObject({ isError: true, text: expect.stringContaining("isn't linked") });
       expect([...other.ran, ...unlinked.ran]).toEqual([]);
+    });
+  });
+
+  describe("with another project open in Resolve", () => {
+    /** Interview's thread while Resolve has Promo open; what Resolve has moves with what Linker-Edit opens. */
+    function twoProjects(projects: SavedProject[], script: (call: App["resolveTool"], sink: TurnSink) => Promise<void> = async () => {}) {
+      const ids: Record<string, string> = { Interview: "int-id", Promo: "promo-id", Doc: "doc-id" };
+      const current: { status: ResolveCheck } = { status: { ...connected("Promo", "promo-id"), activity: "a" } };
+      const opens: string[] = [];
+      const ran: string[] = [];
+      const history = fakeHistory();
+      let call: App["resolveTool"] = () => Promise.reject(new Error("No app yet"));
+      const open = (name: string) => (current.status = { ...connected(name, ids[name]!), activity: "a" });
+      const harness = setupWith(
+        {
+          store: memoryProjectStore(projects.map((project) => ({ project }))),
+          checkResolve: async () => current.status,
+          history,
+          resolveTools: async (tool) => (ran.push(`${tool} in ${(current.status as { project?: string }).project}`), { text: tool }),
+          backupProject: async () => "backup.drp",
+          resolveProjects: {
+            library: async () => ({ database: null, databases: [], projects: [] }),
+            start: async () => false,
+            open: async (link) => {
+              opens.push(link.name);
+              open(link.name);
+              return { project: { name: link.name, id: ids[link.name]! }, database: { type: "Disk", name: "Local Database" }, folder: null };
+            },
+          },
+        },
+        ...Array.from({ length: 3 }, (): Script => (sink) => script(call, sink)),
+      );
+      call = harness.app.resolveTool;
+      return { ...harness, current, open, opens, ran, history };
+    }
+
+    const interview = linked("Interview", "int-id");
+    const promo = linked("Promo", "promo-id");
+
+    it("asks before leaving one the user may be working in, with full access too, and stays when they say no", async () => {
+      const { app, client, send, turnDone, opens, prompts } = twoProjects([interview]);
+      await app.refreshResolve();
+      expect(client.state.blocked).toMatchObject({ canSend: true, canOpen: true });
+      send({ type: "send", text: "cut it" });
+      await client.until((state) => state.approvals.length > 0);
+      expect(client.state.approvals[0]).toMatchObject({ tool: "mcp__linker__switch_project", input: { open: "Promo", wants: "Interview", why: expect.stringContaining("may be working") } });
+      // Full access doesn't answer it.
+      send({ type: "set_approval_mode", mode: "ask" });
+      send({ type: "set_approval_mode", mode: "auto" });
+      expect(client.state.approvals).toHaveLength(1);
+      send({ type: "approve", id: client.state.approvals[0]!.id, allow: false });
+      await client.until(() => client.refused.length > 0);
+      expect(client.refused).toEqual(["cut it"]);
+      expect([opens, prompts]).toEqual([[], []]);
+
+      send({ type: "send", text: "cut it" });
+      await client.until((state) => state.approvals.length > 0);
+      send({ type: "approve", id: client.state.approvals[0]!.id, allow: true });
+      await client.until((state) => state.items.length > 0);
+      await turnDone();
+      expect(prompts).toEqual(["cut it"]);
+      expect(client.state.items.filter((item) => item.kind === "notice")[0]).toMatchObject({ text: 'Saved "Promo" and opened "Interview" in Resolve.' });
+
+      // And back with one click.
+      expect(client.state.reopen).toBe("Promo");
+      await app.refreshResolve();
+      send({ type: "reopen_previous" });
+      await client.until((state) => state.reopen === null && state.resolve.state === "connected" && state.resolve.project === "Promo");
+      expect(opens).toEqual(["Interview", "Promo"]);
+    });
+
+    it("switches without asking when nothing moved for a while, and still asks in supervised mode", async () => {
+      const now = vi.spyOn(Date, "now");
+      try {
+        const { app, client, send, turnDone, open, opens } = twoProjects([interview]);
+        await app.refreshResolve();
+        now.mockReturnValue(new Date().getTime() + QUIET_MS);
+        send({ type: "send", text: "cut it" });
+        await client.until((state) => state.items.length > 0);
+        await turnDone();
+        expect(opens).toEqual(["Interview"]);
+
+        open("Promo");
+        await app.refreshResolve();
+        now.mockReturnValue(new Date().getTime() + 3 * QUIET_MS);
+        send({ type: "set_approval_mode", mode: "ask" });
+        send({ type: "send", text: "again" });
+        await client.until((state) => state.approvals.length > 0);
+        send({ type: "stop" });
+        await client.until(() => client.refused.length > 0);
+        expect(opens).toEqual(["Interview"]);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it("visits another project read only and is back in its own before the turn's save", async () => {
+      const results: { text: string; isError: boolean }[] = [];
+      let backBeforeSave = "";
+      const { app, client, send, turnDone, open, opens, ran, history } = twoProjects([interview, promo], async (call, sink) => {
+        // A change, so the turn ends with a save.
+        sink.upsert({ id: "t1", kind: "tool", name: "mcp__linker__create_timeline", input: { name: "X" }, status: "done" });
+        for (const [tool, input] of [
+          ["list_projects", {}],
+          ["visit_project", { project: "Nope" }],
+          ["visit_project", { project: "Promo" }],
+          ["list_timelines", {}],
+          ["create_timeline", { name: "X" }],
+          ["set_current_timeline", {}],
+          ["start_resolve", {}],
+          ["end_visit", {}],
+          ["list_timelines", {}],
+          ["visit_project", { project: "Promo" }],
+        ] as const) results.push(await call(tool, input));
+      });
+      open("Interview");
+      await app.refreshResolve();
+      const record = history.record;
+      history.record = (turn) => ((backBeforeSave = opens.at(-1) ?? ""), record(turn));
+      send({ type: "send", text: "same intro as Promo" });
+      await client.until((state) => state.items.length > 0);
+      await turnDone();
+      expect(JSON.parse(results[0]!.text)).toEqual({ projects: [{ name: "Interview", open: true }, { name: "Promo" }] });
+      expect(results.map((result) => result.isError)).toEqual([false, true, false, false, true, true, true, false, false, false]);
+      expect(ran).toEqual(["list_timelines in Promo", "list_timelines in Interview"]);
+      // The last visit was left open by the agent.
+      expect(opens).toEqual(["Promo", "Interview", "Promo", "Interview"]);
+      expect(backBeforeSave).toBe("Interview");
+      expect(client.state.resolve).toMatchObject({ project: "Interview" });
+    });
+
+    it("comes back when the user stops the turn", async () => {
+      let visited = () => {};
+      const visiting = new Promise<void>((resolve) => (visited = resolve));
+      const { app, send, client, turnDone, open, opens } = twoProjects([interview, promo], async (call) => {
+        await call("visit_project", { project: "Promo" });
+        visited();
+      });
+      open("Interview");
+      await app.refreshResolve();
+      send({ type: "send", text: "look at Promo" });
+      await visiting;
+      send({ type: "stop" });
+      await turnDone();
+      expect(opens).toEqual(["Promo", "Interview"]);
+      expect(client.state.resolve).toMatchObject({ project: "Interview" });
+    });
+
+    it("doesn't visit from or to a Blackmagic Cloud project, which no script may open", async () => {
+      const results: { text: string; isError: boolean }[] = [];
+      const cloud = { ...linked("Doc", "doc-id"), link: { kind: "cloud", name: "Doc", projectId: "doc-id" } } as SavedProject;
+      const visit = (project: string) => async (call: App["resolveTool"]) => void results.push(await call("visit_project", { project }));
+      const to = twoProjects([interview, cloud], visit("Doc"));
+      to.open("Interview");
+      await to.app.refreshResolve();
+      to.send({ type: "send", text: "look" });
+      await to.client.until((state) => state.items.length > 0);
+      await to.turnDone();
+      const from = twoProjects([cloud, promo], visit("Promo"));
+      from.open("Doc");
+      await from.app.refreshResolve();
+      from.send({ type: "send", text: "look" });
+      await from.client.until((state) => state.items.length > 0);
+      await from.turnDone();
+      expect(results).toEqual(Array(2).fill({ text: expect.stringContaining("Blackmagic Cloud"), isError: true }));
+      expect([...to.opens, ...from.opens]).toEqual([]);
     });
   });
 
