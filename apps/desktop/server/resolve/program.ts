@@ -1,0 +1,91 @@
+// DaVinci Resolve as a program on this computer: whether it runs, and starting it. Nothing here connects to it.
+import { execFile, spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { ResolveError } from "./connection.ts";
+
+export interface ResolveProcesses {
+  resolve: boolean;
+  /** fuscript, which answers scripts. Resolve starts it late in its boot. */
+  scriptServer: boolean;
+}
+
+/** Reads `tasklist /nh /fo csv` on Windows and `ps -o comm=` elsewhere. Throws when it lists no processes at all. */
+export function parseProcesses(output: string, platform: NodeJS.Platform): ResolveProcesses {
+  const programs =
+    platform === "win32"
+      ? [...output.matchAll(/^"([^"]+)","\d+",/gm)].map((row) => row[1]!)
+      : output.split("\n").flatMap((line) => line.trim() || []);
+  if (!programs.length) throw new Error("no processes listed");
+  const names = new Set(programs.map((program) => path.posix.basename(program).toLowerCase().replace(/\.exe$/, "")));
+  return { resolve: names.has("resolve"), scriptServer: names.has("fuscript") };
+}
+
+const unavailable = (what: string, error: unknown) =>
+  new ResolveError("unavailable", `${what} (${error instanceof Error ? error.message : String(error)}). Start Resolve yourself, then try again.`);
+
+export function resolveProcesses(): Promise<ResolveProcesses> {
+  // -ww: macOS's ps can cut lines, and Resolve's programs have long paths there.
+  const [command, args] = process.platform === "win32" ? ["tasklist.exe", ["/nh", "/fo", "csv"]] : ["ps", ["-A", "-ww", "-o", "comm="]];
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { windowsHide: true, timeout: 10_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) => {
+      try {
+        if (error) throw error;
+        resolve(parseProcesses(stdout, process.platform));
+      } catch (problem) {
+        reject(unavailable("Linker-Edit can't see whether Resolve is running", problem));
+      }
+    });
+  });
+}
+
+/** What to run to start Resolve, from where its ResolveMCP is; `program` is Resolve itself. */
+export function launchCommand(resolveMcp: string, platform: NodeJS.Platform): { program: string; command: string; args: string[] } {
+  if (platform === "win32") {
+    const program = path.win32.join(path.win32.dirname(resolveMcp), "Resolve.exe");
+    // Through a cmd that ends at once: quitting the app ends every process under the server with taskkill /T,
+    // and a Resolve with unsaved work must not be one of them.
+    return { program, command: "cmd.exe", args: ["/d", "/s", "/c", `"start "" "${program}""`] };
+  }
+  if (platform === "darwin") {
+    // ResolveMCP is in the app's Contents/Applications.
+    const program = path.posix.join(resolveMcp, "../../..");
+    return { program, command: "open", args: [program] };
+  }
+  const program = path.posix.join(path.posix.dirname(resolveMcp), "resolve");
+  return { program, command: program, args: [] };
+}
+
+/** Without what only the server should see: Resolve's workflow integrations are Electron apps themselves. */
+export function launchEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !/^(ELECTRON_RUN_AS_NODE$|LINKER_EDIT_)/i.test(name)));
+}
+
+/** Starts Resolve so that it outlives Linker-Edit, without waiting until it's up. */
+export async function launchResolve(resolveMcp: string): Promise<void> {
+  const { program, command, args } = launchCommand(resolveMcp, process.platform);
+  if (!fs.existsSync(program)) {
+    throw new ResolveError("unavailable", `Linker-Edit can't start Resolve: ${program} is missing. Start Resolve yourself, then try again.`);
+  }
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, {
+        stdio: "ignore",
+        windowsHide: true,
+        windowsVerbatimArguments: true,
+        // Its own process group on Linux: quitting the app ends the server's group.
+        detached: process.platform !== "win32",
+        // Not the server's folder, which Resolve would keep in use.
+        cwd: path.dirname(program),
+        env: launchEnv(process.env),
+      });
+      child.on("error", reject);
+      // On Linux this is Resolve itself; elsewhere it's what starts Resolve, and it ends at once.
+      if (command === program) child.on("spawn", resolve);
+      else child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${command} stopped with exit code ${code}`))));
+      child.unref();
+    });
+  } catch (error) {
+    throw unavailable("Linker-Edit couldn't start Resolve", error);
+  }
+}
