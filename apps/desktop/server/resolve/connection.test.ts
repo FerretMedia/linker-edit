@@ -1,15 +1,33 @@
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createResolveConnection, parseScriptResult, ResolveError, scriptSource, type ResolveConnection } from "./connection.ts";
+import type { ResolveProcesses } from "./program.ts";
 
 const FAKE = path.join(import.meta.dirname, "fixtures", "fakeResolveMcp.mjs");
+const CLOSED: ResolveProcesses = { resolve: null, scriptServer: false };
+const BOOTING: ResolveProcesses = { resolve: 900, scriptServer: false };
+const UP: ResolveProcesses = { resolve: 900, scriptServer: true };
 const open: ResolveConnection[] = [];
+
+/** A connection on a computer with these processes; "unseen" is a look that fails. */
+function on(processes: ResolveProcesses | "unseen", server: { command: string | null; args?: string[] } = { command: process.execPath, args: [FAKE] }) {
+  const computer = { processes, looks: 0 };
+  const connection = createResolveConnection({
+    ...server,
+    processes: async () => {
+      computer.looks += 1;
+      if (computer.processes === "unseen") throw new Error("can't see whether Resolve is running");
+      return computer.processes;
+    },
+    alive: (pid) => computer.processes !== "unseen" && computer.processes.resolve === pid,
+  });
+  open.push(connection);
+  return { computer, connection };
+}
 
 function connect(env: Record<string, string> = {}) {
   Object.assign(process.env, env);
-  const connection = createResolveConnection({ command: process.execPath, args: [FAKE] });
-  open.push(connection);
-  return connection;
+  return on(CLOSED).connection;
 }
 
 afterEach(() => {
@@ -83,9 +101,128 @@ describe("createResolveConnection", () => {
   });
 
   it("says when Resolve has no MCP server, or one without run_script", async () => {
-    const missing = createResolveConnection({ command: null });
+    const missing = on(BOOTING, { command: null }).connection;
     expect(await failure(missing.runScript("status"))).toMatchObject({ kind: "unavailable", message: expect.stringContaining("21.1.2") });
     const old = connect({ FAKE_NO_RUN_SCRIPT: "1" });
     expect(await failure(old.runScript("status"))).toMatchObject({ kind: "unavailable", message: expect.stringContaining("no run_script") });
+  });
+});
+
+describe("the boot guard", () => {
+  // Only the guard's waiting is fake; the MCP server is a real process.
+  beforeEach(() => void vi.useFakeTimers({ now: 0, toFake: ["setTimeout", "clearTimeout", "Date"] }));
+  afterEach(() => void vi.useRealTimers());
+
+  const NOT_RUNNING = { kind: "error", message: "DaVinci Resolve isn't running." };
+  const run = (connection: ResolveConnection, script: string) => connection.callTool("run_script", { script }, 300);
+  const blocked = async (connection: ResolveConnection) => expect(await failure(run(connection, ""))).toEqual(NOT_RUNNING);
+  async function after<T>(ms: number, call: Promise<T>): Promise<T> {
+    call.catch(() => {});
+    await vi.advanceTimersByTimeAsync(ms);
+    return call;
+  }
+
+  it("starts no MCP server while Resolve boots, and answers as if Resolve isn't running", async () => {
+    // Starting this one would fail with another message.
+    const { connection } = on(BOOTING, { command: "/no such folder/ResolveMCP" });
+    expect(JSON.parse(await connection.callTool("get_resolve_status"))).toEqual({ running: false });
+    await blocked(connection);
+  });
+
+  it("makes no call to a running MCP server while Resolve boots", async () => {
+    const { computer, connection } = on(CLOSED);
+    const { pid } = await status(connection);
+    await run(connection, "CLOSED");
+    computer.processes = BOOTING;
+    await blocked(connection);
+    expect(JSON.parse(await connection.callTool("get_resolve_status"))).toEqual({ running: false });
+    computer.processes = UP;
+    expect(await after(2000, status(connection))).toMatchObject({ pid, calls: 2 });
+  });
+
+  it("connects when the script server is still there after 2 seconds", async () => {
+    const { computer, connection } = on(UP);
+    const call = status(connection);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(computer.looks).toBe(1);
+    expect(await after(1, call)).toMatchObject({ calls: 1 });
+  });
+
+  it("doesn't connect when the script server is gone after 2 seconds", async () => {
+    const { computer, connection } = on(UP);
+    const call = blocked(connection);
+    await vi.advanceTimersByTimeAsync(1999);
+    computer.processes = BOOTING;
+    await after(1, call);
+  });
+
+  it("connects when the script server has been missing for 90 seconds, anew each time it vanishes", async () => {
+    const { computer, connection } = on(BOOTING);
+    await blocked(connection);
+    await vi.advanceTimersByTimeAsync(80_000);
+    computer.processes = UP;
+    const call = blocked(connection);
+    await vi.advanceTimersByTimeAsync(1999);
+    computer.processes = BOOTING;
+    await after(1, call);
+    await vi.advanceTimersByTimeAsync(89_999);
+    await blocked(connection);
+    await vi.advanceTimersByTimeAsync(1);
+    await run(connection, "");
+  });
+
+  it("connects when it can't look, unless it just saw Resolve boot", async () => {
+    const { computer, connection } = on("unseen");
+    await run(connection, "");
+    await run(connection, "CLOSED");
+    computer.processes = BOOTING;
+    await blocked(connection);
+    computer.processes = "unseen";
+    await blocked(connection);
+    await vi.advanceTimersByTimeAsync(90_000);
+    await run(connection, "");
+  });
+
+  it.each([
+    ["a result", (connection: ResolveConnection) => run(connection, "")],
+    ["a refusal", (connection: ResolveConnection) => run(connection, "ERROR")],
+    ["running", (connection: ResolveConnection) => connection.callTool("get_resolve_status")],
+  ])("doesn't look again after Resolve answered with %s", async (_answer, answered) => {
+    const { computer, connection } = on(UP);
+    await after(2000, answered(connection));
+    computer.looks = 0;
+    await run(connection, "");
+    await run(connection, "");
+    expect(computer.looks).toBe(0);
+  });
+
+  it.each([
+    ["isn't running", (connection: ResolveConnection) => connection.callTool("get_resolve_status", { running: false })],
+    ["isn't running for a script", (connection: ResolveConnection) => run(connection, "CLOSED")],
+    ["runs out of time", (connection: ResolveConnection) => run(connection, "SLOW")],
+    ["doesn't answer", (connection: ResolveConnection) => after(300, failure(run(connection, "HANG")))],
+    ["loses its MCP server", (connection: ResolveConnection) => failure(run(connection, "DIE"))],
+  ])("looks again when Resolve %s", async (_what, unanswered) => {
+    const { computer, connection } = on(UP);
+    await after(2000, status(connection));
+    await unanswered(connection);
+    computer.processes = BOOTING;
+    await blocked(connection);
+  });
+
+  it("doesn't connect to a Resolve that was restarted since it answered", async () => {
+    const { computer, connection } = on(UP);
+    await after(2000, status(connection));
+    computer.processes = { resolve: 901, scriptServer: false };
+    await blocked(connection);
+  });
+
+  it("gives a Resolve that was restarted without a script server its own 90 seconds", async () => {
+    const { computer, connection } = on(BOOTING);
+    await blocked(connection);
+    await vi.advanceTimersByTimeAsync(90_000);
+    await run(connection, "CLOSED");
+    computer.processes = { resolve: 901, scriptServer: false };
+    await blocked(connection);
   });
 });

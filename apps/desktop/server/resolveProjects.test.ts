@@ -234,7 +234,7 @@ it("doesn't let an agent leave what a Resolve it just started has open", async (
     });
     let launched = false;
     const projects = createResolveProjects(connection, 1, {
-      processes: async () => ({ resolve: launched, scriptServer: launched }),
+      processes: async () => ({ resolve: launched ? 900 : null, scriptServer: launched }),
       launch: async () => void (launched = true),
     });
     const opening = projects.open({ kind: "local", name: "Interview", projectId: "int-id" }, {}, { onlyIfIdle: true });

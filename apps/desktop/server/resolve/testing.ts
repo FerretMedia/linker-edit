@@ -46,7 +46,7 @@ export function pythonConnection(module: string, env: Record<string, string> = {
   };
 }
 
-export const RESOLVE_IS_UP: StartOptions = { processes: async () => ({ resolve: true, scriptServer: true }) };
+export const RESOLVE_IS_UP: StartOptions = { processes: async () => ({ resolve: 900, scriptServer: true }) };
 
 export interface FakeResolve {
   /** A ResolveMCP tool other than run_script; returns its text. */

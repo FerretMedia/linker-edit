@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createBootGuard } from "./boot.ts";
+import type { ResolveProcesses } from "./program.ts";
 import { startResolve } from "./start.ts";
 import { fakeConnection } from "./testing.ts";
 
@@ -20,29 +22,27 @@ function computer({ running = false, scriptServerAt = 0, answersAt = 0, failedLo
   const launches: string[] = [];
   const connections: number[] = [];
   let looks = 0;
-  const connected = () => {
-    connections.push(Date.now());
-    if (Date.now() < answersAt) throw new Error("DaVinci Resolve isn't running.");
+  const processes = async (): Promise<ResolveProcesses> => {
+    if (failedLooks.includes(looks++)) throw new Error("can't see whether Resolve is running");
+    const resolve = running || launches.length > 0 ? 900 : null;
+    return { resolve, scriptServer: resolve !== null && Date.now() >= scriptServerAt };
   };
+  const boot = createBootGuard({ processes, alive: () => true });
   const { connection } = fakeConnection({
-    tool: () => {
-      connected();
-      return JSON.stringify({ running: true });
-    },
-    script: () => {
-      connected();
-      if (hangs) return new Promise(() => {});
-      return { state: "connected", page: null };
+    script: async () => {
+      const text = await boot.call("run_script", async () => {
+        connections.push(Date.now());
+        if (Date.now() < answersAt) throw new Error("DaVinci Resolve isn't running.");
+        if (hangs) return new Promise(() => {});
+        return JSON.stringify({ state: "connected", page: null });
+      });
+      return JSON.parse(text) as unknown;
     },
   });
   const start = async (signal?: AbortSignal) => {
     const started = startResolve(connection, {
       signal,
-      processes: async () => {
-        if (failedLooks.includes(looks++)) throw new Error("can't see whether Resolve is running");
-        const resolve = running || launches.length > 0;
-        return { resolve, scriptServer: resolve && Date.now() >= scriptServerAt };
-      },
+      processes,
       launch: async (resolveMcp) => {
         launches.push(resolveMcp);
         if (launchError) throw new Error(launchError);
@@ -70,16 +70,10 @@ describe("startResolve", () => {
     expect(connections[0]).toBeLessThan(25_000);
   });
 
-  it("uses a Resolve that's already up without waiting", async () => {
+  it("uses a Resolve that's already up, without launching another", async () => {
     const { start, launches } = computer({ running: true });
-    expect(await start()).toEqual({ value: false, after: 0 });
+    expect(await start()).toMatchObject({ value: false, after: 2000 });
     expect(launches).toEqual([]);
-  });
-
-  it("connects anyway when it doesn't see a script server within 90 seconds", async () => {
-    const { start, connections } = computer({ scriptServerAt: Infinity });
-    expect(await start()).toMatchObject({ value: true });
-    expect(connections[0]).toBeGreaterThanOrEqual(90_000);
   });
 
   it("launches nothing when it can't see whether Resolve is running", async () => {
@@ -89,9 +83,10 @@ describe("startResolve", () => {
   });
 
   it("goes on waiting when a later look fails", async () => {
-    const { start, launches } = computer({ scriptServerAt: 5000, failedLooks: [1, 2] });
+    const { start, launches, connections } = computer({ scriptServerAt: 5000, failedLooks: [2, 3] });
     expect(await start()).toMatchObject({ value: true });
     expect(launches).toHaveLength(1);
+    expect(connections[0]).toBeGreaterThanOrEqual(7000);
   });
 
   it("says why when Resolve can't be launched", async () => {
