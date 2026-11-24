@@ -3,7 +3,7 @@ import type { ClipChange, CollectionKind, Provider, ResolveLink } from "#shared/
 // Resolve's own MCP server, and Linker-Edit's, whose tools work in Resolve except the ones named here.
 const RESOLVE_PREFIX = "mcp__resolve__";
 const LINKER_PREFIX = "mcp__linker__";
-const NOT_RESOLVE = new Set(["transcribe", "study_media", "compare_cut", "save_brief", "add_lesson", "save_example"]);
+const NOT_RESOLVE = new Set(["transcribe", "study_media", "compare_cut", "save_brief", "add_lesson", "save_example", "read_skill"]);
 
 export const PROVIDER_LABEL: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 

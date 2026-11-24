@@ -138,6 +138,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - `export_timeline`, which only writes a file into the project folder;
   - `set_current_timeline`, which only changes which timeline Resolve shows;
   - `library_search`, which only looks in your library;
+  - `read_skill`, which only reads [skills](#skills);
   - `study_media` and `compare_cut`, which only measure and transcribe video files.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
   - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
@@ -279,6 +280,18 @@ The agent reads the three files from the most general to the most specific, and 
 - Lessons are listed under the rules in Settings, each with the words it came from, and you can remove any of them. Settings also shows how many rounds of feedback each approved edit took, so you can see whether the rules work.
 
 What it can't do: it sees still frames, not motion, and it can't hear. It knows how loud a video is and where it's quiet, not whether a song fits. So formats driven by speech (talking head, interview, podcast, reels cut from longer talk) work best.
+
+### Skills
+
+A skill says how one kind of work is done, such as color grading. The agent sees a list of them and reads one when the work needs it, so they don't fill every chat. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
+
+```
+~/LinkerEdit/skills/color-grading/SKILL.md                     for all your projects, with or without a brand
+~/LinkerEdit/collections/ferret-media/skills/color-grading/    for a workspace
+~/LinkerEdit/collections/reels/skills/color-grading/           for a series
+```
+
+Skills of the same name add up. The agent reads all of them, and the most specific one wins where they disagree, so a series' skill only says what is different. The `description` in its front matter tells the agent what work it is for.
 
 ## Library
 

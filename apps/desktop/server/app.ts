@@ -28,6 +28,7 @@ import type { AppUpdates } from "./appUpdate.ts";
 import { createCollections } from "./collections/collections.ts";
 import type { CollectionStore } from "./collections/store.ts";
 import { memoryCollectionStore } from "./collections/testing.ts";
+import { READ_SKILL, readSkill, type SkillRoot } from "./skills/skills.ts";
 import { ADD_LESSON, isBriefTool, SAVE_BRIEF, SAVE_EXAMPLE } from "./collections/tools.ts";
 import { isStudyTool, type StudyService } from "./study/study.ts";
 import { browseFolders, expandHome } from "./folders.ts";
@@ -81,6 +82,8 @@ export interface AppOptions {
   prepareFolder?: (dir: string, rules: string) => void;
   /** Workspaces and series; kept in memory only without it. */
   collections?: CollectionStore;
+  /** Skills every project gets, most general first. */
+  skills?: SkillRoot[];
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
   resolveTools?: (
     tool: string,
@@ -208,6 +211,7 @@ export function createApp(options: AppOptions) {
   const clients = new Map<Client, { threadId: string | null }>();
   const collections = createCollections({
     store: options.collections ?? memoryCollectionStore(),
+    skills: options.skills ?? [],
     projects: () => [...projects.values()].map((project) => project.saved),
     setCollection(projectId, collection, commitMessage) {
       const project = projects.get(projectId);
@@ -1336,6 +1340,19 @@ export function createApp(options: AppOptions) {
     }
   }
 
+  /** The agents' skills, for the project of the running turn. */
+  async function skillTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+    if (tool !== READ_SKILL) return { text: `There is no skill tool called ${tool}.`, isError: true };
+    const turn = runningTurn();
+    if ("refusal" in turn) return { text: "No Linker-Edit turn is running, so there is no project to read skills for.", isError: true };
+    try {
+      const roots = collections.skillRoots(projects.get(turn.projectId)!.saved);
+      return { text: readSkill(roots, String(input.name ?? ""), typeof input.file === "string" ? input.file : undefined), isError: false };
+    } catch (error) {
+      return { text: errorText(error), isError: true };
+    }
+  }
+
   /** A workspace's or series' setup thread: its newest one, in a project made for it on first use. */
   function openSetup(client: Client, collectionId: string) {
     const collection = collections.get(collectionId);
@@ -1650,6 +1667,7 @@ export function createApp(options: AppOptions) {
     libraryTool,
     studyTool,
     briefTool,
+    skillTool,
     /** A library file for the library page to play, or null when it isn't one; see library/serve.ts. */
     libraryFile: (folderId: string, rel: string) => libraryFile(allLibraryFolders(), folderId, rel),
     /** Rescans every library folder, so files added or changed while the app was closed show up. */

@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AppState, ClientMessage, ServerMessage } from "../../shared/protocol.ts";
 import { applyServerMessage } from "../../src/lib/appState.ts";
@@ -18,10 +21,14 @@ function setup(...scripts: Script[]) {
   const prompts: string[] = [];
   const rules: string[] = [];
   const resolveCalls: string[] = [];
+  const skills = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-skills-"));
+  fs.mkdirSync(path.join(skills, "sound"));
+  fs.writeFileSync(path.join(skills, "sound", "SKILL.md"), "Under speech.");
   const app: App = createApp({
     version: "0.0.0",
     store: projects,
     collections,
+    skills: [{ label: "Linker-Edit", dir: skills }],
     createSession: (_provider, _mode, _dir, _resumeId, projectRules) => ({
       send: async (text) => {
         prompts.push(text);
@@ -187,7 +194,7 @@ describe("learning from feedback", () => {
     send({ type: "send", text: "next" });
     await client.until((current) => rules.length === 2 && !current.busy);
     expect(rules[1]).toContain("- Intro at most 3 seconds.");
-    expect(rules[1]!.endsWith(LEARNING_RULES)).toBe(true);
+    expect(rules[1]).toContain(LEARNING_RULES);
     send({ type: "remove_lesson", id: byName("Reels").id, lessonId: byName("Reels").lessons[0]!.id });
     expect(byName("Reels").lessons).toEqual([]);
   });
@@ -201,6 +208,22 @@ describe("learning from feedback", () => {
     send({ type: "send", text: "hi" });
     await turnDone();
     expect(replies[0]).toMatchObject({ isError: true, text: expect.stringMatching(/isn't in a workspace or series/) });
+  });
+
+  it("reads a skill for the running turn's project, without asking in Supervised, and for no one else", async () => {
+    const replies: { text: string; isError: boolean }[] = [];
+    const { app, client, send, turnDone } = await inSeries(async (running) => {
+      for (const name of ["sound", "gone"]) replies.push(await running.skillTool("read_skill", { name }));
+    });
+    send({ type: "set_approval_mode", mode: "ask" });
+    expect(await app.skillTool("read_skill", { name: "sound" })).toMatchObject({ isError: true });
+    send({ type: "send", text: "add music" });
+    await turnDone();
+    expect(replies).toEqual([
+      { text: expect.stringMatching(/^## Linker-Edit \(.+\)\n\nUnder speech\.$/), isError: false },
+      { text: 'There is no skill "gone". There are: sound.', isError: true },
+    ]);
+    expect(client.state.approvals).toEqual([]);
   });
 
   it("tells the agent to work on its own only where that is switched on", async () => {
