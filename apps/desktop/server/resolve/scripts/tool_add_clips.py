@@ -10,9 +10,9 @@ if not clips:
     raise Refused("Pass at least one clip in clips.")
 media = dict(zip([str(c.get("media")) for c in clips], find_media([c.get("media") for c in clips])))
 first = call(t, "GetStartFrame")
-early = [c["start"] for c in clips if c.get("start") is not None and first is not None and float(c["start"]) < first]
+early = [s for s in (float(c["start"]) for c in clips if c.get("start") is not None) if first is not None and s < first]
 if early:
-    raise Refused(f"A clip can't start at frame {early[0]:g}: this timeline's first frame is {first}. Nothing was added.")
+    raise Refused(f"A clip can't start at frame {early[0]:.12g}: this timeline's first frame is {first}. Nothing was added.")
 infos = []
 for clip in clips:
     kind = clip.get("type") or "both"
