@@ -229,7 +229,7 @@ const tools: ResolveTool[] = [
     name: "set_clip_properties",
     kind: "write",
     description:
-      'Sets clip properties on an AI timeline\'s clips, by Resolve\'s names: Pan, Tilt, ZoomX, ZoomY, Opacity, RotationAngle, CropLeft/Right/Top/Bottom, FlipX, FlipY, CompositeMode, Speed, Volume and more (get_scripting_docs section "Looking up Timeline item properties"). enabled turns clips on or off.',
+      'Sets clip properties on an AI timeline\'s clips, by Resolve\'s names: Pan, Tilt, ZoomX, ZoomY, Opacity, RotationAngle, CropLeft/Right/Top/Bottom, FlipX, FlipY, CompositeMode, AudioVolume (dB), AudioPan and more (get_scripting_docs section "Looking up Timeline item properties"). enabled turns clips on or off.',
     inputSchema: {
       type: "object",
       properties: {
