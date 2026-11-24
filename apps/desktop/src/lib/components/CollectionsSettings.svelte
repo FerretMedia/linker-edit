@@ -159,10 +159,13 @@
       {workspaces}
       projectNames={projectNames(selected)}
       seriesCount={selected.kind === "workspace" ? seriesIn(selected.id).length : 0}
+      sharedSkills={app.skills ?? []}
       onUpdate={(changes) => send({ type: "update_collection", id: selected.id, ...changes })}
       onSetup={() => send({ type: "setup_collection", id: selected.id })}
       onRemoveLesson={(lessonId) => send({ type: "remove_lesson", id: selected.id, lessonId })}
       onRemoveExample={(name) => send({ type: "remove_example", id: selected.id, name })}
+      onSaveSkill={(skill) => send({ type: "save_skill", id: selected.id, ...skill })}
+      onRemoveSkill={(name) => send({ type: "remove_skill", id: selected.id, name })}
       onDelete={() => {
         send({ type: "delete_collection", id: selected.id });
         selectedId = null;

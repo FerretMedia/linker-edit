@@ -640,6 +640,7 @@ export function createApp(options: AppOptions) {
       computer: os.hostname(),
       linker: options.linker?.status() ?? { state: "signed_out", problem: null },
       collections: collections.summaries(),
+      skills: collections.sharedSkills(),
     } satisfies Partial<AppMeta>;
   }
 
@@ -676,6 +677,7 @@ export function createApp(options: AppOptions) {
       setup: options.setup ?? null,
       linker: shared.linker,
       collections: shared.collections,
+      skills: shared.skills,
     };
   }
 
