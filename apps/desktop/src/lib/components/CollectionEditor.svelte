@@ -124,7 +124,7 @@
 
   <SettingsRow
     label="Set up with AI"
-    description="Point the agent at videos you've finished. It studies them, asks what it can't see, and proposes these rules for you to accept."
+    description="Point the agent at videos and Resolve projects you've finished. It studies them, asks what it can't see, and proposes these rules for you to accept."
   >
     <button type="button" class="{button} flex items-center gap-1.5" onclick={onSetup}>
       <Sparkles class="size-3.5" />

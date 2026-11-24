@@ -56,7 +56,7 @@ On disk, next to the projects:
   collections.json                # list: id, folder, order
   collections/<slug>/
     collection.json               # kind, name, parent, icon, library folders, flags
-    RULES.md                      # the style guide, editable in the app or any editor
+    SKILL.md                      # the style guide, editable in the app or any editor
   projects/<slug>/linker-edit.json  # + "collection": { "id", "name" }
 ```
 
@@ -163,7 +163,7 @@ To keep the parallel threads from fighting over files:
 - Branch `feat/collections` from `origin/main`.
 - Goal: the `Collection` model and its management, without a new sidebar.
 - Server: `apps/desktop/server/collections/store.ts` (files as above, written like `projects/store.ts`: whole-file writes, bad files kept aside), `collection` in `linker-edit.json`. Messages `create_collection`, `update_collection`, `delete_collection` (only when empty), `move_project { projectId, collectionId | null }`.
-- Rules: `rules.ts` builds the agent's rules as editing rules + workspace `RULES.md` + series `RULES.md` + project notes, each under its own heading, so the agent knows where a rule comes from.
+- Rules: `rules.ts` builds the agent's rules as editing rules + workspace `SKILL.md` + series `SKILL.md` + project notes, each under its own heading, so the agent knows where a rule comes from.
 - UI: a **Workspaces & series** settings section (list, create, rename, icon, rules editor) and a "Workspace / series" picker in project settings.
 - Tests: store, nesting only one level, deleting a non-empty collection is refused, rule stacking order.
 - Exit: put two projects in a series inside a workspace, write a workspace rule, and the agent follows it in both.

@@ -4,7 +4,7 @@ The goal: you point Linker-Edit at a brand's example videos and project folders,
 
 ## Where we are (main, b43861a)
 
-- A workspace and a series each have a `RULES.md`. The agent gets them on every turn, from the most general to the most specific (`apps/desktop/server/rules.ts`, `agentRules`). You write them by hand, up to 20,000 characters.
+- A workspace and a series each have a `SKILL.md`. The agent gets them on every turn, from the most general to the most specific (`apps/desktop/server/rules.ts`, `agentRules`). You write them by hand, up to 20,000 characters.
 - The library points at folders of music, sound effects and graphics. The code already takes a chain (universal → workspace → series → project), but a workspace or series can't have its own library folders yet (`CollectionLibraryFolder = never`).
 - The agent can already study footage: `transcribe` (local, with word times), `find_silences`, `view_frames` on a media file, `detect_scene_cuts` on a timeline.
 - The edit history saves every timeline as JSON in Git, with the agent's turns and your own changes in Resolve as separate commits.
@@ -57,7 +57,7 @@ The brief is in the workspace's or series' own folder:
 
 ```
 collections/<workspace>/
-  RULES.md              # the rules: style, and for a series the steps of one edit. In every prompt (as now)
+  SKILL.md              # the rules: style, and for a series the steps of one edit. In every prompt (as now)
   collection.json       # also holds the lessons from feedback, and whether it works on its own
   examples/<video>.md   # the AI's notes on one example
 ```
@@ -68,8 +68,8 @@ A project is the repository of one video. It gets its rules from the folders of 
 
 | Level | Question | Changes | File |
 | --- | --- | --- | --- |
-| Workspace (brand) | What is always true? | Rarely | `collections/<workspace>/RULES.md` |
-| Series (format) | How is this kind of video made? | Sometimes | `collections/<series>/RULES.md` |
+| Workspace (brand) | What is always true? | Rarely | `collections/<workspace>/SKILL.md` |
+| Series (format) | How is this kind of video made? | Sometimes | `collections/<series>/SKILL.md` |
 | Project (one video) | What is this video? | Every session | `projects/<project>/PROJECT.md` |
 
 ```
@@ -96,7 +96,7 @@ Examples of what each level holds:
 | YouTube long-form | Hook, B-roll rhythm, chapter style | The outline, the B-roll list, which parts ran long |
 | Client work | The client's format and deliverables per platform | The client's brief, their feedback per round |
 
-`RULES.md` and the lessons go into every prompt, so they stay short. `PROJECT.md` does too: the agent is told to rewrite it, not append, and to keep it under 4,000 characters. The notes on examples don't: the agent is told where they are and reads one when it needs a reference. The measured numbers of each video are cached in `~/LinkerEdit/cache/study`.
+`SKILL.md` and the lessons go into every prompt, so they stay short. `PROJECT.md` does too: the agent is told to rewrite it, not append, and to keep it under 4,000 characters. The notes on examples don't: the agent is told where they are and reads one when it needs a reference. The measured numbers of each video are cached in `~/LinkerEdit/cache/study`.
 
 ## Part 2: setup, with the AI
 
@@ -125,7 +125,7 @@ Results are cached per file like transcripts. The model then reads the numbers, 
 
 **Raw vs final** is the best source when you have both. Transcribe the raw footage and the finished video and line the words up. That shows exactly what the editor cut: the retakes, the ums, the tangents, how much of a long answer survived. No project file needed.
 
-**Past Resolve projects** would be even more exact: tracks, titles, zooms and markers as they were made. Not built yet, because it means the app switching Resolve projects on its own.
+**Past Resolve projects** would be even more exact: tracks, titles, zooms and markers as they were made. The setup thread visits the ones added to Linker-Edit, read only, and Resolve goes back afterwards.
 
 ### Step 3: the AI shows what it found and asks
 
@@ -149,7 +149,7 @@ With a project in the series and the raw footage of one example, the AI edits th
 
 ### Where setup runs
 
-In a setup thread of the workspace or series. It is kept as a project of its own with no Resolve project, called "<name> setup" in the sidebar, so it reuses the chat, the threads and the agents as they are. It never links to Resolve, and tools that work in Resolve are refused in it.
+In a setup thread of the workspace or series. It is kept as a project of its own with no Resolve project, called "<name> setup" in the sidebar, so it reuses the chat, the threads and the agents as they are. It never links to Resolve, and tools that work in Resolve are refused in it, except for reading a project it visits.
 
 ## Part 3: editing on its own
 
@@ -191,10 +191,10 @@ So the first formats that will really work alone are the ones driven by speech: 
 
 ## What is built, and what isn't
 
-Built in one PR:
+Built:
 
 - `study_media` (measurements and contact sheets) and `compare_cut` (raw against final by transcript).
-- Setup threads with **Set up with AI**, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
+- Setup threads with **Set up with AI** that also visit finished Resolve projects, read only, and the brief tools `save_brief`, `add_lesson` and `save_example`, which the user accepts or declines.
 - **Works on its own** per workspace or series, with the footage form in a new thread.
 - Lessons from feedback, the retro on "Use as main timeline", rounds until approved, and feedback at a moment of the preview.
 - `PROJECT.md` per project, kept by the agent and saved in the edit history, and the rules' headings naming the file each comes from. **Project file** in the app shows it and lets you edit it.
@@ -206,7 +206,6 @@ Not built:
 - A **Must** the code can read. The agent working on its own is told to render its cut, measure it with `study_media` and compare each Must line, and to report the numbers. The comparing is the agent's: Must is plain text, so Linker-Edit can't refuse a cut that breaks it.
 - Folding old lessons into the rules when there are many.
 - Library folders on a workspace or series (thread 4 of the library plan). Until then the brief names the brand's assets by their path, and the universal library holds the music.
-- Reading past Resolve projects.
 - Questions as cards with choices: the agent asks numbered questions with options in the chat.
 - Approved videos becoming examples by themselves: the agent can save notes on one when asked.
 

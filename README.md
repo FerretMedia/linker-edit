@@ -138,6 +138,7 @@ Agents work in Resolve with Linker-Edit's own tools, in its `linker` MCP server.
   - `export_timeline`, which only writes a file into the project folder;
   - `set_current_timeline`, which only changes which timeline Resolve shows;
   - `library_search`, which only looks in your library;
+  - `read_skill`, which only reads [skills](#skills);
   - `study_media` and `compare_cut`, which only measure and transcribe video files.
 - **Changes** run straight away with full access, and show Allow/Deny in Supervised mode, for Claude and Codex alike.
   - Timelines: `create_timeline`, `duplicate_timeline`, `import_timeline`, `restore_timeline`.
@@ -238,15 +239,18 @@ Keys: Space play or pause, ← → one frame (Shift: one second), ↑ ↓ previo
 
 ## Teaching it a brand
 
-A **workspace** is a client, brand or channel, and a **series** is one of its formats, such as a weekly vlog or reels. Each has rules the agent follows in every project in it (**Settings → Workspaces & series**). You can write them yourself, or have the agent work them out from videos you've finished. The aim: you give it footage, it makes the first cut, and you only give feedback on the video.
+A **workspace** is a client, brand or channel, and a **series** is one of its formats, such as a weekly vlog or reels. Each has rules, kept in a `SKILL.md` file, that the agent follows in every project in it (**Settings → Workspaces & series**). You can write them yourself, or have the agent work them out from videos and Resolve projects you've finished. The aim: you give it footage, it makes the first cut, and you only give feedback on the video.
 
-**Set up with AI** on a workspace or series opens a setup thread. It runs on your own Claude or Codex, and it never touches Resolve.
+**Set up with AI** on a workspace or series opens a setup thread. It runs on your own Claude or Codex, and it changes nothing in Resolve.
 
-1. Point it at a folder of **finished videos**, and if you have them the **raw footage** some were cut from and the brand's **assets**.
-2. It measures each video with the ffmpeg Linker-Edit comes with: length, aspect ratio, shot lengths, how quiet it gets, loudness, how fast people talk and how it opens. It looks at a contact sheet of its frames and reads the transcript. Measurements are kept in `~/LinkerEdit/cache/study` until a file changes.
-3. With raw footage, it lines up what is said in the finished video with what is said in the raw files. That shows what the editor kept and cut, which take they used, and whether they reordered.
-4. It tells you what it found, with the numbers, and asks only what it can't see: who watches, where the music comes from, where the examples disagree.
-5. It proposes rules for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
+1. Point it at your **finished Resolve projects**, a folder of **finished videos**, or both, and if you have them the **raw footage** some were cut from and the brand's **assets**.
+2. It visits the projects one by one, read only, and looks at what a rendered video can't show: how the tracks are used, shot lengths, titles, where music starts and stops. They have to be [added to Linker-Edit](#projects-and-threads) first. You're asked before Resolve leaves a project you're working in, and it goes back to that one afterwards.
+3. It measures each video with the ffmpeg Linker-Edit comes with: length, aspect ratio, shot lengths, how quiet it gets, loudness, how fast people talk and how it opens. It looks at a contact sheet of its frames and reads the transcript. Measurements are kept in `~/LinkerEdit/cache/study` until a file changes.
+4. With raw footage, it lines up what is said in the finished video with what is said in the raw files. That shows what the editor kept and cut, which take they used, and whether they reordered.
+5. It tells you what it found, with the numbers, and asks only what it can't see: who watches, where the music comes from, where the examples disagree.
+6. It proposes rules for the workspace and for each series. You see what changes and **Accept** or **Decline**. Nothing is saved without that.
+
+`SKILL.md` is in the Agent Skills format, so you can use the same folder as a skill in Claude Code or Codex. A `RULES.md` from an earlier version becomes the `SKILL.md` the first time something in the workspace or series is saved.
 
 Its notes on each example are kept as files next to the rules, in `~/LinkerEdit/collections/<name>/examples`.
 
@@ -254,10 +258,10 @@ Its notes on each example are kept as files next to the rules, in `~/LinkerEdit/
 
 ```
 ~/LinkerEdit/collections/ferret-media/   the workspace
-  RULES.md                               what is always true for the brand
+  SKILL.md                               what is always true for the brand
   examples/                              the agent's notes on example videos
 ~/LinkerEdit/collections/reels/          a series in it
-  RULES.md                               how this kind of video is made
+  SKILL.md                               how this kind of video is made
 ~/LinkerEdit/projects/Reel 14/           a project in that series: a Git repository
   PROJECT.md                             this video: brief, footage, decisions, feedback, status
   resolve/                               its timelines as text, one save per turn
@@ -276,6 +280,18 @@ The agent reads the three files from the most general to the most specific, and 
 - Lessons are listed under the rules in Settings, each with the words it came from, and you can remove any of them. Settings also shows how many rounds of feedback each approved edit took, so you can see whether the rules work.
 
 What it can't do: it sees still frames, not motion, and it can't hear. It knows how loud a video is and where it's quiet, not whether a song fits. So formats driven by speech (talking head, interview, podcast, reels cut from longer talk) work best.
+
+### Skills
+
+A skill says how one kind of work is done, such as color grading. The agent sees a list of them and reads one when the work needs it, so they don't fill every chat. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
+
+```
+~/LinkerEdit/skills/color-grading/SKILL.md                     for all your projects, with or without a brand
+~/LinkerEdit/collections/ferret-media/skills/color-grading/    for a workspace
+~/LinkerEdit/collections/reels/skills/color-grading/           for a series
+```
+
+Skills of the same name add up. The agent reads all of them, and the most specific one wins where they disagree, so a series' skill only says what is different. The `description` in its front matter tells the agent what work it is for.
 
 ## Library
 

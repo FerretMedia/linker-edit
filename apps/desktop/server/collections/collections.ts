@@ -4,11 +4,14 @@ import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJECT_RULES, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
-import { exampleName, RULES_FILE, type CollectionStore, type SavedCollection } from "./store.ts";
+import { listSkills, skillsSection, type SkillRoot } from "../skills/skills.ts";
+import { exampleName, RULES_FILE, skillBody, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the workspaces and series need from the app around them. */
 export interface CollectionsHost {
   store: CollectionStore;
+  /** Skills every project gets, most general first. */
+  skills: SkillRoot[];
   projects(): SavedProject[];
   /** Saves the project in its new workspace or series, or in none; commitMessage is for its edit history. */
   setCollection(projectId: string, collection: ProjectCollection | null, commitMessage: string): void;
@@ -35,9 +38,11 @@ const MAX_EDITS = 30;
 
 export const ICON_COLORS: readonly IconColor[] = ["gray", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"];
 
+/** A workspace's or series' own skills, next to its SKILL.md. */
+const SKILLS_DIR = "skills";
 const KINDS: readonly CollectionKind[] = ["workspace", "series"];
 const MAX_NAME = 80;
-// RULES.md is for a style guide, not a book; this keeps a paste accident out of every prompt.
+// SKILL.md is for a style guide, not a book; this keeps a paste accident out of every prompt.
 const MAX_RULES = 20_000;
 
 const isMessage = (message: ClientMessage): message is CollectionMessage =>
@@ -111,6 +116,18 @@ export function createCollections(host: CollectionsHost) {
     ]
       .filter(Boolean)
       .join("\n\n");
+  }
+
+  /** Where this project's skills are, most general first. */
+  function skillRoots(project: SavedProject): SkillRoot[] {
+    const { workspace, series } = collectionChain(collections, project);
+    return [
+      ...host.skills,
+      ...[workspace, series].flatMap((part) => {
+        const file = part && store.rulesFile(part.id);
+        return file ? [{ label: label(part), dir: path.join(path.dirname(file), SKILLS_DIR) }] : [];
+      }),
+    ];
   }
 
   /** Why parentId can't hold a collection of this kind; null when it can. */
@@ -308,8 +325,11 @@ export function createCollections(host: CollectionsHost) {
       }
       sources.push({ heading: `This project (${PROJECT_NOTES_FILE} in the working folder)`, text: readProjectNotes(project.dir) });
       const nearest = series ?? workspace;
-      return agentRules(sources, [PROJECT_RULES, ...(nearest ? [...(nearest.autonomous ? [AUTONOMOUS_RULES] : []), LEARNING_RULES] : [])]);
+      const skills = skillsSection(listSkills(skillRoots(project)));
+      return agentRules(sources, [PROJECT_RULES, ...(nearest ? [...(nearest.autonomous ? [AUTONOMOUS_RULES] : []), LEARNING_RULES] : []), ...(skills ? [skills] : [])]);
     },
+
+    skillRoots,
 
     /** Whether this project's agent makes the first cut without asking. */
     autonomous(project: SavedProject): boolean {
@@ -321,7 +341,7 @@ export function createCollections(host: CollectionsHost) {
     proposeBrief(project: SavedProject, input: Record<string, unknown>): BriefProposal | { error: string } {
       const found = target(project, input);
       if ("error" in found) return found;
-      const rules = typeof input.rules === "string" ? input.rules.trim() : "";
+      const rules = typeof input.rules === "string" ? skillBody(input.rules).trim() : "";
       if (!rules) return { error: "Pass the full new rules in rules." };
       if (rules.length > MAX_RULES) return { error: `Rules can be up to ${MAX_RULES.toLocaleString("en-US")} characters; these are ${rules.length.toLocaleString("en-US")}. Make them shorter.` };
       const name = "create" in found ? `New ${COLLECTION_LABEL.series.lower} "${found.create}"` : label(found.collection);

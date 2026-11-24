@@ -22,7 +22,7 @@ const where = {
 export const BRIEF_TOOLS = [
   {
     name: SAVE_BRIEF,
-    description: `Propose new rules for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: the brief every edit in it follows. Pass the complete new text, not a patch: it replaces the rules. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
+    description: `Propose new rules for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: the brief every edit in it follows. Pass the complete new text, not a patch: it replaces the rules. They are kept in its SKILL.md; leave front matter out, Linker-Edit writes it. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -52,12 +52,12 @@ export const BRIEF_TOOLS = [
   {
     name: SAVE_EXAMPLE,
     description:
-      "Keep your notes on one example video of this brand, as a Markdown file next to its rules: what it is, its numbers, its structure with times, what stands out. Saving again under the same name replaces them.",
+      "Keep your notes on one example of this brand, a video or a finished project, as a Markdown file next to its rules: what it is, its numbers, its structure with times, what stands out. Saving again under the same name replaces them.",
     inputSchema: {
       type: "object",
       properties: {
         ...where,
-        name: { type: "string", description: "The video's file name or title." },
+        name: { type: "string", description: "The video's file name or title, or the project's name." },
         notes: { type: "string", description: "Your notes, in Markdown." },
       },
       required: ["name", "notes"],

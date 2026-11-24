@@ -8,16 +8,18 @@ import { createApp } from "../app.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { memoryProjectStore } from "../projects/testing.ts";
 import { EDITING_RULES, PROJECT_RULES } from "../rules.ts";
+import type { SkillRoot } from "../skills/skills.ts";
 import { createCollections } from "./collections.ts";
 import { memoryCollectionStore } from "./testing.ts";
 
-function setup(projects: SavedProject[] = []) {
+function setup(projects: SavedProject[] = [], skills: SkillRoot[] = []) {
   const store = memoryCollectionStore();
   const saved = new Map(projects.map((project) => [project.id, project]));
   const commits: string[] = [];
   let changes = 0;
   const collections = createCollections({
     store,
+    skills,
     projects: () => [...saved.values()],
     setCollection(projectId, collection: ProjectCollection | null, commitMessage) {
       saved.set(projectId, { ...saved.get(projectId)!, collection });
@@ -126,8 +128,8 @@ describe("workspaces and series", () => {
     expect(rules.startsWith(EDITING_RULES)).toBe(true);
     const order = [
       "# The user's rules",
-      `## Workspace "Ferret Media" (/collections/${byName("Ferret Media").id}/RULES.md)\n\nEnd on the logo.`,
-      `## Series "Podcast" (/collections/${byName("Podcast").id}/RULES.md)\n\nLower thirds in Inter Bold.`,
+      `## Workspace "Ferret Media" (/collections/${byName("Ferret Media").id}/SKILL.md)\n\nEnd on the logo.`,
+      `## Series "Podcast" (/collections/${byName("Podcast").id}/SKILL.md)\n\nLower thirds in Inter Bold.`,
       "## This project (PROJECT.md in the working folder)\n\nEp 12 is the anniversary episode.\n\nGuest asked to cut the salary talk.",
     ].map((part) => rules.indexOf(part));
     expect(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1]!))).toBe(true);
@@ -140,6 +142,24 @@ describe("workspaces and series", () => {
 
     // A project in no collection, with no file yet, gets the editing rules and how to keep its file.
     expect(collections.rulesFor(project("loose"))).toBe(`${EDITING_RULES}\n\n${PROJECT_RULES}`);
+  });
+
+  it("lists the skills last, and looks for them from Linker-Edit's to the series'", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-skills-"));
+    fs.mkdirSync(path.join(dir, "sound"));
+    fs.writeFileSync(path.join(dir, "sound", "SKILL.md"), "---\ndescription: Music and levels.\n---\n\nUnder speech.");
+    const shipped = { label: "Linker-Edit", dir };
+    const { send, byName, collections, saved } = setup([project("ep12"), project("loose")], [shipped]);
+    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
+    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: byName("Ferret Media").id });
+    send({ type: "move_project", projectId: "ep12", collectionId: byName("Podcast").id });
+    expect(collections.skillRoots(saved.get("loose")!)).toEqual([shipped]);
+    expect(collections.skillRoots(saved.get("ep12")!)).toEqual([
+      shipped,
+      { label: 'Workspace "Ferret Media"', dir: path.join(`/collections/${byName("Ferret Media").id}`, "skills") },
+      { label: 'Series "Podcast"', dir: path.join(`/collections/${byName("Podcast").id}`, "skills") },
+    ]);
+    expect(collections.rulesFor(saved.get("loose")!)).toMatch(/\n\n# Skills\n\n.+\n\n- sound: Music and levels\. \(Linker-Edit\)$/);
   });
 });
 

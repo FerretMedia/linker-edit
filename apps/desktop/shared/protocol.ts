@@ -95,8 +95,8 @@ export interface ProjectSummary extends ProjectSidebarState {
   /** Newest first, archived ones included. */
   threads: ThreadSummary[];
   /**
-   * A workspace's or series' setup threads: the agent studies example videos and writes the brief here. It has no
-   * Resolve project and never gets one.
+   * A workspace's or series' setup threads: the agent studies example videos and finished projects and writes the
+   * brief here. It has no Resolve project and never gets one.
    */
   setup: boolean;
 }
@@ -780,7 +780,7 @@ export interface CollectionSummary {
   /** The workspace a series is in; always null for a workspace. One level deep. */
   parentId: string | null;
   icon: CollectionIcon;
-  /** The style guide for the agent, in plain words; its RULES.md. */
+  /** The style guide for the agent, in plain words; its SKILL.md without the front matter. */
   rules: string;
   /** Where the rules are kept, to edit them in another editor too. */
   rulesFile: string;

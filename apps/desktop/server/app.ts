@@ -28,6 +28,7 @@ import type { AppUpdates } from "./appUpdate.ts";
 import { createCollections } from "./collections/collections.ts";
 import type { CollectionStore } from "./collections/store.ts";
 import { memoryCollectionStore } from "./collections/testing.ts";
+import { READ_SKILL, readSkill, type SkillRoot } from "./skills/skills.ts";
 import { ADD_LESSON, isBriefTool, SAVE_BRIEF, SAVE_EXAMPLE } from "./collections/tools.ts";
 import { isStudyTool, type StudyService } from "./study/study.ts";
 import { browseFolders, expandHome } from "./folders.ts";
@@ -81,6 +82,8 @@ export interface AppOptions {
   prepareFolder?: (dir: string, rules: string) => void;
   /** Workspaces and series; kept in memory only without it. */
   collections?: CollectionStore;
+  /** Skills every project gets, most general first. */
+  skills?: SkillRoot[];
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
   resolveTools?: (
     tool: string,
@@ -116,10 +119,11 @@ export interface AppOptions {
 const APPROVED = "Approved:";
 /** Starts the message Linker-Edit sends for the user after an approval, so it isn't counted as feedback. */
 const LEARN = "Learn from this edit:";
-/** The Resolve tools that work on files alone, which a setup thread may use. */
+/** The Resolve tools that work on files alone, which a setup thread may use without a visit. */
 const usesNoResolve = (tool: string, input: Record<string, unknown>) =>
   tool === "find_silences" || (tool === "view_frames" && typeof input.file === "string");
-const SETUP_REFUSAL = "This is a setup thread: it has no Resolve project, so tools that work in Resolve are refused here. Study the videos as files instead.";
+const SETUP_REFUSAL =
+  "This is a setup thread: it has no Resolve project of its own, so it only reads in Resolve, in a project you visit. Find one with list_projects and open it with visit_project, or study the videos as files.";
 const VISIT_REFUSAL = "You're visiting this project, so you can only read it. Call end_visit to go back first.";
 /** What the approval to leave the project open in Resolve is called. */
 const SWITCH_TOOL = `mcp__${LINKER_MCP_NAME}__switch_project`;
@@ -195,8 +199,11 @@ export function createApp(options: AppOptions) {
   // New threads start with the agent picked last.
   let lastProvider: Provider = options.settings?.load().defaultProvider ?? "claude";
   const watch = createResolveWatch();
-  /** The running turn looks at another project, read only; back is where Resolve goes after it. */
-  let visit: { projectId: string; back: Away | null } | null = null;
+  /**
+   * The running turn looks at another project, read only; back is where Resolve goes after it, and opened says the
+   * visit opened it rather than finding it open.
+   */
+  let visit: { projectId: string; back: Away | null; opened: boolean } | null = null;
   /** What a message made Resolve leave, to open again with one click. */
   let previous: Away | null = null;
   const projects = new Map<string, ProjectState>();
@@ -204,6 +211,7 @@ export function createApp(options: AppOptions) {
   const clients = new Map<Client, { threadId: string | null }>();
   const collections = createCollections({
     store: options.collections ?? memoryCollectionStore(),
+    skills: options.skills ?? [],
     projects: () => [...projects.values()].map((project) => project.saved),
     setCollection(projectId, collection, commitMessage) {
       const project = projects.get(projectId);
@@ -462,19 +470,21 @@ export function createApp(options: AppOptions) {
     await refreshResolve();
     if (!canOpen(target) && !isOpen(target)) throw new Error(`"${wanted}" is a Blackmagic Cloud project: only the user can open it.`);
     const open = openProject(resolve);
-    // Where Resolve goes after it: the thread's own project.
+    // Where Resolve goes after it: the thread's own project, or for a setup thread what the user has open.
     const back: Away | null = visit ? visit.back : own.saved.link ? { link: own.saved.link, local: own.saved.local } : open ? linkFromOpen(open) : null;
     if (back?.link.kind === "cloud") throw new Error(`Resolve has the Blackmagic Cloud project "${back.link.name}" open, and only the user can open that again, so no other project is visited.`);
     const askUser: Ask = (tool, shown) => thread.requestApproval(tool, shown);
     if (!isOpen(target)) {
-      // Leaving the thread's own project or another visited one needs no question in full access.
-      if (approvalMode === "ask" || (!visit && !isOpen(own))) await leaveOpenProject(`${target.saved.link.name} (only to look, then back)`, askUser);
-      visit = { projectId: target.saved.id, back };
+      // Leaving the thread's own project, or one a visit opened, needs no question in full access.
+      const visited = visit?.opened ? projects.get(visit.projectId) : undefined;
+      if (approvalMode === "ask" || !(isOpen(own) || (visited && isOpen(visited)))) await leaveOpenProject(`${target.saved.link.name} (only to look, then back)`, askUser);
+      visit = { projectId: target.saved.id, back, opened: true };
       await openLinked(target, target.saved.link, { onlyIfIdle: !open, signal });
       await refreshResolve();
       if (!isOpen(target)) throw new Error(`Resolve didn't open "${target.saved.link.name}".`);
+    } else if (visit?.projectId !== target.saved.id) {
+      visit = { projectId: target.saved.id, back, opened: false };
     }
-    visit = { projectId: target.saved.id, back };
     return `Resolve has "${target.saved.link.name}" open, read only. Call end_visit when you're done looking.`;
   }
 
@@ -499,7 +509,6 @@ export function createApp(options: AppOptions) {
 
   async function appTool(tool: string, input: Record<string, unknown>, turn: { thread: Thread; projectId: string; signal: AbortSignal | undefined }): Promise<string> {
     const project = projects.get(turn.projectId)!;
-    if (project.saved.setup) throw new Error(SETUP_REFUSAL);
     switch (tool) {
       case "list_projects":
         return listProjects();
@@ -513,6 +522,7 @@ export function createApp(options: AppOptions) {
       }
       default:
         if (visit) throw new Error(VISIT_REFUSAL);
+        if (project.saved.setup) throw new Error(SETUP_REFUSAL);
         return holdingResolve(() => startResolve(turn.thread, project, turn.signal));
     }
   }
@@ -1330,6 +1340,19 @@ export function createApp(options: AppOptions) {
     }
   }
 
+  /** The agents' skills, for the project of the running turn. */
+  async function skillTool(tool: string, input: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+    if (tool !== READ_SKILL) return { text: `There is no skill tool called ${tool}.`, isError: true };
+    const turn = runningTurn();
+    if ("refusal" in turn) return { text: "No Linker-Edit turn is running, so there is no project to read skills for.", isError: true };
+    try {
+      const roots = collections.skillRoots(projects.get(turn.projectId)!.saved);
+      return { text: readSkill(roots, String(input.name ?? ""), typeof input.file === "string" ? input.file : undefined), isError: false };
+    } catch (error) {
+      return { text: errorText(error), isError: true };
+    }
+  }
+
   /** A workspace's or series' setup thread: its newest one, in a project made for it on first use. */
   function openSetup(client: Client, collectionId: string) {
     const collection = collections.get(collectionId);
@@ -1627,7 +1650,7 @@ export function createApp(options: AppOptions) {
       const project = projects.get(turn.projectId)!;
       try {
         if (APP_TOOLS.has(tool)) return { text: await appTool(tool, input, turn), isError: false };
-        if (project.saved.setup && !usesNoResolve(tool, input)) return { text: SETUP_REFUSAL, isError: true };
+        if (project.saved.setup && !visit && !usesNoResolve(tool, input)) return { text: SETUP_REFUSAL, isError: true };
         if (visit && refusedInVisit(definition)) return { text: VISIT_REFUSAL, isError: true };
         const wrong = usesNoResolve(tool, input) ? null : await midTurnRefusal(project);
         if (wrong) return { text: wrong, isError: true };
@@ -1644,6 +1667,7 @@ export function createApp(options: AppOptions) {
     libraryTool,
     studyTool,
     briefTool,
+    skillTool,
     /** A library file for the library page to play, or null when it isn't one; see library/serve.ts. */
     libraryFile: (folderId: string, rel: string) => libraryFile(allLibraryFolders(), folderId, rel),
     /** Rescans every library folder, so files added or changed while the app was closed show up. */

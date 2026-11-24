@@ -43,9 +43,9 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
 
   // Codex reads the rules from AGENTS.md in the project's folder; Claude gets the same text.
   const agents = path.join(dir, "workspace", "AGENTS.md");
-  await expect.poll(() => fs.readFileSync(agents, "utf8")).toContain(`## Workspace "Ferret Media" (${path.join(dir, "collections", "ferret-media", "RULES.md")})\n\nEnd every video on the logo.`);
+  await expect.poll(() => fs.readFileSync(agents, "utf8")).toContain(`## Workspace "Ferret Media" (${path.join(dir, "collections", "ferret-media", "SKILL.md")})\n\nEnd every video on the logo.`);
   expect(JSON.parse(fs.readFileSync(path.join(dir, "workspace", "linker-edit.json"), "utf8")).collection).toMatchObject({ name: "Podcast" });
-  expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "RULES.md"), "utf8")).toBe("End every video on the logo.");
+  expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "SKILL.md"), "utf8")).toContain("\n---\n\nEnd every video on the logo.");
 });
 
 test("a project's own file is read and saved in the project file panel", async ({ page }) => {
@@ -70,8 +70,8 @@ test("a workspace is set up with AI in a thread of its own, and can be set to wo
   await expect(page.getByRole("navigation", { name: "Threads" }).getByTestId("sidebar-row-card").filter({ hasText: "Studio North setup" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0);
 
-  // It starts from a folder of finished videos. Not sent here: chat.spec.ts has the one turn that may run.
-  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+  // It can start from Resolve projects alone. Not sent here: chat.spec.ts has the one turn that may run.
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Finished videos: choose a folder" }).click();
   const picker = page.getByRole("dialog", { name: "Choose: Finished videos" });
   await expect(picker.getByRole("combobox", { name: "Finished videos" })).not.toHaveValue("");

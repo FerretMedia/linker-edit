@@ -532,13 +532,13 @@
               {#if app.items.length === 0 && project?.setup && collection}
                 <ThreadStarter
                   title="Teach Linker-Edit how {collection.name} is edited"
-                  intro="Point at videos you've finished. The agent studies them, asks what it can't see, and proposes the rules for you to accept. It doesn't touch Resolve."
+                  intro="Point at videos and Resolve projects you've finished. The agent studies them, asks what it can't see, and proposes the rules for you to accept. It only looks at projects you've added here, opening them one by one in Resolve."
                   fields={[
-                    { key: "finished", label: "Finished videos", hint: "A folder of videos as they were published.", required: true },
+                    { key: "finished", label: "Finished videos", hint: "A folder of videos as they were published. Leave it empty to learn from your Resolve projects only.", required: false },
                     { key: "raw", label: "Raw footage", hint: "What some of them were cut from. It shows what an editor leaves out.", required: false },
                     { key: "assets", label: "Brand assets", hint: "Logo, intro, music, LUTs.", required: false },
                   ]}
-                  notesPlaceholder="Which videos belong to which format, who watches them, where they're published…"
+                  notesPlaceholder="Which finished Resolve projects to look at, which belong to which format, who watches them…"
                   button="Start"
                   disabled={startBlocked}
                   browseFolders={(path) => server.browseFolders(path)}
@@ -547,7 +547,8 @@
                       [
                         `Set up the brief for ${collection.name}.`,
                         "",
-                        `Finished videos: ${folders.finished}`,
+                        "Finished Resolve projects: look at those of mine that fit, unless I name some below.",
+                        `Finished videos: ${folders.finished || "none"}`,
                         `Raw footage: ${folders.raw || "none"}`,
                         `Brand assets: ${folders.assets || "none"}`,
                       ],
