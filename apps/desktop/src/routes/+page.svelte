@@ -400,6 +400,7 @@
       meta={active && app ? { machineId: active.id, app } : null}
       machines={sidebarMachines}
       projects={sidebarProjects}
+      loading={machines.list.some((entry) => entry.status !== "offline" && !entry.server.state && !entry.cached)}
       selected={active && app?.threadId ? { machineId: active.id, threadId: app.threadId } : null}
       send={sendTo}
       onSelect={selectThread}

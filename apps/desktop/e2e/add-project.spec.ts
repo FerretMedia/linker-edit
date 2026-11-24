@@ -32,6 +32,27 @@ test("a project folder is picked from the list instead of typed out", async ({ p
   await expect(page.getByRole("navigation").getByText("Promo")).toBeVisible();
 });
 
+test("the sidebar doesn't say there are no projects while they load", async ({ page }) => {
+  let answer = () => {};
+  await page.routeWebSocket(/\/ws/, (socket) => {
+    const server = socket.connectToServer();
+    const waiting: (string | Buffer)[] = [];
+    let hold = true;
+    server.onMessage((message) => (hold ? void waiting.push(message) : socket.send(message)));
+    answer = () => {
+      hold = false;
+      for (const message of waiting) socket.send(message);
+    };
+  });
+  const opened = page.waitForEvent("websocket");
+  await page.goto("/");
+  await opened;
+  await expect(page.getByRole("navigation", { name: "Threads" })).toBeVisible();
+  await expect(page.getByText("No projects yet")).toHaveCount(0);
+  answer();
+  await expect(page.getByRole("button", { name: /^Projects/ })).toBeVisible();
+});
+
 test("a cloud project is added by name only, and says you open it in Resolve yourself", async ({ page }) => {
   await page.goto("/");
   await openAddProject(page);

@@ -65,6 +65,7 @@
     meta,
     machines,
     projects,
+    loading,
     selected,
     send,
     onSelect,
@@ -80,6 +81,8 @@
     machines: { id: string; name: string; status: "connecting" | "connected" | "offline" }[];
     /** Every machine's projects together. */
     projects: Project[];
+    /** A machine hasn't said yet which projects it has. */
+    loading: boolean;
     /** The open thread. */
     selected: { machineId: string; threadId: string } | null;
     /** To the machine a thread or project is on: pinning, settling, renaming, project icons… */
@@ -603,17 +606,19 @@
         <p role="status" class="px-2 py-6 text-center text-xs text-sidebar-muted-foreground">No threads found</p>
       {/if}
     {:else if projects.length === 0}
-      <div class="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-        <span>No projects yet</span>
-        <button
-          type="button"
-          onclick={onAddProject}
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-        >
-          <Plus class="-mx-0.5 size-3" />
-          Add project
-        </button>
-      </div>
+      {#if !loading}
+        <div class="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
+          <span>No projects yet</span>
+          <button
+            type="button"
+            onclick={onAddProject}
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+          >
+            <Plus class="-mx-0.5 size-3" />
+            Add project
+          </button>
+        </div>
+      {/if}
     {:else}
       {@const scopedNames = projects.filter((project) => scopeSet?.has(project.key)).map((project) => project.name)}
       {#if lists.order.length === 0 && lists.snoozed.length === 0 && (lists.folders ?? []).length === 0 && (lists.settled.length === 0 || scopedNames.length > 0)}
