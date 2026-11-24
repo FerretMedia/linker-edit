@@ -283,7 +283,15 @@ What it can't do: it sees still frames, not motion, and it can't hear. It knows 
 
 ### Skills
 
-A skill says how one kind of work is done, such as color grading. The agent sees a list of them and reads one when the work needs it, so they don't fill every chat. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
+A skill says how one kind of work is done, such as color grading. The agent sees a list of them and reads one when the work needs it, so they don't fill every chat. Linker-Edit brings five, for every project, with or without a brand:
+
+- `video-editing`: from a brief or footage to a checked first cut. It has a file for a talking head, an interview, a scripted video and a short vertical one.
+- `cutting-speech`: retakes, silences, filler words.
+- `color-grading`: correct, match, then a look.
+- `sound`: choosing music, levels, loudness.
+- `titles-and-captions`: what to put on screen, and where.
+
+You can add your own, and a workspace or series can too. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
 
 ```
 ~/LinkerEdit/skills/color-grading/SKILL.md                     for all your projects, with or without a brand
