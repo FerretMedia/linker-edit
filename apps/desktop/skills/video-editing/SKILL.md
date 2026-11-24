@@ -52,6 +52,7 @@ Change one thing at a time on a timeline that works, and read it back. When you 
 - `get_timeline`: no gaps, nothing on a wrong track, sound where the picture is, music that stops before or with the last picture.
 - `view_frames` on the first and last frame, every title, and both sides of a few cuts. No black frames. Titles readable and inside the frame. If a title isn't there, it didn't work.
 - The word times at each cut in speech: no cut inside a word.
+- Read what is said in the render against plan.md, word for word, in the transcript `study_media` makes of it. A word that isn't in the plan, such as a "no" or "sorry" from a false start, or one that is missing, is a cut to fix.
 - You can't hear it or see it move, so measure it: `render_timeline` and `study_media` on the file. Leave the preset out, or pick one that keeps the timeline's shape: a preset's size would change the aspect ratio you measure. Compare length, aspect ratio, frame rate, loudness, the longest quiet stretch and shot lengths with the brief, the rules and the numbers in the notes on example videos, when the rules name them.
 
 Fix what is off and measure again, at most twice. Then show it and say what is still off.
