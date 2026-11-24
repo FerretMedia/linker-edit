@@ -16,7 +16,7 @@ export const STUDY_TOOLS = [
   {
     name: STUDY_MEDIA,
     description:
-      "Measure finished videos, to learn how they are edited: length, aspect ratio, frame rate, loudness, shot lengths and cuts per minute, how quiet it gets, words per minute, and how it opens and closes. Shows you a contact sheet of each: small frames across the whole video, left to right and top to bottom. Pass video files or folders of them, at most 8 videos per call. Results are kept until a file changes. It misses cuts between similar frames (jump cuts in a talking head), and it can't tell music from other sound.",
+      "Measure finished videos, to learn how they are edited: length, aspect ratio, frame rate, loudness and true peak, shot lengths and cuts per minute, how quiet it gets, words per minute, and how it opens and closes. Shows you a contact sheet of each: small frames across the whole video, left to right and top to bottom. Pass video files or folders of them, at most 8 videos per call. Results are kept until a file changes. It misses cuts between similar frames (jump cuts in a talking head), and it can't tell music from other sound.",
     inputSchema: {
       type: "object",
       properties: {
