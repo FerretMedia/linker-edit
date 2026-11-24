@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import { parseSilences } from "../resolve/media.ts";
 
 /** Bump when a Study changes shape or how it is measured, so cached ones are measured again. */
-export const STUDY_VERSION = 1;
+export const STUDY_VERSION = 2;
 
 export interface Shots {
   count: number;
@@ -47,6 +47,8 @@ export interface Study {
   aspect: string | null;
   fps: number | null;
   loudness_lufs: number | null;
+  /** The loudest moment, between samples too. Above 0 it distorts. */
+  true_peak_db: number | null;
   /** Null when the picture couldn't be read. */
   shots: Shots | null;
   /** Null when the file has no audio. */
@@ -152,14 +154,17 @@ export async function measureVideo(ffmpeg: string, file: string, sheetFile: stri
 
   let sound: Sound | null = null;
   let loudness: number | null = null;
+  let peak: number | null = null;
   if (info.audio) {
     const audio = await run(
       ffmpeg,
-      ["-hide_banner", "-nostats", "-i", file, "-map", "0:a:0", "-af", "silencedetect=noise=-35dB:d=0.4,ebur128=framelog=verbose", "-f", "null", "-"],
+      ["-hide_banner", "-nostats", "-i", file, "-map", "0:a:0", "-af", "silencedetect=noise=-35dB:d=0.4,ebur128=framelog=verbose:peak=true", "-f", "null", "-"],
       signal,
     );
     sound = parseSound(audio.log);
     const integrated = /Integrated loudness:\s*\n\s*I:\s*(-?[\d.]+) LUFS/.exec(audio.log);
+    const loudest = /True peak:\s*\n\s*Peak:\s*(-?[\d.]+) dBFS/.exec(audio.log);
+    peak = loudest ? Number(loudest[1]) : null;
     loudness = integrated && Number.isFinite(Number(integrated[1])) ? Number(integrated[1]) : null;
   }
 
@@ -211,6 +216,7 @@ export async function measureVideo(ffmpeg: string, file: string, sheetFile: stri
     aspect: info.aspect,
     fps: info.fps,
     loudness_lufs: loudness,
+    true_peak_db: peak,
     shots,
     sound,
     sheet,

@@ -146,6 +146,7 @@ describe("the study tools", () => {
           aspect: "9:16",
           fps: 30,
           loudness_lufs: -14,
+          true_peak_db: -1,
           shots: null,
           sound: null,
           sheet: { file: sheetFile, frames: 24, step_seconds: 1.25 },

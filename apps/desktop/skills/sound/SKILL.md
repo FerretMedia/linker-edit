@@ -32,7 +32,8 @@ You can't hear. You can read what is said, see where it is loud or quiet, and me
 ## Measuring
 
 - `render_timeline` with the picture or `audio_only`, then `study_media`. It gives the loudness of the whole and how quiet it gets.
-- Aim for what the rules say. With nothing said: about -14 LUFS for YouTube and social, -23 for broadcast in Europe. Off by more than 2: change all levels by the same amount, at most 6 dB up. Nothing here measures peaks, so say that they need a look before delivery.
+- Aim for what the rules say. With nothing said: about -14 LUFS for YouTube and social, -23 for broadcast in Europe. Off by more than 2: change all levels by the same amount, at most 6 dB up.
+- The true peak that `study_media` gives stays at -1 dB or lower, also when the loudness then misses its number: above 0 it distorts. Say what is left for a limiter.
 - A quiet stretch over a second that you didn't plan is usually a missing clip or a gap.
 
 In your note: the song and where it is from, its license note, the measured loudness, and "please listen to" with times: the start and end of music, and the loudest moment.
