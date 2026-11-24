@@ -52,7 +52,7 @@ function scriptFile(name: string): string {
 
 /** The script ResolveMCP runs: ARGS, the shared helpers, and the script itself. */
 export function scriptSource(name: string, args: unknown = {}): string {
-  const parts = ["common", ...(name === "list_projects" || name === "open_project" ? ["projects_common"] : []), name];
+  const parts = ["common", ...(["list_projects", "open_project", "create_project"].includes(name) ? ["projects_common"] : []), name];
   // A JSON string literal is a valid Python string literal too.
   return [`import json\nARGS = json.loads(${JSON.stringify(JSON.stringify(args ?? {}))})`, ...parts.map(scriptFile)].join("\n\n");
 }

@@ -71,6 +71,12 @@ class PM:
         log("LoadProject", self.path, name)
         self.current = Project(name, projects[name])
         return self.current
+    def CreateProject(self, name):
+        log("CreateProject", self.path, name)
+        if "/" in name:
+            return None
+        self.current = Project(name, "made-id")
+        return self.current
     def LoadCloudProject(self, settings):
         log("LoadCloudProject", settings)
         cloud = STATE.get("cloud", {})
@@ -210,6 +216,33 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     const unsaved = fakeResolve({ current: ["Untitled Project", "new-id"] });
     await expect(unsaved.projects.open(link, {})).rejects.toThrow("was never saved");
     expect([...rendering.calls(), ...unsaved.calls()]).toEqual([]);
+  });
+
+  it("makes a new project in the open database's root, after saving the one that is open", async () => {
+    const { projects, calls } = fakeResolve({});
+    expect(await projects.create(" Roastery ")).toEqual({
+      project: { name: "Roastery", id: "made-id" },
+      database: { type: "Disk", name: "Local Database" },
+      folder: [],
+    });
+    expect(calls()).toEqual([["SaveProject", "Promo"], ["CreateProject", [], "Roastery"], ["SaveProject", "Roastery"]]);
+
+    const idle = fakeResolve({ current: ["Unbenannt", "untitled-id"] });
+    await idle.projects.create("Roastery");
+    expect(idle.calls()).toEqual([["CreateProject", [], "Roastery"], ["SaveProject", "Roastery"]]);
+  });
+
+  it("makes no project over unsaved work or a render, with a taken name, or outside a local or network database", async () => {
+    const refused = async (state: Record<string, unknown>, name: string, reason: string) => {
+      const { projects, calls } = fakeResolve(state);
+      await expect(projects.create(name)).rejects.toThrow(reason);
+      expect(calls()).toEqual([]);
+    };
+    await refused({ rendering: true }, "Roastery", 'Resolve is rendering in "Promo"');
+    await refused({ current: ["Untitled Project", "new-id"] }, "Roastery", "was never saved");
+    await refused({}, "Interview", 'already has a project named "Interview"');
+    await refused({ current: ["Client X", "cx-id"], database: { DbType: "Cloud", DbName: "Local Database" } }, "Roastery", "doesn't have a local or network database open");
+    await expect(fakeResolve({}).projects.create("a/b")).rejects.toThrow("couldn't make the project");
   });
 
   it("says when Resolve can't find the project, back in the project it had open", async () => {

@@ -2,7 +2,7 @@ import type { LocalLink, ResolveDatabase, ResolveLibrary, ResolveLink } from "..
 import { ResolveError, type ResolveConnection } from "./resolve/connection.ts";
 import { startResolve, type StartOptions } from "./resolve/start.ts";
 
-// The scripts are server/resolve/scripts/list_projects.py and open_project.py.
+// The scripts are server/resolve/scripts/list_projects.py, open_project.py and create_project.py.
 
 export interface OpenedProject {
   project: { name: string; id: string | null };
@@ -17,6 +17,8 @@ export interface ResolveProjects {
   start(signal?: AbortSignal): Promise<boolean>;
   /** Starts Resolve when it isn't running, saves the project it has open, then opens this one. */
   open(link: ResolveLink, local: LocalLink, options?: OpenOptions): Promise<OpenedProject>;
+  /** Starts Resolve when it isn't running, saves the project it has open, then makes and opens a new one. */
+  create(name: string): Promise<OpenedProject>;
 }
 
 export interface OpenOptions {
@@ -53,6 +55,10 @@ export function createResolveProjects(connection: ResolveConnection, pollMs = 30
         if (!(error instanceof ResolveError && (error.kind === "timeout" || error.kind === "unavailable"))) throw error;
         return waitForProject(connection, link, pollMs, signal);
       }
+    },
+    async create(name) {
+      await start();
+      return connection.runScript<OpenedProject>("create_project", { name }, 60);
     },
   };
 }
