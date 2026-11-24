@@ -24,7 +24,7 @@ You can't hear. You can read what is said, see where it is loud or quiet, and me
 
 ## Levels
 
-- `set_clip_properties` with `AudioVolume` in dB, per clip. There are no fades or automation here: start and end music under speech or exactly on a cut, and say where a fade is needed.
+- `set_clip_properties` with `AudioVolume` in dB, per clip. Fade music with `fade_in` and `fade_out` on the clip: about half a second where it stops for a line, 1 to 2 seconds at the end. There is no automation, so a level that changes in the middle needs two clips: change it on a cut or where a word starts.
 - The voice comes first. Music under speech about 18 to 22 dB below the voice, music alone about 8 to 12 dB below. The library gives a song's loudness (LUFS): a song at -10 LUFS needs about 26 dB down to sit 20 dB under a voice at -16.
 - Two clips of one speaker at different loudness: bring the quiet one up, at most 6 dB, more makes the noise loud.
 - B-roll's own sound at -20 dB or lower under speech. It makes a place feel real. Mute it when there is talk in it.

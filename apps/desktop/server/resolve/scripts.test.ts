@@ -181,6 +181,8 @@ describe.skipIf(!hasPython)("Resolve scripts", () => {
     expect(await tool("set_clip_properties", { timeline: "t2", item_ids: ["i4"], properties: { ZoomX: 1.2, Nonsense: 1 }, enabled: false })).toMatchObject({
       refused: ["i4: Nonsense"],
     });
+    await tool("set_clip_properties", { timeline: "t2", item_ids: ["i4"], fade_out: 12 });
+    expect(calls()).toContainEqual(["SetFades", "i4", { FadeIn: 5, FadeOut: 12 }]);
     expect(await tool("add_markers", { timeline: "AI - Cut", markers: [{ frame: 10 }, { frame: 20, color: "Red", name: "Here" }] })).toMatchObject({
       added: 1,
       refused_frames: [10],

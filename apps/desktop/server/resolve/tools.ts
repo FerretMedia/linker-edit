@@ -236,6 +236,8 @@ const tools: ResolveTool[] = [
         timeline: timelineRef,
         item_ids: itemIds,
         properties: { type: "object", description: 'Like {"ZoomX": 1.2, "ZoomY": 1.2}.' },
+        fade_in: { type: "integer", minimum: 0, description: "Frames to fade in over: sound on an audio clip, from black on a video clip. 0 takes it away." },
+        fade_out: { type: "integer", minimum: 0, description: "Frames to fade out over." },
         enabled: { type: "boolean" },
       },
       required: ["item_ids"],
