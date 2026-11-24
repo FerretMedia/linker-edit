@@ -199,7 +199,7 @@ const tools: ResolveTool[] = [
               media: { type: "string", description: "Media pool item id." },
               source_start: { type: "number", description: "First frame of the media to use." },
               source_end: { type: "number", description: "End frame in the media, as get_timeline reports it." },
-              start: { type: "number", description: "Timeline frame to place it at (timeline frames, like get_timeline's start)." },
+              start: { type: "number", description: "Timeline frame to place it at, counted as in get_timeline. A timeline begins at its start_frame, which is hardly ever 0." },
               track: { type: "integer", description: "Track number, starting at 1. Missing tracks are added." },
               type: { type: "string", enum: ["video", "audio", "both"], description: 'Which part of the clip. Defaults to "both".' },
             },

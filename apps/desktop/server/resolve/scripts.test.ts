@@ -168,6 +168,9 @@ describe.skipIf(!hasPython)("Resolve scripts", () => {
 
   it("says which media or clips don't exist", async () => {
     const { tool } = resolve();
+    expect(await refusal(tool("add_clips", { timeline: "AI - Cut", clips: [{ media: "m1", start: 90000 }, { media: "m1", start: 50 }] }))).toBe(
+      "refused: A clip can't start at frame 50: this timeline's first frame is 90000. Nothing was added.",
+    );
     expect(await refusal(tool("add_clips", { timeline: "AI - Cut", clips: [{ media: "gone" }] }))).toMatch(/^refused: These media ids aren't in the media pool: gone/);
     expect(await refusal(tool("remove_clips", { timeline: "AI - Cut", item_ids: ["i1"] }))).toMatch(/^refused: These clips aren't on the timeline: i1/);
     expect(await refusal(tool("get_timeline", { timeline: "Nope" }))).toMatch(/^refused: There is no timeline "Nope"/);
