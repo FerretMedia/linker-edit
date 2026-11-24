@@ -3,8 +3,8 @@
   import { trimSeparators } from "#lib/browsePath.ts";
   import PathField from "./PathField.svelte";
 
-  // How an empty thread starts when the agent needs folders rather than a question: a setup thread's example
-  // videos, or the footage of a video it edits on its own. It writes the first message for the user.
+  // How an empty setup thread starts: the agent needs folders rather than a question. It writes the first message
+  // for the user.
   export interface StarterField {
     key: string;
     label: string;

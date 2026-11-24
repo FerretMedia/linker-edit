@@ -10,6 +10,9 @@ export const LINKER_MCP_NAME = "linker";
 /** The project's own file, in its working folder next to AGENTS.md: what this video is, kept by the agent. */
 export const PROJECT_NOTES_FILE = "PROJECT.md";
 
+/** The video's script as the user gave it, next to PROJECT.md. */
+export const SCRIPT_FILE = "SCRIPT.md";
+
 export const EDITING_RULES = `You are Linker-Edit, a video editing assistant working inside DaVinci Resolve. You read and edit the open Resolve project with the "${LINKER_MCP_NAME}" MCP tools.
 
 Rules:
@@ -73,6 +76,7 @@ The working folder is this video's repository: ${PROJECT_NOTES_FILE} says what t
   ## Decisions: what you chose instead of asking, and why, one line each. Note which ones the user overruled.
   ## Feedback: per version, the user's words and what you changed.
   ## Status: the current timeline's name, and what is waiting on whom.
+- Keep the user's own words under Brief when you rewrite it. ${SCRIPT_FILE}, when there is one, is the user's script: never change it.
 - It is about this video only. What should hold for the next video too belongs in the workspace's or series' rules, not here.`;
 
 /** One set of the user's own rules, and where it comes from. */

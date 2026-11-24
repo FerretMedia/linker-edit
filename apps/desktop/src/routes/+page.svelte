@@ -23,6 +23,7 @@
   import ProjectSettingsDialog from "#lib/components/ProjectSettingsDialog.svelte";
   import SettingsPage from "#lib/components/SettingsPage.svelte";
   import Sidebar from "#lib/components/Sidebar.svelte";
+  import NewVideoStarter from "#lib/components/NewVideoStarter.svelte";
   import ThreadStarter from "#lib/components/ThreadStarter.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
@@ -194,7 +195,7 @@
   /** On a web address, signed in to an account with no computers yet. */
   const noComputers = $derived(web.phase.kind === "app" && machines.loaded && machines.list.length === 0);
 
-  /** The first message of a setup thread, or of a video the agent edits on its own, from the folders picked. */
+  /** The first message of a setup thread, from the folders picked. */
   function start(lines: string[], notes: string) {
     server.send({ type: "send", text: [...lines, ...(notes ? ["", notes] : [])].join("\n") });
     stickToBottom = true;
@@ -276,10 +277,14 @@
 
   $effect(() => {
     // While open, the server pushes it again after each turn and each save.
-    if (panel === "file" && server.connected && app?.projectId) server.send({ type: "load_project_file" });
+    // Also for an empty thread: a project with no PROJECT.md can start a video from its brief.
+    if ((panel === "file" || app?.items.length === 0) && server.connected && app?.projectId) server.send({ type: "load_project_file" });
   });
 
+  /** The thread whose New video form is open. */
+  let startingVideo = $state<string | null>(null);
   const projectFile = $derived(server.projectFile && server.projectFile.projectId === app?.projectId ? server.projectFile : null);
+  const canStartVideo = $derived(!!project && !project.setup && projectFile?.text.trim() === "");
 
   const historyEntries = $derived(server.history && server.history.projectId === app?.projectId ? server.history.entries : null);
 
@@ -556,20 +561,28 @@
                       notes,
                     )}
                 />
-              {:else if app.items.length === 0 && collection?.autonomous}
-                <ThreadStarter
-                  title="New video"
-                  intro="{collection.name} works on its own: give it the footage and it makes the first cut, then tells you what it decided. You give feedback on the video."
-                  fields={[{ key: "footage", label: "Footage", hint: "The folder with this video's footage.", required: true }]}
-                  notesPlaceholder="The second interview is the important one."
-                  button="Make the first cut"
+              {:else if app.items.length === 0 && canStartVideo && (startingVideo === app.threadId || project?.autonomous)}
+                <NewVideoStarter
                   disabled={startBlocked}
                   browseFolders={(path) => server.browseFolders(path)}
-                  onStart={(folders, notes) => start(["Make the first cut of this video on your own.", "", `Footage: ${folders.footage}`], notes)}
+                  onStart={(brief) => {
+                    server.send({ type: "start_video", brief });
+                    stickToBottom = true;
+                  }}
+                  onBack={project?.autonomous ? undefined : () => (startingVideo = null)}
                 />
               {:else if app.items.length === 0}
                 <div class="my-auto flex flex-col items-center gap-5 py-10 text-center">
                   <h2 class="text-2xl font-semibold tracking-tight">What are we editing?</h2>
+                  {#if canStartVideo}
+                    <button
+                      type="button"
+                      class="h-8 rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+                      onclick={() => (startingVideo = app?.threadId ?? null)}
+                    >
+                      New video
+                    </button>
+                  {/if}
                   <div class="flex max-w-xl flex-wrap justify-center gap-2">
                     {#each SUGGESTIONS as suggestion (suggestion)}
                       <button

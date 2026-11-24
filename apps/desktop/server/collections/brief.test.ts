@@ -230,6 +230,7 @@ describe("learning from feedback", () => {
     const { client, send, byName, rules } = await inSeries(
       async () => {},
       async () => {},
+      async () => {},
     );
     send({ type: "send", text: "footage is in D:/shoot" });
     await client.until((current) => rules.length === 1 && !current.busy);
@@ -238,6 +239,12 @@ describe("learning from feedback", () => {
     send({ type: "send", text: "and D:/shoot2" });
     await client.until((current) => rules.length === 2 && !current.busy);
     expect(rules[1]).toContain(AUTONOMOUS_RULES);
+    // A project's own choice wins over its series'.
+    send({ type: "update_project", projectId: "ep12", autonomous: false });
+    expect(client.state.projects.find((candidate) => candidate.id === "ep12")!.autonomous).toBe(false);
+    send({ type: "send", text: "and D:/shoot3" });
+    await client.until((current) => rules.length === 3 && !current.busy);
+    expect(rules[2]).not.toContain(AUTONOMOUS_RULES);
   });
 
   it("counts the rounds of feedback when a timeline is approved, and has the agent learn from the edit", async () => {

@@ -48,8 +48,22 @@ test("a project goes in a series inside a workspace, and gets the workspace's ru
   expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "SKILL.md"), "utf8")).toContain("\n---\n\nEnd every video on the logo.");
 });
 
-test("a project's own file is read and saved in the project file panel", async ({ page }) => {
+test("a project with no file of its own can start a video from its brief, until its file is saved in the panel", async ({ page }) => {
   await page.goto("/");
+  // Not sent here: chat.spec.ts has the one turn that may run.
+  await page.getByRole("button", { name: "New thread", exact: true }).click();
+  await page.getByRole("button", { name: "New video" }).click();
+  const start = page.getByRole("button", { name: "Make the first cut" });
+  await page.getByRole("textbox", { name: "Title" }).fill("Promo");
+  await expect(start).toBeDisabled();
+  await page.getByRole("button", { name: "Footage: choose a folder" }).click();
+  const picker = page.getByRole("dialog", { name: "Choose: Footage" });
+  await expect(picker.getByRole("combobox", { name: "Footage" })).not.toHaveValue("");
+  await picker.getByRole("button", { name: /^Choose/ }).last().click();
+  await expect(start).toBeEnabled();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByText("What are we editing?")).toBeVisible();
+
   await page.getByRole("button", { name: "Project file", exact: true }).click();
   await page.getByRole("textbox", { name: "Project file" }).fill("# Promo\n\n## Brief\nThirty seconds, for the launch.");
   await page.getByRole("button", { name: "Save", exact: true }).click();

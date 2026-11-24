@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
-import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage } from "../shared/protocol.ts";
+import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage, VideoBrief } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
 import { QUIET_MS } from "./resolve/watch.ts";
@@ -597,6 +600,88 @@ describe("app chats", () => {
     await turnDone();
     await late.until((state) => !state.busy);
     expect(late.state).toEqual(client.state);
+  });
+});
+
+describe("a video from its brief", () => {
+  function newVideo(options: HarnessOptions = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-video-"));
+    const footage = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-footage-"));
+    const store = memoryProjectStore([{ project: { ...workspaceProject, dir } }]);
+    const harness = setupWith({ store, ...options }, async () => {}, async () => {});
+    const files = () => fs.readdirSync(dir).sort();
+    const start = (brief: Partial<VideoBrief> = {}) => harness.send({ type: "start_video", brief: { title: "Roastery", footage, concept: "Warm.\r\nShort.", script: "One. Two three.", ...brief } });
+    return { ...harness, dir, footage, files, start };
+  }
+
+  it("is written to PROJECT.md and SCRIPT.md, and made without asking", async () => {
+    const { client, dir, footage, start, turnDone, prompts, store } = newVideo();
+    start();
+    await client.until((state) => state.items.length > 0);
+    await turnDone();
+    expect(fs.readFileSync(path.join(dir, "PROJECT.md"), "utf8")).toBe(
+      `# Roastery\n\n## Brief\nWarm.\nShort.\n\nScript: SCRIPT.md in the working folder, 3 words.\n\n## Footage\n- ${footage}\n`,
+    );
+    expect(fs.readFileSync(path.join(dir, "SCRIPT.md"), "utf8")).toBe("One. Two three.\n");
+    expect(prompts).toEqual(['Make the first cut of "Roastery" on your own. The brief is in PROJECT.md.']);
+    expect(client.state.projects[0]).toMatchObject({ autonomous: true, threads: [{ title: "Roastery" }] });
+    expect([...store.projects.values()][0]!.autonomous).toBe(true);
+  });
+
+  it("needs only a title and a footage folder", async () => {
+    const { client, dir, footage, files, start, turnDone } = newVideo();
+    start({ concept: "", script: "" });
+    await client.until((state) => state.items.length > 0);
+    await turnDone();
+    expect(files()).toEqual(["PROJECT.md"]);
+    expect(fs.readFileSync(path.join(dir, "PROJECT.md"), "utf8")).toBe(`# Roastery\n\n## Footage\n- ${footage}\n`);
+  });
+
+  it.each([
+    [{ title: " " }, /title/],
+    [{ footage: "" }, /folder with the footage/],
+    [{ footage: path.join(os.tmpdir(), "linker-edit-no-such-folder") }, /no folder/],
+    [{ footage: "relative" }, /isn't a folder/],
+    [{ concept: "x".repeat(4_001) }, /concept can be up to 4,000/],
+  ] as const)("is refused when %j", async (brief, reason) => {
+    const { client, files, start, app } = newVideo();
+    start(brief);
+    expect(client.toasts.at(-1)).toMatch(reason);
+    expect(app.busy()).toBe(false);
+    expect(files()).toEqual([]);
+  });
+
+  it("never replaces a project's own file", () => {
+    const { client, dir, start, app } = newVideo();
+    fs.writeFileSync(path.join(dir, "PROJECT.md"), "Mine.");
+    start();
+    expect(client.toasts.at(-1)).toMatch(/already has a PROJECT.md/);
+    expect(app.busy()).toBe(false);
+    expect(fs.readFileSync(path.join(dir, "PROJECT.md"), "utf8")).toBe("Mine.");
+  });
+
+  it("leaves nothing behind when the turn is refused, so it can be started again", async () => {
+    let open = "Another";
+    const { client, files, start, turnDone, prompts, store } = newVideo({
+      store: memoryProjectStore([
+        { project: { ...workspaceProject, dir: fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-video-")), link: { kind: "cloud", name: "Roastery", projectId: "r" } } },
+      ]),
+      checkResolve: async () => connected(open, open),
+    });
+    const { dir } = [...store.projects.values()][0]!;
+    start();
+    await client.until(() => client.toasts.length > 0);
+    await turnDone();
+    expect(client.toasts.at(-1)).toMatch(/Resolve has "Another" open/);
+    expect(fs.readdirSync(dir)).toEqual([]);
+    expect(client.state.projects[0]!.autonomous).toBe(false);
+    open = "r";
+    start();
+    await client.until((state) => state.items.length > 0);
+    await turnDone();
+    expect(prompts).toHaveLength(1);
+    expect(fs.readdirSync(dir).sort()).toEqual(["PROJECT.md", "SCRIPT.md"]);
+    expect(files()).toEqual([]);
   });
 });
 

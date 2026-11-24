@@ -32,6 +32,7 @@ import { READ_SKILL, readSkill, type SkillRoot } from "./skills/skills.ts";
 import { ADD_LESSON, isBriefTool, SAVE_BRIEF, SAVE_EXAMPLE } from "./collections/tools.ts";
 import { isStudyTool, type StudyService } from "./study/study.ts";
 import { browseFolders, expandHome } from "./folders.ts";
+import { briefRefusal, parseBrief, writeBrief } from "./projects/brief.ts";
 import type { History, ProjectCheck } from "./history/history.ts";
 import { checkFolder, cleanFolder, cleanTags, keepLibrary, newFolder, projectFolders, withProjectFolders } from "./library/folders.ts";
 import type { LibraryLink, LibraryService } from "./library/library.ts";
@@ -298,7 +299,7 @@ export function createApp(options: AppOptions) {
       refused(text, reason) {
         for (const [client, view] of clients) {
           if (view.threadId === saved.id) {
-            send(client, { type: "refused", threadId: saved.id, text });
+            if (text) send(client, { type: "refused", threadId: saved.id, text });
             send(client, { type: "toast", text: reason, tone: "error" });
           }
         }
@@ -594,6 +595,7 @@ export function createApp(options: AppOptions) {
       archived: saved.archived,
       threads: projectThreads(saved.id).map((thread) => thread.summary()),
       setup: saved.setup === true,
+      autonomous: collections.autonomous(saved),
     }));
   }
 
@@ -1011,17 +1013,37 @@ export function createApp(options: AppOptions) {
     select(client, defaultThread(state.saved.id));
   }
 
-  function updateProject(projectId: string, changes: { name?: string }) {
+  function updateProject(projectId: string, changes: { name?: string; autonomous?: boolean }) {
     const project = projects.get(projectId);
     if (!project) return;
     const { saved } = project;
     const name = changes.name === undefined ? saved.name : changes.name.trim() || null;
-    project.saved = { ...saved, name };
+    project.saved = { ...saved, name, ...(typeof changes.autonomous === "boolean" ? { autonomous: changes.autonomous } : {}) };
     store.saveProject(project.saved);
+    if (project.saved.autonomous !== saved.autonomous) prepareFolder(project.saved);
     if (name !== saved.name) {
       project.history?.commitProjectFile(`Rename project to "${projectName(project.saved)}"`).catch((error: unknown) => console.error(error));
     }
     sendMeta();
+  }
+
+  /** A video started from its brief. Its files are written when nothing can refuse the turn any more, so a refused start can be sent again. */
+  function startVideo(client: Client, current: { thread: Thread; projectId: string }, sent: unknown) {
+    const project = projects.get(current.projectId);
+    if (!project || project.saved.setup || current.thread.busy) return;
+    const brief = parseBrief(sent);
+    if ("refusal" in brief) return toast(client, brief.refusal);
+    const taken = briefRefusal(project.saved.dir, brief);
+    if (taken) return toast(client, taken);
+    current.thread.send(`Make the first cut of "${brief.title}" on your own. The brief is in ${PROJECT_NOTES_FILE}.`, false, () => {
+      const problem = writeBrief(project.saved.dir, brief);
+      if (problem) return problem;
+      updateProject(current.projectId, { autonomous: true });
+      if (current.thread.title === DEFAULT_TITLE) current.thread.rename(brief.title);
+      prepareFolder(project.saved);
+      publishProjectFile(current.projectId);
+      return null;
+    });
   }
 
   function relink(client: Client, projectId: string) {
@@ -1408,6 +1430,9 @@ export function createApp(options: AppOptions) {
     switch (message.type) {
       case "send":
         if (message.text.trim()) current?.thread.send(message.text.trim(), message.compactFirst === true);
+        break;
+      case "start_video":
+        if (current) startVideo(client, current, message.brief);
         break;
       case "compact":
         current?.thread.compact();

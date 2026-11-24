@@ -99,6 +99,17 @@ export interface ProjectSummary extends ProjectSidebarState {
    * brief here. It has no Resolve project and never gets one.
    */
   setup: boolean;
+  /** Its agent makes the first cut without asking: its own choice, or its series' or workspace's. */
+  autonomous: boolean;
+}
+
+/** What a new video starts from. Only the title and the footage folder are needed. */
+export interface VideoBrief {
+  title: string;
+  /** A folder on the edit computer. */
+  footage: string;
+  concept: string;
+  script: string;
 }
 
 /** A project in the Resolve database that is open now, for adding it to Linker-Edit. */
@@ -563,7 +574,9 @@ export type ClientMessage =
   | { type: "archive_thread"; threadId: string; archived: boolean }
   | { type: "delete_thread"; threadId: string }
   | { type: "add_project"; source: ProjectSource }
-  | ({ type: "update_project"; projectId: string; name?: string } & ProjectSidebarChanges)
+  | ({ type: "update_project"; projectId: string; name?: string; autonomous?: boolean } & ProjectSidebarChanges)
+  /** Writes the brief to the project's files and has the agent of the open, empty thread make the first cut. */
+  | { type: "start_video"; brief: VideoBrief }
   /** Links the project to the one open in Resolve now. */
   | { type: "relink_project"; projectId: string }
   /** Takes the project out of Linker-Edit. Its folder and its Resolve project stay. */

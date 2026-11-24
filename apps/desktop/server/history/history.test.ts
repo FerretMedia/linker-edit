@@ -162,6 +162,7 @@ describe("edit history", () => {
     });
     // The project's own file is saved once with a save, as the turn's agent, also when Resolve's side is refused.
     fs.writeFileSync(path.join(dir, "PROJECT.md"), "# Promo\n");
+    fs.writeFileSync(path.join(dir, "SCRIPT.md"), "One.\n");
     await expect(history.record({ provider: "claude", prompt: "Log the footage", actions: [], summary: "" })).rejects.toThrow('Resolve has "Promo" open.');
     await expect(history.record()).rejects.toThrow('Resolve has "Promo" open.');
     expect(fs.existsSync(path.join(dir, "resolve"))).toBe(false);
@@ -170,7 +171,7 @@ describe("edit history", () => {
     await history.commitProjectFile("Link to Resolve project Doc");
     await history.commitProjectFile("Link to Resolve project Doc");
     expect(execFileSync("git", ["log", "--format=%an: %s"], { cwd: dir, encoding: "utf8" })).toMatch(
-      /^.+: Link to Resolve project Doc\nClaude: Update PROJECT\.md: Log the footage\n$/,
+      /^.+: Link to Resolve project Doc\nClaude: Update PROJECT\.md: Log the footage\n(?!Claude).+: Update SCRIPT\.md\n$/,
     );
   });
 
