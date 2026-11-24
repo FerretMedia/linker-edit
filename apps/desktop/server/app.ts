@@ -1008,6 +1008,7 @@ export function createApp(options: AppOptions) {
       const problem = writeBrief(project.saved.dir, brief);
       if (problem) return problem;
       updateProject(current.projectId, { autonomous: true });
+      if (current.thread.title === DEFAULT_TITLE) current.thread.rename(brief.title);
       prepareFolder(project.saved);
       publishProjectFile(current.projectId);
       return null;

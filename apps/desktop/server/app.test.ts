@@ -622,7 +622,7 @@ describe("a video from its brief", () => {
     );
     expect(fs.readFileSync(path.join(dir, "SCRIPT.md"), "utf8")).toBe("One. Two three.\n");
     expect(prompts).toEqual(['Make the first cut of "Roastery" on your own. The brief is in PROJECT.md.']);
-    expect(client.state.projects[0]!.autonomous).toBe(true);
+    expect(client.state.projects[0]).toMatchObject({ autonomous: true, threads: [{ title: "Roastery" }] });
     expect([...store.projects.values()][0]!.autonomous).toBe(true);
   });
 
