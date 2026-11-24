@@ -8,7 +8,7 @@ import { LIBRARY_TOOLS } from "../library/tools.ts";
 import { RESOLVE_TOOLS } from "../resolve/tools.ts";
 import { AUTONOMOUS_RULES } from "../rules.ts";
 import { STUDY_TOOLS } from "../study/study.ts";
-import { listSkills, READ_SKILL_TOOL, readSkill, skillsSection, type SkillRoot } from "./skills.ts";
+import { listSkills, READ_SKILL_TOOL, readSkill, removeSkill, savedSkills, saveSkill, skillsSection, type SkillRoot } from "./skills.ts";
 
 let dir: string;
 let roots: SkillRoot[];
@@ -29,6 +29,48 @@ beforeEach(() => {
   write("shipped", "color/SKILL.md", '---\nname: color\ndescription: "Grading \\"footage\\"."\n---\n\nBalance first.\n');
   write("shipped", "color/skin.md", "Skin on the line.");
   write("shipped", "sound/SKILL.md", "---\r\nname: sound\r\ndescription: Music and levels.\r\n---\r\n\r\nMusic under speech.\r\n");
+});
+
+describe("skills saved from Settings", () => {
+  const own = () => path.join(dir, "series");
+  const save = (skill: Parameters<typeof saveSkill>[1]) => saveSkill(own(), skill, listSkills(roots.slice(0, 2)));
+
+  it("are written as skills the agent reads, and keep a hand-written file's other fields", () => {
+    expect(save({ name: "Podcast Clips!", description: "Cutting Mila's\n clips: D:\\ short.", text: "One idea per clip.\r\nNo more.", isNew: true })).toBeNull();
+    expect(savedSkills(own())).toEqual([
+      { name: "podcast-clips", description: "Cutting Mila's clips: D:\\ short.", text: "One idea per clip.\nNo more.\n", file: path.join(own(), "podcast-clips", "SKILL.md") },
+    ]);
+    expect(readSkill(roots, "podcast-clips")).toContain("One idea per clip.");
+
+    write("series", "color/SKILL.md", "---\r\nname: color\r\ndescription: >\r\n  Old\r\n  words.\r\nlicense: MIT\r\n---\r\n\r\nTeal.\r\n");
+    expect(save({ name: "color", description: "", text: "Warm." })).toBeNull();
+    expect(fs.readFileSync(path.join(own(), "color", "SKILL.md"), "utf8")).toBe("---\nname: color\nlicense: MIT\n---\n\nWarm.\n");
+    expect(save({ name: "color", description: "Reels color.", text: "Warm." })).toBeNull();
+    expect(listSkills(roots).find((skill) => skill.name === "color")!.description).toBe("Reels color.");
+  });
+
+  it.each([
+    [{ name: "..", description: "x", text: "x" }, /name/],
+    [{ name: "a".repeat(41), description: "x", text: "x" }, /name/],
+    [{ name: "new", description: " ", text: "x" }, /what work/],
+    [{ name: "new", description: "x", text: " " }, /Write what/],
+    [{ name: "new", description: "x", text: "x".repeat(20_001) }, /20,000/],
+    [{ name: "new", description: "x".repeat(301), text: "x" }, /300/],
+    [{ name: 1, description: null, text: {} }, /name/],
+  ])("are refused: %#", (skill, reason) => {
+    expect(save(skill)).toMatch(reason);
+    expect(savedSkills(own())).toEqual([]);
+  });
+
+  it("never replace one by mistake, and are removed by name only", () => {
+    expect(save({ name: "color", description: "", text: "Warm.", isNew: true })).toBeNull();
+    expect(save({ name: "Color", description: "", text: "Cold.", isNew: true })).toMatch(/already is/);
+    expect(removeSkill(own(), "../shipped")).toBeNull();
+    expect(readSkill(roots, "color")).toContain("Warm.");
+    expect(listSkills(roots.slice(0, 1))).toHaveLength(2);
+    expect(removeSkill(own(), "color")).toBeNull();
+    expect(savedSkills(own())).toEqual([]);
+  });
 });
 
 describe("skills", () => {

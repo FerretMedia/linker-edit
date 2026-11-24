@@ -4,7 +4,7 @@ import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJECT_RULES, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
-import { listSkills, skillsSection, type SkillRoot } from "../skills/skills.ts";
+import { listSkills, removeSkill, savedSkills, saveSkill, skillsSection, type SkillRoot } from "../skills/skills.ts";
 import { exampleName, RULES_FILE, skillBody, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the workspaces and series need from the app around them. */
@@ -46,7 +46,7 @@ const MAX_NAME = 80;
 const MAX_RULES = 20_000;
 
 const isMessage = (message: ClientMessage): message is CollectionMessage =>
-  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example"].includes(message.type);
+  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example", "save_skill", "remove_skill"].includes(message.type);
 
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
@@ -124,14 +124,19 @@ export function createCollections(host: CollectionsHost) {
     return project.autonomous ?? (series ?? workspace)?.autonomous === true;
   }
 
+  function skillsDir(id: string): string | null {
+    const file = store.rulesFile(id);
+    return file && path.join(path.dirname(file), SKILLS_DIR);
+  }
+
   /** Where this project's skills are, most general first. */
   function skillRoots(project: SavedProject): SkillRoot[] {
     const { workspace, series } = collectionChain(collections, project);
     return [
       ...host.skills,
       ...[workspace, series].flatMap((part) => {
-        const file = part && store.rulesFile(part.id);
-        return file ? [{ label: label(part), dir: path.join(path.dirname(file), SKILLS_DIR) }] : [];
+        const dir = part && skillsDir(part.id);
+        return dir ? [{ label: label(part), dir }] : [];
       }),
     ];
   }
@@ -301,10 +306,14 @@ export function createCollections(host: CollectionsHost) {
           autonomous: collection.autonomous,
           lessons: collection.lessons,
           examples: store.examples(collection.id),
+          skills: savedSkills(skillsDir(collection.id) ?? ""),
           setupProjectId: projects.find((project) => project.setup && project.collection?.id === collection.id)?.id ?? null,
           edits: collection.edits,
         }));
     },
+
+    /** The skills every project gets. */
+    sharedSkills: () => listSkills(host.skills).map(({ name, description }) => ({ name, description })),
 
     get: (id: string): SavedCollection | undefined => collections.get(id),
 
@@ -429,6 +438,18 @@ export function createCollections(host: CollectionsHost) {
         case "remove_example":
           if (typeof message.name === "string") store.removeExample(message.id, message.name);
           break;
+        case "save_skill": {
+          const own = collections.get(message.id);
+          const dir = own && skillsDir(own.id);
+          const parent = own?.parentId ? skillsDir(own.parentId) : null;
+          if (dir) refusal = saveSkill(dir, message, listSkills([...host.skills, ...(parent ? [{ label: "", dir: parent }] : [])]));
+          break;
+        }
+        case "remove_skill": {
+          const dir = collections.has(message.id) && skillsDir(message.id);
+          if (dir) refusal = removeSkill(dir, message.name);
+          break;
+        }
       }
       if (!refusal) host.changed();
       return refusal;

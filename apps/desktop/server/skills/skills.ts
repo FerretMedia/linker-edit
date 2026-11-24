@@ -2,7 +2,8 @@
 // when the work needs it.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FRONT_MATTER, skillBody } from "../collections/store.ts";
+import type { SavedSkill } from "../../shared/protocol.ts";
+import { collectionSlug, FRONT_MATTER, skillBody } from "../collections/store.ts";
 
 /** A folder of skills, and whose they are. */
 export interface SkillRoot {
@@ -49,9 +50,11 @@ function readText(file: string): string | null {
   }
 }
 
+const DESCRIPTION = /^description:[ \t]*(.*(?:\r?\n[ \t]+.*)*)/m;
+
 /** The front matter's description: on its line, or on the indented lines below it, as YAML allows. */
 function description(text: string): string {
-  const found = /^description:[ \t]*(.*(?:\r?\n[ \t]+.*)*)/m.exec(FRONT_MATTER.exec(text)?.[1] ?? "")?.[1] ?? "";
+  const found = DESCRIPTION.exec(FRONT_MATTER.exec(text)?.[1] ?? "")?.[1] ?? "";
   const value = found.replace(/^[>|][+-]?(?=\s|$)/, "").replace(/\s+/g, " ").trim();
   const [, quote, inner] = /^(["'])(.*)\1$/.exec(value) ?? [];
   return (quote === '"' ? inner!.replaceAll('\\"', '"') : quote ? inner!.replaceAll("''", "'") : value).slice(0, MAX_DESCRIPTION);
@@ -78,6 +81,51 @@ export function listSkills(roots: SkillRoot[]): Skill[] {
     }
   }
   return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The skills in one folder, as Settings shows them. */
+export function savedSkills(dir: string): SavedSkill[] {
+  return listSkills([{ label: "", dir }]).flatMap(({ name, description: about, sources }) => {
+    const { file } = sources[0]!;
+    const text = readText(file);
+    return text === null ? [] : [{ name, description: about, text: skillBody(text), file }];
+  });
+}
+
+/** Writes a skill from Settings; `known` are the skills it can add to. Returns why it wasn't saved, or null. */
+export function saveSkill(dir: string, skill: { name: unknown; description: unknown; text: unknown; isNew?: unknown }, known: Skill[]): string | null {
+  const name = typeof skill.name === "string" && /[a-z0-9]/i.test(skill.name) ? collectionSlug(skill.name) : "";
+  if (!SKILL_NAME.test(name)) return "Give the skill a name of up to 40 letters and numbers, such as color-grading.";
+  const about = typeof skill.description === "string" ? skill.description.replace(/\s+/g, " ").trim() : "";
+  const text = typeof skill.text === "string" ? skill.text.replaceAll("\r\n", "\n").trim() : "";
+  if (!text) return "Write what the skill says first.";
+  if (text.length > MAX_TEXT) return `A skill can be up to ${MAX_TEXT.toLocaleString("en-US")} characters.`;
+  if (about.length > MAX_DESCRIPTION) return `The description can be up to ${MAX_DESCRIPTION} characters.`;
+  if (!about && !known.some((other) => other.name === name)) return "Say what work the skill is for, so the agent knows when to read it.";
+  const file = path.join(dir, name, SKILL_FILE);
+  const before = readText(file)?.replaceAll("\r\n", "\n") ?? null;
+  if (skill.isNew === true && before !== null) return `There already is a skill "${name}" here.`;
+  // Front matter someone wrote by hand keeps its other fields.
+  const others = (FRONT_MATTER.exec(before ?? "")?.[1] ?? `name: ${name}`).replace(DESCRIPTION, "").replace(/\n{2,}/g, "\n").trim();
+  const front = [others, ...(about ? [`description: '${about.replaceAll("'", "''")}'`] : [])].filter(Boolean).join("\n");
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `---\n${front || `name: ${name}`}\n---\n\n${text}\n`);
+  } catch (error) {
+    return `Couldn't save the skill: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  return null;
+}
+
+/** Deletes a skill's folder, its other files included. Returns why it couldn't, or null. */
+export function removeSkill(dir: string, name: unknown): string | null {
+  if (typeof name !== "string" || !SKILL_NAME.test(name)) return null;
+  try {
+    fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  } catch (error) {
+    return `Couldn't remove the skill: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  return null;
 }
 
 /** The list of skills for the agent's rules; "" when there are none. */

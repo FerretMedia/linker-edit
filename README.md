@@ -293,7 +293,7 @@ A skill says how one kind of work is done, such as color grading. The agent sees
 - `sound`: choosing music, levels, loudness.
 - `titles-and-captions`: what to put on screen, and where.
 
-You can add your own, and a workspace or series can too. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
+A workspace or series can have skills of its own: pick it in Settings, and use **Add skill**. You can also add your own for every project, as a file. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
 
 ```
 ~/LinkerEdit/skills/color-grading/SKILL.md                     for all your projects, with or without a brand

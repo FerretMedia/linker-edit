@@ -530,6 +530,8 @@ export interface AppMeta {
   linker: LinkerAccount;
   /** Every workspace and series, workspaces first, each in the order it was made. */
   collections: CollectionSummary[];
+  /** The skills every project gets: Linker-Edit's and your own. Missing from older servers. */
+  skills?: { name: string; description: string }[];
 }
 
 export interface AppState extends AppMeta {
@@ -805,10 +807,22 @@ export interface CollectionSummary {
   lessons: Lesson[];
   /** The agent's notes on example videos it studied, kept as files next to the rules. */
   examples: { name: string; file: string }[];
+  /** Its own skills, by name. A skill of the same name as Linker-Edit's adds to it. Missing from older servers. */
+  skills?: SavedSkill[];
   /** The project that holds its setup threads; null until "Set up with AI" was used. */
   setupProjectId: string | null;
   /** Approved edits of its projects, newest first, to see whether the brief works. */
   edits: ApprovedEdit[];
+}
+
+/** One skill of a workspace or series: how a kind of work is done there. */
+export interface SavedSkill {
+  name: string;
+  /** What work it is for, as the agent's list says it. */
+  description: string;
+  /** Its SKILL.md without the front matter. */
+  text: string;
+  file: string;
 }
 
 /** A rule the agent learned from the user's feedback, kept with the words it came from so a wrong one is easy to spot. */
@@ -839,6 +853,10 @@ export type CollectionMessage =
   /** Forgets a lesson or the notes on an example. */
   | { type: "remove_lesson"; id: string; lessonId: string }
   | { type: "remove_example"; id: string; name: string }
+  /** isNew never replaces a skill that's there. */
+  | { type: "save_skill"; id: string; name: string; description: string; text: string; isNew?: boolean }
+  /** Deletes the skill's folder. */
+  | { type: "remove_skill"; id: string; name: string }
   /** Opens its setup thread, where the agent studies example videos and writes the brief; made on first use. */
   | { type: "setup_collection"; id: string }
   /** Refused while projects or series are in it. */

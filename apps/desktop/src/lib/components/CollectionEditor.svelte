@@ -9,6 +9,7 @@
   import CollectionIconPicker from "./CollectionIconPicker.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import SkillsList from "./SkillsList.svelte";
   import Switch from "./Switch.svelte";
 
   // One workspace or series: its name, icon, place and rules. Keyed by id where it's used, so drafts start fresh.
@@ -17,21 +18,28 @@
     workspaces,
     projectNames,
     seriesCount,
+    sharedSkills,
     onUpdate,
     onSetup,
     onRemoveLesson,
     onRemoveExample,
+    onSaveSkill,
+    onRemoveSkill,
     onDelete,
   }: {
     collection: CollectionSummary;
     workspaces: CollectionSummary[];
     projectNames: string[];
     seriesCount: number;
+    /** The skills every project gets, which this one's can add to. */
+    sharedSkills: { name: string; description: string }[];
     onUpdate: (changes: { name?: string; icon?: Icon; rules?: string; parentId?: string | null; autonomous?: boolean }) => void;
     /** Opens its setup thread, where the agent studies example videos and proposes the rules. */
     onSetup: () => void;
     onRemoveLesson: (lessonId: string) => void;
     onRemoveExample: (name: string) => void;
+    onSaveSkill: (skill: { name: string; description: string; text: string; isNew?: boolean }) => void;
+    onRemoveSkill: (name: string) => void;
     onDelete: () => void;
   } = $props();
 
@@ -66,7 +74,7 @@
   const rounds = $derived(collection.edits.slice(0, 8).map((edit) => edit.rounds));
 
   function remove() {
-    if (confirm(`Delete ${label.lower} "${collection.name}"? Its rules, lessons and notes are deleted too.`)) onDelete();
+    if (confirm(`Delete ${label.lower} "${collection.name}"? Its rules, skills, lessons and notes are deleted too.`)) onDelete();
   }
 
   const button = "h-8 rounded-md border px-3 text-xs whitespace-nowrap transition-colors hover:bg-accent disabled:opacity-50";
@@ -173,6 +181,8 @@
     </div>
   </div>
 
+  <SkillsList skills={collection.skills ?? []} shared={sharedSkills} of={label.lower} onSave={onSaveSkill} onRemove={onRemoveSkill} />
+
   <div class="flex flex-col gap-2 p-4">
     <p class="text-sm">Lessons from your feedback</p>
     <p class="text-xs text-muted-foreground">
@@ -236,7 +246,7 @@
   <SettingsRow
     label="Delete {label.lower}"
     description={empty
-      ? "Its rules, lessons and notes are deleted too. Projects are never deleted."
+      ? "Its rules, skills, lessons and notes are deleted too. Projects are never deleted."
       : `Move its projects${collection.kind === "workspace" ? ` and ${COLLECTION_LABEL.series.lowerMany}` : ""} out first.`}
   >
     <button type="button" class="{button} flex items-center gap-1.5 text-destructive" disabled={!empty} onclick={remove}>
