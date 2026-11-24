@@ -1,9 +1,7 @@
 # Saves the open project, then opens another. ARGS: {kind, name, projectId, database, folder, onlyIfIdle}.
 # A cloud project is never opened here, only recognised when you've opened it in Resolve yourself.
 #
-# With Resolve's UI up, loading a project over one with unsaved changes raises a dialog no script can
-# dismiss, so the open project is saved first, as Resolve's own Project Manager would offer. The empty
-# "Untitled Project" Resolve starts with isn't: saving it would add it to the user's database.
+# The open project is saved first, as Resolve's own Project Manager would offer; see check_leaving.
 
 
 def db_info(db):
@@ -40,27 +38,6 @@ def load_by_name(name, hint):
     return None, None
 
 
-def untouched(p):
-    # What Resolve has open behind its Project Manager after starting: new, empty and never saved. Told by
-    # its contents and not its name, which may be in the user's language.
-    media = call(p, "GetMediaPool")
-    root = call(media, "GetRootFolder") if media else None
-    if call(p, "GetTimelineCount") != 0 or not root or call(root, "GetClipList") or call(root, "GetSubFolderList"):
-        return False
-    return p.GetName() not in (pm.GetProjectListInCurrentFolder() or [])
-
-
-def saved_somewhere(name):
-    pm.GotoRootFolder()
-    found = walk([], lambda n, p: n == name)
-    pm.GotoRootFolder()
-    return found
-
-
-def opened(p, folder):
-    return {"project": {"name": p.GetName(), "id": p.GetUniqueId()}, "database": database(pm.GetCurrentDatabase()), "folder": folder}
-
-
 def open_project(req):
     current = pm.GetCurrentProject()
     if current and req.get("projectId") and current.GetUniqueId() == req["projectId"]:
@@ -81,13 +58,7 @@ def open_project(req):
             f"\"{req['name']}\" with Open in Resolve in Linker-Edit."
         )
     if not idle:
-        if call(current, "IsRenderingInProgress"):
-            raise Refused(f"Resolve is rendering in \"{current.GetName()}\". Wait until it's done.")
-        # Saving it would ask the user for a name, or add an "Untitled Project" to their database. What a
-        # Blackmagic Cloud library lists isn't known, so there it's left alone.
-        local_library = ((pm.GetCurrentDatabase() or {}).get("DbType") or "").lower() in ("disk", "postgresql")
-        if local_library and not saved_somewhere(current.GetName()):
-            raise Refused(f"\"{current.GetName()}\" has work in it and was never saved. Save it in Resolve first.")
+        check_leaving(current)
     previous_name = current.GetName() if current else None
     previous_db = database(pm.GetCurrentDatabase())
     if not idle:

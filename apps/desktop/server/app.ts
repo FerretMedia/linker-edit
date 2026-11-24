@@ -191,6 +191,8 @@ export function createApp(options: AppOptions) {
   let opening: string | null = null;
   // The name of the Resolve project being opened again; see reopenPrevious.
   let reopening: string | null = null;
+  /** The project being made in Resolve, by name. */
+  let creating: string | null = null;
   // The project whose AI timeline is becoming its main one.
   let applying: string | null = null;
   // Agents' Resolve tool calls still running. A stopped turn ends before a render it started has wound
@@ -232,7 +234,7 @@ export function createApp(options: AppOptions) {
     if (saved.setup) return `${collections.get(saved.collection?.id ?? "")?.name ?? saved.collection?.name ?? "Brand"} setup`;
     return saved.name ?? saved.link?.name ?? path.basename(saved.dir);
   }
-  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || reopening !== null || applying !== null || toolCalls > 0;
+  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || reopening !== null || creating !== null || applying !== null || toolCalls > 0;
 
   /** Writes the project's rules where agents read them; again before each turn, so they are never stale. */
   function prepareFolder(saved: SavedProject) {
@@ -601,6 +603,7 @@ export function createApp(options: AppOptions) {
       const target = projects.get(opening);
       return { message: `Opening "${target ? projectName(target.saved) : "the project"}" in Resolve…`, canOpen: false };
     }
+    if (creating) return { message: `Making "${creating}" in Resolve…`, canOpen: false };
     if (reopening) return { message: `Opening "${reopening}" in Resolve…`, canOpen: false };
     if (applying) return { message: "Making the AI timeline the main one…", canOpen: false };
     if (previewJob) return { message: "Resolve is rendering a preview. Send when it's done, or stop it in the preview panel.", canOpen: false };
@@ -660,6 +663,7 @@ export function createApp(options: AppOptions) {
       preview: previewProject === (entry?.projectId ?? null) ? preview : { state: "idle" },
       context: entry?.thread.context ?? null,
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
+      createsProjects: true,
       opening,
       applying,
       reopen: previous && entry && project?.saved.link && !entry.thread.busy && isOpen(project) ? previous.link.name : null,
@@ -749,6 +753,8 @@ export function createApp(options: AppOptions) {
   }
 
   function select(client: Client, threadId: string | null) {
+    // It may have left while Resolve took its time.
+    if (!clients.has(client)) return;
     clients.set(client, { threadId });
     sendSnapshot(client);
     sendMeta();
@@ -929,7 +935,7 @@ export function createApp(options: AppOptions) {
     return !dbA || !dbB || (dbA.name === dbB.name && (dbA.host ?? "") === (dbB.host ?? ""));
   }
 
-  function linkFromSource(source: Exclude<ProjectSource, { kind: "open" | "folder" }>): { link: ResolveLink; local: LocalLink } {
+  function linkFromSource(source: Exclude<ProjectSource, { kind: "open" | "folder" | "new" }>): { link: ResolveLink; local: LocalLink } {
     if (source.kind === "cloud") {
       return {
         link: { kind: "cloud", name: source.name.trim(), projectId: null },
@@ -942,7 +948,39 @@ export function createApp(options: AppOptions) {
     };
   }
 
+  function addLinked(client: Client, next: { link: ResolveLink; local: LocalLink }) {
+    const existing = [...projects.values()].find((project) => sameLink(next, project.saved));
+    if (existing) {
+      toast(client, `"${projectName(existing.saved)}" is already in Linker-Edit.`, "info");
+      select(client, defaultThread(existing.saved.id));
+      return;
+    }
+    const state = addProject(store.create({ name: null, ...next }));
+    state.history?.commitProjectFile(`Link to Resolve project "${next.link.name}"`).catch((error: unknown) => console.error(error));
+    select(client, defaultThread(state.saved.id));
+  }
+
+  async function createInResolve(client: Client, sent: unknown) {
+    const name = typeof sent === "string" ? sent.trim() : "";
+    if (!options.resolveProjects || !name) return toast(client, "Give the project a name.");
+    if (resolveBusy()) return toast(client, "Resolve is busy. Wait until the running turn or render finishes.");
+    creating = name;
+    toast(client, `Making "${name}" in Resolve…`, "info");
+    sendMeta();
+    try {
+      const made = await options.resolveProjects.create(name);
+      addLinked(client, linkFromOpen({ name: made.project.name, id: made.project.id, database: made.database }));
+    } catch (error) {
+      if (clients.has(client)) toast(client, `Couldn't make "${name}" in Resolve: ${errorText(error)}`);
+    } finally {
+      creating = null;
+      await refreshResolve().catch(() => {});
+      sendMeta();
+    }
+  }
+
   function addProjectFrom(client: Client, source: ProjectSource) {
+    if (source.kind === "new") return void createInResolve(client, source.name);
     let state: ProjectState;
     if (source.kind === "folder") {
       try {
@@ -968,14 +1006,7 @@ export function createApp(options: AppOptions) {
         }
         next = linkFromSource(source);
       }
-      const existing = [...projects.values()].find((project) => sameLink(next, project.saved));
-      if (existing) {
-        toast(client, `"${projectName(existing.saved)}" is already in Linker-Edit.`, "info");
-        select(client, defaultThread(existing.saved.id));
-        return;
-      }
-      state = addProject(store.create({ name: null, ...next }));
-      state.history?.commitProjectFile(`Link to Resolve project "${next.link.name}"`).catch((error: unknown) => console.error(error));
+      return addLinked(client, next);
     }
     select(client, defaultThread(state.saved.id));
   }

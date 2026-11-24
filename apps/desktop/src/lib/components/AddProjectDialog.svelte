@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import Cloud from "@lucide/svelte/icons/cloud";
+  import FilePlus from "@lucide/svelte/icons/file-plus-2";
   import FolderInput from "@lucide/svelte/icons/folder-input";
   import HardDrive from "@lucide/svelte/icons/hard-drive";
   import Monitor from "@lucide/svelte/icons/monitor";
@@ -36,11 +37,16 @@
   const STATUS = { connecting: "Connecting…", offline: "Offline" };
 
   const TABS = [
+    { value: "new", label: "New", Icon: FilePlus },
     { value: "open", label: "Open in Resolve", Icon: MonitorUp },
     { value: "library", label: "Database", Icon: HardDrive },
     { value: "cloud", label: "Cloud", Icon: Cloud },
     { value: "folder", label: "Folder", Icon: FolderInput },
   ] as const;
+
+  // An older server would add a project that isn't there.
+  const tabs = $derived(TABS.filter((item) => item.value !== "new" || server?.state?.createsProjects));
+  const cloudOpen = $derived(resolve.state === "connected" && !!resolve.database && !["disk", "postgresql"].includes(resolve.database.type.toLowerCase()));
 
   const openProject = $derived(resolve.state === "connected" ? resolve.project : null);
   // Starts where the likely project is; the user picks the tab after that.
@@ -54,6 +60,7 @@
     tab = tabFor(id);
   }
   let filter = $state("");
+  let newName = $state("");
   let cloudName = $state("");
   let folder = $state("");
   let folderStatus = $state<{ exists: boolean; isProject: boolean } | null>(null);
@@ -95,7 +102,7 @@
     onClose();
   }
 
-  const field = "h-8 w-full rounded-md border bg-transparent px-2.5 text-sm outline-none focus:border-primary";
+  const field = "h-8 w-full rounded-md border bg-transparent px-2.5 text-sm text-foreground outline-none focus:border-primary";
 </script>
 
 <Dialog title="Add project" {onClose}>
@@ -137,23 +144,53 @@
       </button>
     {/if}
     <div class="flex gap-1 rounded-lg bg-accent p-1" role="tablist">
-      {#each TABS as item (item.value)}
+      {#each tabs as item (item.value)}
         <button
           type="button"
           role="tab"
           aria-selected={tab === item.value}
-          class="flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md text-xs transition-colors {tab === item.value
+          class="flex h-7 flex-auto items-center justify-center gap-1.5 rounded-md text-xs transition-colors {tab === item.value
             ? 'bg-card text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'}"
           onclick={() => (tab = item.value)}
         >
-          <item.Icon class="size-3.5" />
+          <item.Icon class="size-3.5 max-sm:hidden" />
           {item.label}
         </button>
       {/each}
     </div>
 
-    {#if tab === "open"}
+    {#if tab === "new"}
+      <form
+        class="flex flex-col gap-3"
+        onsubmit={(event) => {
+          event.preventDefault();
+          if (newName.trim() && !cloudOpen) add({ kind: "new", name: newName.trim() });
+        }}
+      >
+        <label class="flex flex-col gap-1 text-xs text-muted-foreground">
+          Project name
+          <input class={field} maxlength="120" bind:value={newName} />
+        </label>
+        <div class="flex items-center gap-3">
+          <p class="flex-1 text-xs text-muted-foreground">
+            {#if cloudOpen}
+              Resolve has a library open that Linker-Edit makes no projects in. Open a local or network one in Resolve's Project Manager first.
+            {:else}
+            Makes an empty project in {resolve.state === "connected" && resolve.database ? `"${resolve.database.name}"` : "the database Resolve has open"}
+            and opens it.{#if openProject}&nbsp;Resolve saves and closes "{openProject}" first.{/if}
+            {/if}
+          </p>
+          <button
+            type="submit"
+            class="h-8 shrink-0 rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+            disabled={!newName.trim() || cloudOpen}
+          >
+            Make
+          </button>
+        </div>
+      </form>
+    {:else if tab === "open"}
       {#if openProject && resolve.state === "connected"}
         <div class="flex items-center gap-3 rounded-lg border p-3">
           <div class="min-w-0 flex-1">
@@ -211,8 +248,8 @@
       </label>
       <p class="text-xs text-muted-foreground">
         You open {LIBRARY_LABEL.cloud} projects in Resolve's Project Manager yourself: {LIBRARY_LABEL.cloud}'s terms don't allow scripts
-        to use it, so Linker-Edit never opens, creates or uploads cloud projects. If the project is open in Resolve now, add it from the
-        first tab instead.
+        to use it, so Linker-Edit never opens, creates or uploads cloud projects. If the project is open in Resolve now, add it from
+        Open in Resolve instead.
       </p>
       <button
         type="button"

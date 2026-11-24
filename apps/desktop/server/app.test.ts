@@ -69,6 +69,8 @@ function connected(project: string | null, projectId: string | null = null): Res
   };
 }
 
+const neverCreates = () => Promise.reject(new Error("Nothing asked for this."));
+
 type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings" | "transcriber">> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
@@ -981,6 +983,57 @@ describe("app projects", () => {
     expect(store.projects.size).toBe(4);
   });
 
+  it("makes a new project in Resolve on the user's click, and adds it", async () => {
+    const resolve = resolveWith(connected("Promo", "promo-id"));
+    const made: string[] = [];
+    let finish: (error?: Error) => void = () => {};
+    const { app, client, send, store } = setupWith({
+      store: memoryProjectStore([{ project: { ...workspaceProject } }]),
+      checkResolve: resolve.checkResolve,
+      resolveProjects: {
+        library: async () => ({ database: null, databases: [], projects: [] }),
+        start: async () => false,
+        open: neverCreates,
+        create: async (name) => {
+          made.push(name);
+          await new Promise<void>((done, fail) => (finish = (error) => (error ? fail(error) : done())));
+          resolve.current.status = connected(name, "made-id");
+          return { project: { name, id: "made-id" }, database: { type: "Disk", name: "Local Database" }, folder: [] };
+        },
+      },
+    });
+    const make = (name: string) => send({ type: "add_project", source: { kind: "new", name } });
+    make("  ");
+    expect(client.toasts.at(-1)).toBe("Give the project a name.");
+    make("Roastery");
+    make("Another");
+    expect(client.toasts.at(-1)).toMatch(/Resolve is busy/);
+    finish(new Error("Resolve is rendering."));
+    await client.until(() => client.toasts.includes(`Couldn't make "Roastery" in Resolve: Resolve is rendering.`));
+    await client.until((state) => state.blocked === null);
+    expect(store.projects.size).toBe(1);
+
+    make("Roastery");
+    finish();
+    await client.until((state) => state.projects.length === 2);
+    expect(made).toEqual(["Roastery", "Roastery"]);
+    expect(client.state.projects[1]).toMatchObject({ name: "Roastery", link: { kind: "local", name: "Roastery", projectId: "made-id" } });
+    expect(client.state.projectId).toBe(client.state.projects[1]!.id);
+
+    // A page closed meanwhile gets nothing more; the project is added all the same.
+    const sent: unknown[] = [];
+    const leaving = { send: (data: string) => void sent.push(data) };
+    const leave = app.connect(leaving);
+    app.handleMessage(leaving, { type: "add_project", source: { kind: "new", name: "Later" } });
+    await client.until((state) => /Making "Later"/.test(state.blocked?.message ?? ""));
+    leave();
+    const before = sent.length;
+    finish();
+    await client.until((state) => state.projects.length === 3);
+    app.setUpdate("9.9.9");
+    expect(sent).toHaveLength(before);
+  });
+
   describe("a turn that starts Resolve", () => {
     function closedResolve(project: SavedProject, opensAs: ResolveStatus) {
       const resolve = resolveWith({ state: "not_running" });
@@ -998,6 +1051,7 @@ describe("app projects", () => {
           backupProject: async () => "backup.drp",
           resolveProjects: {
             library: async () => ({ database: null, databases: [], projects: [] }),
+            create: neverCreates,
             start: async () => {
               resolve.current.status = opensAs;
               return true;
@@ -1069,6 +1123,7 @@ describe("app projects", () => {
           backupProject: async () => "backup.drp",
           resolveProjects: {
             library: async () => ({ database: null, databases: [], projects: [] }),
+            create: neverCreates,
             start: async () => false,
             open: async (link) => {
               opens.push(link.name);
@@ -1249,6 +1304,7 @@ describe("app projects", () => {
     let fail = false;
     const resolveProjects: AppOptions["resolveProjects"] = {
       library: async () => ({ database: null, databases: [], projects: [] }),
+      create: neverCreates,
       start: async () => false,
       open: async (link) => {
         opens.push(link.name);

@@ -188,6 +188,7 @@ Resolve doesn't have to be running when you send a message. When the task needs 
 
 **Adding a project** (**Add project** in the folder button's menu). With more than one computer, first choose the one the project is on: its threads run there, with that computer's Resolve. Then:
 
+- **New:** a new, empty project. Resolve starts when it isn't running, saves and closes the project it has open, and makes the new one in the database it has open, local or network. Agents can't make projects, and in Blackmagic Cloud you make it yourself.
 - **Open in Resolve:** the project Resolve has open now.
 - **Database:** any project in the database Resolve has open, local or network (PostgreSQL). To add one from another database, switch to that database in Resolve's Project Manager first.
 - **Cloud:** a Blackmagic Cloud project, by its name. You open it in Resolve's Project Manager yourself, and Linker-Edit picks it up once it's open: [Blackmagic Cloud's terms](https://static.cloud.blackmagicdesign.com/html/terms) don't allow scripts to use the service, so Linker-Edit never opens, creates, uploads or syncs cloud projects. If it's open in Resolve now, use **Open in Resolve** instead.
