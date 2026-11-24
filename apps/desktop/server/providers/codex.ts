@@ -70,7 +70,7 @@ export function codexOptions(config: AppConfig): CodexOptions {
   return {
     config: {
       mcp_servers: {
-        // Resolve's own server, for its scripting docs and launch_resolve only: Codex has no per-call hook
+        // Resolve's own server, for its scripting docs only: Codex has no per-call hook
         // to check a script or back the project up first, so run_script and every tool that writes are off.
         ...(resolve
           ? {

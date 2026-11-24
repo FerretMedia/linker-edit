@@ -45,10 +45,12 @@ import { parseProjectIcon } from "../shared/project-icon.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
 import type { RemoteAccessService } from "./remote.ts";
-import type { ResolveProjects } from "./resolveProjects.ts";
+import { createResolveWatch } from "./resolve/watch.ts";
+import type { ResolveCheck } from "./resolveStatus.ts";
+import type { OpenOptions, ResolveProjects } from "./resolveProjects.ts";
 import { isAutoSettleDays, type SettingsStore } from "./settings.ts";
 import { AUTO_SETTLE_DAYS } from "../shared/protocol.ts";
-import { findResolveTool } from "./resolve/tools.ts";
+import { APP_TOOLS, findResolveTool, refusedInVisit } from "./resolve/tools.ts";
 import { readOrigins, type Applied } from "./resolve/versions.ts";
 import { LINKER_MCP_NAME, PROJECT_NOTES_FILE, readProjectFile, writeProjectFile } from "./rules.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
@@ -68,7 +70,7 @@ export interface AppOptions {
     resumeId: string | undefined,
     rules: () => string,
   ) => ProviderSession;
-  checkResolve: () => Promise<ResolveStatus>;
+  checkResolve: () => Promise<ResolveCheck>;
   /** Each project's edit history in its folder; saving is off without it. */
   createHistory?: (dir: string, checkProject: ProjectCheck) => History;
   /** Renders timelines through Resolve for the preview panel. */
@@ -118,6 +120,9 @@ const LEARN = "Learn from this edit:";
 const usesNoResolve = (tool: string, input: Record<string, unknown>) =>
   tool === "find_silences" || (tool === "view_frames" && typeof input.file === "string");
 const SETUP_REFUSAL = "This is a setup thread: it has no Resolve project, so tools that work in Resolve are refused here. Study the videos as files instead.";
+const VISIT_REFUSAL = "You're visiting this project, so you can only read it. Call end_visit to go back first.";
+/** What the approval to leave the project open in Resolve is called. */
+const SWITCH_TOOL = `mcp__${LINKER_MCP_NAME}__switch_project`;
 
 const PROVIDER_NAME: Record<Provider, string> = { claude: "Claude", codex: "Codex" };
 
@@ -128,6 +133,12 @@ export interface Client {
 }
 
 export type App = ReturnType<typeof createApp>;
+
+/** A Resolve project Linker-Edit left, and how to find it again. */
+interface Away {
+  link: ResolveLink;
+  local: LocalLink;
+}
 
 interface ProjectState {
   saved: SavedProject;
@@ -174,6 +185,8 @@ export function createApp(options: AppOptions) {
   // Resolve has one project open and does one thing at a time: one turn, open or render app-wide.
   let turnOwner: string | null = null;
   let opening: string | null = null;
+  // The name of the Resolve project being opened again; see reopenPrevious.
+  let reopening: string | null = null;
   // The project whose AI timeline is becoming its main one.
   let applying: string | null = null;
   // Agents' Resolve tool calls still running. A stopped turn ends before a render it started has wound
@@ -181,6 +194,11 @@ export function createApp(options: AppOptions) {
   let toolCalls = 0;
   // New threads start with the agent picked last.
   let lastProvider: Provider = options.settings?.load().defaultProvider ?? "claude";
+  const watch = createResolveWatch();
+  /** The running turn looks at another project, read only; back is where Resolve goes after it. */
+  let visit: { projectId: string; back: Away | null } | null = null;
+  /** What a message made Resolve leave, to open again with one click. */
+  let previous: Away | null = null;
   const projects = new Map<string, ProjectState>();
   const threads = new Map<string, { thread: Thread; projectId: string }>();
   const clients = new Map<Client, { threadId: string | null }>();
@@ -206,7 +224,7 @@ export function createApp(options: AppOptions) {
     if (saved.setup) return `${collections.get(saved.collection?.id ?? "")?.name ?? saved.collection?.name ?? "Brand"} setup`;
     return saved.name ?? saved.link?.name ?? path.basename(saved.dir);
   }
-  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || applying !== null || toolCalls > 0;
+  const resolveBusy = () => turnOwner !== null || previewJob !== null || opening !== null || reopening !== null || applying !== null || toolCalls > 0;
 
   /** Writes the project's rules where agents read them; again before each turn, so they are never stale. */
   function prepareFolder(saved: SavedProject) {
@@ -241,6 +259,8 @@ export function createApp(options: AppOptions) {
         options.createSession(provider, () => approvalMode, project.saved.dir, resumeId, () => collections.rulesFor(project.saved)),
       history: () => project.history,
       backup: () => (options.backupProject ? options.backupProject(project.saved.dir) : Promise.resolve(null)),
+      changeRefusal: async () => (visit ? VISIT_REFUSAL : project.saved.setup ? SETUP_REFUSAL : midTurnRefusal(project)),
+      endTurn: endVisit,
       claim() {
         if (resolveBusy()) return false;
         turnOwner = saved.id;
@@ -248,12 +268,14 @@ export function createApp(options: AppOptions) {
       },
       release() {
         if (turnOwner === saved.id) turnOwner = null;
+        // What it changed in its own project isn't the user's doing.
+        if (projects.has(projectId) && isOpen(project)) watch.changedByUs();
         // The agent may have written PROJECT.md in its turn.
         publishProjectFile(projectId);
       },
-      check: () => {
+      check: (ask) => {
         prepareFolder(project.saved);
-        return checkBeforeTurn(project);
+        return checkBeforeTurn(project, ask);
       },
       resolveConnected: () => resolve.state === "connected",
       shared: () => project.saved.link?.kind === "cloud",
@@ -327,16 +349,207 @@ export function createApp(options: AppOptions) {
     return null;
   }
 
-  async function checkBeforeTurn(project: ProjectState): Promise<{ refusal: string } | { notice: string | null }> {
+  const isOpen = (project: ProjectState): boolean => {
+    const open = openProject(resolve);
+    return !!(open && project.saved.link && isLinkedProject(project.saved.link, project.saved.local, open));
+  };
+
+  /** Linker-Edit can open it in Resolve: cloud projects are the user's to open. */
+  const canOpen = (project: ProjectState): boolean => !!options.resolveProjects && !!project.saved.link && project.saved.link.kind !== "cloud";
+
+  type Ask = (tool: string, input: unknown) => Promise<boolean>;
+
+  /**
+   * Before Resolve leaves the project it has open for another: in supervised mode, and while the user may be
+   * working in it, they are asked. Throws when it stays.
+   */
+  async function leaveOpenProject(wants: string, ask: Ask): Promise<void> {
+    const open = openProject(resolve);
+    if (!open) return;
+    const working = !watch.quiet();
+    if (approvalMode !== "ask" && !working) return;
+    const why = working ? `You may be working in "${open.name}": something changed in it, or it was opened, in the last 15 minutes.` : "";
+    if (!(await ask(SWITCH_TOOL, { open: open.name, wants, why }))) throw new Error(`Resolve stays in "${open.name}".`);
+    await refreshResolve();
+    const now = openProject(resolve);
+    if (now && (now.id ?? now.name) !== (open.id ?? open.name)) throw new Error(`Resolve has "${now.name}" open by now, so nothing was switched. Try again.`);
+  }
+
+  /** Opens the project's own Resolve project, starting Resolve when needed; what was left for it, if anything. */
+  async function switchTo(project: ProjectState, link: ResolveLink, ask: Ask, signal?: AbortSignal): Promise<OpenProject | null> {
+    const open = openProject(resolve);
+    const leaving = open && !isLinkedProject(link, project.saved.local, open) ? open : null;
+    if (leaving) await leaveOpenProject(link.name, ask);
+    try {
+      // With nothing open that could be asked about, only an idle Resolve is taken.
+      await openLinked(project, link, { onlyIfIdle: !leaving, signal });
+    } finally {
+      await refreshResolve();
+    }
+    const refusal = projectRefusal(project);
+    if (refusal) throw new Error(refusal);
+    const left = leaving && linkFromOpen(leaving);
+    if (left && left.link.kind !== "cloud") previous = left;
+    return leaving;
+  }
+
+  async function checkBeforeTurn(project: ProjectState, ask: Ask | null): Promise<{ refusal: string } | { notice: string | null }> {
     // Never linked to whatever Resolve has open: it studies files.
     if (project.saved.setup) return { notice: null };
     await refreshResolve();
     const refusal = projectRefusal(project);
+    const { link } = project.saved;
+    if (refusal && link && ask && canOpen(project)) {
+      const left = await switchTo(project, link, ask);
+      return { notice: left ? `Saved "${left.name}" and opened "${link.name}" in Resolve.` : null };
+    }
     if (refusal) return { refusal };
     const open = openProject(resolve);
     if (!open || project.saved.link) return { notice: null };
     setLink(project, linkFromOpen(open), `Link to Resolve project "${open.name}"`);
     return { notice: `Linked this project to the Resolve project "${open.name}" in ${describeLibrary(project.saved.link!, open)}.` };
+  }
+
+  async function midTurnRefusal(project: ProjectState): Promise<string | null> {
+    if (visit) {
+      await refreshResolve();
+      const visited = projects.get(visit.projectId);
+      return visited && isOpen(visited) ? null : "Resolve doesn't have the visited project open any more. Call end_visit.";
+    }
+    if (project.saved.setup) return null;
+    if (!openProject(resolve)) await refreshResolve();
+    if (resolve.state === "not_running") return "Resolve isn't running. Start it with start_resolve.";
+    if (resolve.state === "blocked") {
+      return `${resolve.hint} If Resolve sits at its Project Manager, start_resolve opens this folder's project.`;
+    }
+    const open = openProject(resolve);
+    // Only a message links a folder to the project open in Resolve, never an agent halfway through a turn.
+    if (open && !project.saved.link) {
+      return `This folder isn't linked to a Resolve project yet. Ask the user to send a message while the project they want is open in Resolve: now that's "${open.name}".`;
+    }
+    return projectRefusal(project);
+  }
+
+  function listProjects(): string {
+    const listed = [...projects.values()].flatMap((project) => {
+      const { saved } = project;
+      if (!saved.link || saved.setup) return [];
+      const own = collections.get(saved.collection?.id ?? "");
+      const workspace = own?.kind === "series" ? collections.get(own.parentId ?? "") : own;
+      return [
+        {
+          name: projectName(saved),
+          ...(workspace ? { workspace: workspace.name } : {}),
+          ...(own?.kind === "series" ? { series: own.name } : {}),
+          ...(saved.archived ? { archived: true } : {}),
+          ...(isOpen(project) ? { open: true } : {}),
+          ...(canOpen(project) || isOpen(project) ? {} : { note: "Blackmagic Cloud: only the user can open it." }),
+        },
+      ];
+    });
+    return JSON.stringify({ projects: listed });
+  }
+
+  /** The visit_project tool: another project in Resolve, read only, until end_visit or the end of the turn. */
+  async function visitProject(own: ProjectState, input: Record<string, unknown>, thread: Thread, signal: AbortSignal | undefined): Promise<string> {
+    const wanted = typeof input.project === "string" ? input.project.trim() : "";
+    const matches = [...projects.values()].filter(({ saved }) => saved.link && !saved.setup && (projectName(saved) === wanted || saved.id === wanted));
+    const target = matches[0];
+    if (!target?.saved.link || matches.length > 1) {
+      throw new Error(matches.length > 1 ? `More than one project is called "${wanted}".` : `There is no project "${wanted}" in Linker-Edit. list_projects lists them.`);
+    }
+    if (target === own) throw new Error("That is this thread's own project. Call end_visit to go back to it.");
+    await refreshResolve();
+    if (!canOpen(target) && !isOpen(target)) throw new Error(`"${wanted}" is a Blackmagic Cloud project: only the user can open it.`);
+    const open = openProject(resolve);
+    // Where Resolve goes after it: the thread's own project.
+    const back: Away | null = visit ? visit.back : own.saved.link ? { link: own.saved.link, local: own.saved.local } : open ? linkFromOpen(open) : null;
+    if (back?.link.kind === "cloud") throw new Error(`Resolve has the Blackmagic Cloud project "${back.link.name}" open, and only the user can open that again, so no other project is visited.`);
+    const askUser: Ask = (tool, shown) => thread.requestApproval(tool, shown);
+    if (!isOpen(target)) {
+      // Leaving the thread's own project or another visited one needs no question in full access.
+      if (approvalMode === "ask" || (!visit && !isOpen(own))) await leaveOpenProject(`${target.saved.link.name} (only to look, then back)`, askUser);
+      visit = { projectId: target.saved.id, back };
+      await openLinked(target, target.saved.link, { onlyIfIdle: !open, signal });
+      await refreshResolve();
+      if (!isOpen(target)) throw new Error(`Resolve didn't open "${target.saved.link.name}".`);
+    }
+    visit = { projectId: target.saved.id, back };
+    return `Resolve has "${target.saved.link.name}" open, read only. Call end_visit when you're done looking.`;
+  }
+
+  // Agents' calls that use Resolve, so a visit isn't ended underneath one.
+  const inFlight = new Set<Promise<unknown>>();
+
+  /** Opens what was open before the visit. A problem to show, or null. */
+  async function endVisit(): Promise<string | null> {
+    if (!visit) return null;
+    await Promise.allSettled([...inFlight]);
+    const { back } = visit;
+    try {
+      if (back) await options.resolveProjects?.open(back.link, back.local);
+      return null;
+    } catch (error) {
+      return `Couldn't go back to "${back?.link.name}" in Resolve: ${errorText(error)}`;
+    } finally {
+      visit = null;
+      await refreshResolve().catch(() => {});
+    }
+  }
+
+  async function appTool(tool: string, input: Record<string, unknown>, turn: { thread: Thread; projectId: string; signal: AbortSignal | undefined }): Promise<string> {
+    const project = projects.get(turn.projectId)!;
+    if (project.saved.setup) throw new Error(SETUP_REFUSAL);
+    switch (tool) {
+      case "list_projects":
+        return listProjects();
+      case "visit_project":
+        return holdingResolve(() => visitProject(project, input, turn.thread, turn.signal));
+      case "end_visit": {
+        if (!visit) return "No project is being visited.";
+        const problem = await holdingResolve(endVisit, false);
+        if (problem) throw new Error(problem);
+        return project.saved.link ? `Resolve has "${project.saved.link.name}" open again.` : "The visit is over.";
+      }
+      default:
+        if (visit) throw new Error(VISIT_REFUSAL);
+        return holdingResolve(() => startResolve(turn.thread, project, turn.signal));
+    }
+  }
+
+  /** Opens again what a message made Resolve leave. */
+  async function reopenPrevious(client: Client) {
+    if (!previous || !options.resolveProjects) return;
+    if (resolveBusy()) return toast(client, "Resolve is busy. Wait until the running turn or render finishes.");
+    const { link, local } = previous;
+    previous = null;
+    reopening = link.name;
+    sendMeta();
+    try {
+      await options.resolveProjects.open(link, local);
+    } catch (error) {
+      toast(client, `Couldn't open "${link.name}" in Resolve: ${errorText(error)}`);
+    } finally {
+      reopening = null;
+      await refreshResolve().catch(() => {});
+      sendMeta();
+    }
+  }
+
+  /** The start_resolve tool: starts Resolve and opens the thread's own project, never another one. */
+  async function startResolve(thread: Thread, project: ProjectState, signal: AbortSignal | undefined): Promise<string> {
+    if (!options.resolveProjects) throw new Error("Linker-Edit can't start Resolve here.");
+    const { link } = project.saved;
+    if (!link) {
+      await options.resolveProjects.start(signal);
+      await refreshResolve();
+      return "Resolve is running, but this folder isn't linked to a Resolve project yet. Ask the user to open or create the project in Resolve and send a message: that links it.";
+    }
+    await refreshResolve();
+    await switchTo(project, link, (tool, shown) => thread.requestApproval(tool, shown), signal);
+    // The turn began without Resolve, so the user's own changes are saved now, before the agent's.
+    await thread.saveUserChanges();
+    return `Resolve is running with "${project.saved.link?.name}" open.`;
   }
 
   function describeLibrary(link: ResolveLink, open: OpenProject): string {
@@ -378,6 +591,7 @@ export function createApp(options: AppOptions) {
       const target = projects.get(opening);
       return { message: `Opening "${target ? projectName(target.saved) : "the project"}" in Resolve…`, canOpen: false };
     }
+    if (reopening) return { message: `Opening "${reopening}" in Resolve…`, canOpen: false };
     if (applying) return { message: "Making the AI timeline the main one…", canOpen: false };
     if (previewJob) return { message: "Resolve is rendering a preview. Send when it's done, or stop it in the preview panel.", canOpen: false };
     const owner = turnOwner ? threads.get(turnOwner) : undefined;
@@ -391,7 +605,13 @@ export function createApp(options: AppOptions) {
     if (toolCalls > 0) return { message: "Waiting for Resolve to finish the stopped turn's last step…", canOpen: false };
     const project = projects.get(projectId)!;
     const refusal = projectRefusal(project);
-    return refusal ? { message: refusal, canOpen: !!project.saved.link && !!options.resolveProjects } : null;
+    if (!refusal) return null;
+    const open = openProject(resolve);
+    // A message opens the thread's project itself.
+    if (canOpen(project)) {
+      return { message: `Resolve has "${open?.name}" open. Sending a message saves it and opens "${project.saved.link?.name}"; if you may be working in it, you're asked first.`, canOpen: true, canSend: true };
+    }
+    return { message: refusal, canOpen: !!project.saved.link && !!options.resolveProjects };
   }
 
   /** The parts of the meta that are the same for every client, worked out once per broadcast. */
@@ -432,6 +652,7 @@ export function createApp(options: AppOptions) {
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
       opening,
       applying,
+      reopen: previous && entry && project?.saved.link && !entry.thread.busy && isOpen(project) ? previous.link.name : null,
       transcription: shared.transcription,
       remote: shared.remote,
       connect: shared.connect,
@@ -663,8 +884,12 @@ export function createApp(options: AppOptions) {
   function refreshResolve(): Promise<void> {
     resolveCheck ??= options
       .checkResolve()
-      .then((status) => {
+      .then(({ activity, ...checked }) => {
+        const status = checked as ResolveStatus;
         resolve = status;
+        const seen = openProject(status);
+        watch.see(seen ? { project: seen.name, projectId: seen.id, activity } : null);
+        if (previous && seen && isLinkedProject(previous.link, previous.local, seen)) previous = null;
         // Resolve turned up on a computer that was said to have none, so it's an edit computer after all.
         if (!resolveHere && status.state !== "setup_needed") setResolveHere(true);
         // Learns the project's id once it is seen open, and follows renames made in Resolve.
@@ -793,6 +1018,16 @@ export function createApp(options: AppOptions) {
     sendMeta();
   }
 
+  async function openLinked(project: ProjectState, link: ResolveLink, openOptions?: OpenOptions) {
+    const opened = await options.resolveProjects!.open(link, project.saved.local, openOptions);
+    const open: OpenProject = { name: opened.project.name, id: opened.project.id, database: opened.database };
+    if (link.projectId && open.id && link.projectId !== open.id) {
+      throw new Error(`Resolve opened a different project named "${open.name}" than the one this project is linked to.`);
+    }
+    const next = refreshedLink(link, project.saved.local, open);
+    setLink(project, { ...next, local: opened.folder ? { ...next.local, folder: opened.folder } : next.local }, `Link to Resolve project "${open.name}"`);
+  }
+
   async function openInResolve(client: Client, projectId: string) {
     const project = projects.get(projectId);
     const link = project?.saved.link;
@@ -804,14 +1039,7 @@ export function createApp(options: AppOptions) {
     opening = projectId;
     sendMeta();
     try {
-      const opened = await options.resolveProjects.open(link, project.saved.local);
-      const open: OpenProject = { name: opened.project.name, id: opened.project.id, database: opened.database };
-      if (link.projectId && open.id && link.projectId !== open.id) {
-        toast(client, `Resolve opened a different project named "${open.name}" than the one this project is linked to.`);
-      } else {
-        const next = refreshedLink(link, project.saved.local, open);
-        setLink(project, { ...next, local: opened.folder ? { ...next.local, folder: opened.folder } : next.local }, `Link to Resolve project "${open.name}"`);
-      }
+      await openLinked(project, link);
     } catch (error) {
       toast(client, `Couldn't open "${link.name}" in Resolve: ${errorText(error)}`);
     } finally {
@@ -865,11 +1093,14 @@ export function createApp(options: AppOptions) {
   }
 
   /** Keeps Resolve taken while an agent's call runs: a stopped turn ends before its last call has wound down. */
-  async function holdingResolve<T>(run: () => Promise<T>): Promise<T> {
+  async function holdingResolve<T>(run: () => Promise<T>, tracked = true): Promise<T> {
     toolCalls += 1;
+    const call = run();
+    if (tracked) inFlight.add(call);
     try {
-      return await run();
+      return await call;
     } finally {
+      inFlight.delete(call);
       toolCalls -= 1;
       if (toolCalls === 0) sendMeta();
     }
@@ -1148,9 +1379,9 @@ export function createApp(options: AppOptions) {
         if (message.mode !== "ask" && message.mode !== "auto") break;
         approvalMode = message.mode;
         options.settings?.save({ approvalMode });
-        // Changes to the brief keep waiting: those ask in full access too.
+        // Changes to the brief and leaving a project the user may be working in keep waiting: those ask in full access too.
         if (approvalMode === "auto") {
-          for (const { thread } of threads.values()) thread.settleAllApprovals(true, (request) => !isBriefTool(request.tool.split("__").at(-1) ?? ""));
+          for (const { thread } of threads.values()) thread.settleAllApprovals(true, (request) => !isBriefTool(request.tool.split("__").at(-1) ?? "") && request.tool !== SWITCH_TOOL);
         }
         sendMeta();
         break;
@@ -1215,6 +1446,9 @@ export function createApp(options: AppOptions) {
         break;
       case "open_in_resolve":
         void openInResolve(client, message.projectId);
+        break;
+      case "reopen_previous":
+        void reopenPrevious(client);
         break;
       case "load_library":
         void loadLibrary(client);
@@ -1390,12 +1624,17 @@ export function createApp(options: AppOptions) {
       if (!definition || !run) return { text: `There is no Resolve tool called ${tool}.`, isError: true };
       const turn = runningTurn();
       if ("refusal" in turn) return { text: turn.refusal, isError: true };
-      if (projects.get(turn.projectId)?.saved.setup && !usesNoResolve(tool, input)) return { text: SETUP_REFUSAL, isError: true };
-      if (definition.kind === "write") {
-        const refusal = await allowChange(turn.thread, tool, input);
-        if (refusal) return { text: refusal, isError: true };
-      }
+      const project = projects.get(turn.projectId)!;
       try {
+        if (APP_TOOLS.has(tool)) return { text: await appTool(tool, input, turn), isError: false };
+        if (project.saved.setup && !usesNoResolve(tool, input)) return { text: SETUP_REFUSAL, isError: true };
+        if (visit && refusedInVisit(definition)) return { text: VISIT_REFUSAL, isError: true };
+        const wrong = usesNoResolve(tool, input) ? null : await midTurnRefusal(project);
+        if (wrong) return { text: wrong, isError: true };
+        if (definition.kind === "write") {
+          const refusal = await allowChange(turn.thread, tool, input);
+          if (refusal) return { text: refusal, isError: true };
+        }
         return { ...(await holdingResolve(() => run(tool, input, turn.dir, turn.signal))), isError: false };
       } catch (error) {
         return { text: errorText(error), isError: true };

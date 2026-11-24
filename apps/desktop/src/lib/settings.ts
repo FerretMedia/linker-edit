@@ -34,7 +34,7 @@ export function resolveStatusLine(resolve: ResolveStatus): { tone: string; title
         detail: resolve.project ? `${resolve.project}${resolve.timeline ? ` · ${resolve.timeline}` : ""}` : "No project open",
       };
     case "not_running":
-      return { tone: "bg-muted-foreground", title: "Resolve is not running", detail: "Start Resolve, then refresh." };
+      return { tone: "bg-muted-foreground", title: "Resolve is not running", detail: "Agents start it when they need it. Or start it yourself, then refresh." };
     case "blocked":
       return { tone: "bg-warning", title: "Resolve needs attention", detail: resolve.hint };
     case "unreachable":

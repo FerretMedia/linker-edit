@@ -73,7 +73,7 @@ describe("Claude session", () => {
     expect(await ask("mcp__resolve__search_scripting_api", { pattern: "Marker" })).toMatchObject({ behavior: "allow" });
     expect(approvals).toEqual([]);
     expect(calls[0]!.options.disallowedTools).toContain("mcp__resolve__run_script_unsafe");
-    expect(calls[0]!.options.disallowedTools).not.toContain("mcp__resolve__launch_resolve");
+    expect(calls[0]!.options.disallowedTools).toContain("mcp__resolve__launch_resolve");
   });
 
   it.each<[ApprovalMode, string, boolean]>([
@@ -115,7 +115,6 @@ describe("Claude session", () => {
       const backups: string[] = [];
       const run = await hook(async () => void backups.push("backup"));
       expect(await run("mcp__resolve__run_script", { script: "result = 1" })).toEqual({});
-      expect(await run("mcp__resolve__launch_resolve", {})).toEqual({});
       expect(await run("mcp__resolve__search_scripting_api", { pattern: "x" })).toEqual({});
       expect(backups).toEqual(["backup"]);
     });

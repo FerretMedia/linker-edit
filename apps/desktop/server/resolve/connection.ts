@@ -74,6 +74,7 @@ function scriptError(text: string): ResolveError {
   if (/^Script timed out/i.test(trimmed)) return new ResolveError("timeout", trimmed);
   // A traceback's last line names the exception; our own refusals carry a message for people.
   const last = trimmed.split(/\r?\n/).filter((line) => line.trim()).at(-1) ?? trimmed;
+  if (/DaVinci Resolve is not running/.test(last)) return new ResolveError("error", "DaVinci Resolve isn't running.");
   const refused = /^Refused: (.*)$/.exec(last);
   if (refused) return new ResolveError("refused", refused[1]!);
   return new ResolveError("error", last || "Resolve's script failed without saying why.");

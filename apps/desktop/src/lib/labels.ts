@@ -24,6 +24,13 @@ export function briefRequest(name: string, input: unknown): BriefRequest | null 
   return null;
 }
 
+/** Leaving the project open in Resolve for another, which the user is asked about; null for other approvals. */
+export function switchRequest(name: string, input: unknown): { open: string; wants: string; why: string } | null {
+  if (name !== `${LINKER_PREFIX}switch_project`) return null;
+  const shown = (input ?? {}) as Record<string, unknown>;
+  return { open: String(shown.open ?? ""), wants: String(shown.wants ?? ""), why: String(shown.why ?? "") };
+}
+
 /** The lines of a text change, in order: kept, taken out or added. For showing new rules against the old. */
 export function lineDiff(before: string, after: string): { kind: "same" | "removed" | "added"; text: string }[] {
   const a = before.trim() ? before.trim().split("\n") : [];

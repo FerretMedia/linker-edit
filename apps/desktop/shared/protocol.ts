@@ -497,7 +497,14 @@ export interface AppMeta {
   preview: PreviewState;
   context: ContextUsage | null;
   /** Why a message in this thread can't go to the agent right now; null when it can. */
-  blocked: { message: string; canOpen: boolean } | null;
+  blocked: {
+    message: string;
+    canOpen: boolean;
+    /** A message goes anyway: it opens the thread's project in Resolve first. */
+    canSend?: boolean;
+  } | null;
+  /** The Resolve project a message in this thread's project made Resolve leave, to open again; null when none. */
+  reopen: string | null;
   /** Linker-Edit is opening this project in Resolve. */
   opening: string | null;
   /** Linker-Edit is making an AI timeline of this project its main one. */
@@ -533,6 +540,8 @@ export type ClientMessage =
   | { type: "set_auto_settle"; days: number | null }
   | { type: "approve"; id: string; allow: boolean }
   | { type: "refresh_resolve" }
+  /** Opens AppMeta.reopen in Resolve again. */
+  | { type: "reopen_previous" }
   /** Whether this computer has Resolve (or will); see AppMeta.resolveHere. */
   | { type: "set_resolve_here"; resolveHere: boolean }
   | { type: "load_history" }

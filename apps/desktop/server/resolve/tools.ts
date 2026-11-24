@@ -23,6 +23,10 @@ export interface ResolveTool {
  * they cost no context in every chat.
  */
 export const CORE_TOOLS = new Set([
+  "start_resolve",
+  "list_projects",
+  "visit_project",
+  "end_visit",
   "resolve_context",
   "list_timelines",
   "get_timeline",
@@ -48,6 +52,33 @@ const itemIds = { type: "array", items: { type: "string" }, description: "Timeli
 const mediaIds = { type: "array", items: { type: "string" }, description: "Media pool item ids, as list_media or get_timeline list them." };
 
 const tools: ResolveTool[] = [
+  {
+    name: "start_resolve",
+    kind: "view",
+    description:
+      "Starts DaVinci Resolve when it isn't running, and opens this folder's project in it. Use it when a tool says Resolve isn't running or sits at its Project Manager. Takes up to a few minutes. When the user may be working in another project, they are asked first.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_projects",
+    kind: "read",
+    description:
+      "The user's projects in Linker-Edit that have a Resolve project: name, workspace, series, and whether it's open in Resolve now. Those are the projects visit_project can open.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "visit_project",
+    kind: "view",
+    description:
+      "Opens another of the user's projects in Resolve to look at it, read only: until end_visit, the reading tools (list_timelines, get_timeline, list_media, get_clip_properties, get_transcription, view_frames, export_timeline) work on that project and every change is refused. The open project is saved first. Visit one after the other without going back in between.",
+    inputSchema: { type: "object", properties: { project: { type: "string", description: "The project's name, as list_projects gives it." } }, required: ["project"] },
+  },
+  {
+    name: "end_visit",
+    kind: "view",
+    description: "Ends a visit and opens the project again that was open before it. A visit also ends by itself when your turn ends.",
+    inputSchema: { type: "object", properties: {} },
+  },
   {
     name: "resolve_context",
     kind: "read",
@@ -466,6 +497,12 @@ const tools: ResolveTool[] = [
 ];
 
 export const RESOLVE_TOOLS: readonly ResolveTool[] = tools;
+
+/** The app's own: they work with which project Resolve has open, which no script may change. */
+export const APP_TOOLS = new Set(["start_resolve", "list_projects", "visit_project", "end_visit"]);
+
+/** What shows or changes something in a visited project; visits only read. */
+export const refusedInVisit = (tool: ResolveTool) => tool.kind === "write" || tool.name === "set_current_timeline";
 
 export function findResolveTool(name: string): ResolveTool | undefined {
   return tools.find((tool) => tool.name === name);

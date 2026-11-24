@@ -14,8 +14,12 @@ export interface ThreadHost {
   /** Takes Resolve for a turn; false while another turn, a render or an open has it. */
   claim(): boolean;
   release(): void;
-  /** Rechecks Resolve before a turn: why this thread can't run against it now, or a notice when it can. */
-  check(): Promise<{ refusal: string } | { notice: string | null }>;
+  /** Rechecks Resolve before a turn, opening this thread's project when it can ask: why this thread can't run against it now, or a notice when it can. */
+  check(ask: ((tool: string, input: unknown) => Promise<boolean>) | null): Promise<{ refusal: string } | { notice: string | null }>;
+  /** Why the agent can't change anything in Resolve now; null when it can. Asked before every change. */
+  changeRefusal(): Promise<string | null>;
+  /** Back to the thread's own project when the turn visited another; a problem to show, or null. */
+  endTurn(): Promise<string | null>;
   resolveConnected(): boolean;
   /** Other people may change the project too, as in a Blackmagic Cloud collaboration. */
   shared(): boolean;
@@ -87,6 +91,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
   let turn: AbortController | null = null;
   // The running turn's sink, for approvals asked outside the provider session, as by the Resolve guard.
   let activeSink: TurnSink | null = null;
+  let saveUserChanges: (() => Promise<void>) | null = null;
   // Set once the thread is deleted, so a turn that is still winding down can't write into it.
   let disposed = false;
   const approvals = new Map<string, { request: ApprovalRequest; settle: (allow: boolean) => void }>();
@@ -142,7 +147,16 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
     turn = controller;
     host.changed();
 
-    const checked = await host.check().catch((error: unknown) => ({ refusal: error instanceof Error ? error.message : String(error) }));
+    const ask = (tool: string, input: unknown) => {
+      if (disposed || controller.signal.aborted) return Promise.resolve(false);
+      return new Promise<boolean>((settle) => {
+        const requestId = randomUUID();
+        approvals.set(requestId, { request: { id: requestId, tool, input }, settle });
+        host.changed();
+      });
+    };
+
+    const checked = await host.check(text === null ? null : ask).catch((error: unknown) => ({ refusal: error instanceof Error ? error.message : String(error) }));
     if ("refusal" in checked) {
       turn = null;
       host.release();
@@ -184,15 +198,11 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       notice: (noticeText, tone = "info") => {
         if (live()) upsert({ id: randomUUID(), kind: "notice", text: noticeText, tone });
       },
-      requestApproval: (tool, input) => {
-        if (!live() || controller.signal.aborted) return Promise.resolve(false);
-        return new Promise<boolean>((settle) => {
-          const requestId = randomUUID();
-          approvals.set(requestId, { request: { id: requestId, tool, input }, settle });
-          host.changed();
-        });
-      },
-      backup: () => {
+      requestApproval: ask,
+      backup: async () => {
+        // Before every change, not only the backed up first one: which project is open can change in between.
+        const refusal = await host.changeRefusal();
+        if (refusal) throw new Error(refusal);
         backedUp ??= host.backup().then(
           (file) => {
             if (file) sink.notice(`Backed up the Resolve project to ${file} before changing it.`);
@@ -204,7 +214,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
             );
           },
         );
-        return backedUp;
+        await backedUp;
       },
       context: (usage) => {
         if (live() && session === turnSession) {
@@ -239,7 +249,10 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       if (text === null) {
         await turnSession.compact!(sink, signal);
       } else {
-        if (host.history() && host.resolveConnected()) await saveHistory();
+        saveUserChanges = async () => {
+          if (host.history() && host.resolveConnected()) await saveHistory();
+        };
+        await saveUserChanges();
         if (compactFirst && turnSession.compact && turnSession.resumeId() && !signal.aborted) {
           // A failed compaction shouldn't cost the user their message.
           await turnSession.compact(sink, signal).catch((error: unknown) => {
@@ -262,11 +275,14 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       if (!signal.aborted) sink.notice(message(error), "error");
     } finally {
       activeSink = null;
+      saveUserChanges = null;
       if (controller.signal.aborted) sink.notice("Stopped.");
       for (const item of items) {
         if (item.kind === "tool" && item.status === "running") sink.upsert({ id: item.id, status: "error" });
       }
       settleAllApprovals(false);
+      const stuck = await host.endTurn();
+      if (stuck) sink.notice(stuck, "error");
       const actions = [...tools.values()].flatMap(({ name, input }) => resolveWriteAction(name, input) ?? []);
       if (host.history() && text !== null && actions.length) {
         await saveHistory({ provider: turnProvider, prompt: text, actions, summary: reply, thread: id });
@@ -369,6 +385,7 @@ export function createThread(saved: SavedThread, host: ThreadHost) {
       activeSink ? activeSink.requestApproval(tool, input) : Promise.resolve(false),
     /** Backs the project up before the running turn's first change; rejects when that fails. */
     backup: (): Promise<void> => activeSink?.backup?.() ?? Promise.reject(new Error("No turn is running.")),
+    saveUserChanges: (): Promise<void> => saveUserChanges?.() ?? Promise.resolve(),
     /** A line in the chat from Linker-Edit itself, such as an approved edit. */
     note(text: string) {
       if (disposed) return;

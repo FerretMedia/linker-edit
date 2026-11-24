@@ -1,9 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ResolveError } from "./resolve/connection.ts";
-import { fakeConnection, hasPython, pythonConnection } from "./resolve/testing.ts";
+import { fakeConnection, hasPython, pythonConnection, RESOLVE_IS_UP } from "./resolve/testing.ts";
 import { createResolveProjects } from "./resolveProjects.ts";
 
 // Stands in for Resolve's scripting module: a Project Manager over folder trees from a JSON file,
@@ -15,11 +15,20 @@ def log(*args):
     with open(os.environ["FAKE_RESOLVE"] + ".log", "a", encoding="utf8") as f:
         f.write(json.dumps(args) + "\n")
 
+class Pool:
+    def GetRootFolder(self): return self
+    def GetClipList(self): return []
+    def GetSubFolderList(self): return []
+
 class Project:
     def __init__(self, name, id):
         self.name, self.id = name, id
     def GetName(self): return self.name
     def GetUniqueId(self): return self.id
+    def GetTimelineCount(self): return 0 if self.id == "untitled-id" else 1
+    def GetCurrentTimeline(self): return None
+    def IsRenderingInProgress(self): return STATE.get("rendering", False)
+    def GetMediaPool(self): return Pool()
 
 class PM:
     def __init__(self):
@@ -81,6 +90,9 @@ class Resolve:
     CLOUD_SYNC_PROXY_ONLY = 1
     CLOUD_SYNC_PROXY_AND_ORIG = 2
     def GetProjectManager(self): return PM_INSTANCE
+    def GetProductName(self): return "DaVinci Resolve Studio"
+    def GetVersionString(self): return "21.1.2"
+    def GetCurrentPage(self): return None
 
 def scriptapp(name): return Resolve()
 `;
@@ -107,7 +119,7 @@ function fakeResolve(state: Record<string, unknown>) {
       ...state,
     }),
   );
-  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }));
+  const projects = createResolveProjects(pythonConnection(FAKE_MODULE, { FAKE_RESOLVE: stateFile }), 1, RESOLVE_IS_UP);
   const calls = () =>
     fs.existsSync(`${stateFile}.log`)
       ? fs
@@ -178,6 +190,28 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     expect(open.calls()).toEqual([]);
   });
 
+  it("opens it for an agent only when no other project is open, without saving Resolve's empty untitled one", async () => {
+    const link = { kind: "local", name: "Interview", projectId: "int-id" } as const;
+    const idle = fakeResolve({ current: ["Unbenannt", "untitled-id"] });
+    expect((await idle.projects.open(link, {}, { onlyIfIdle: true })).project).toEqual({ name: "Interview", id: "int-id" });
+    expect(idle.calls()).toEqual([["LoadProject", ["Clients", "2026"], "Interview"]]);
+
+    const working = fakeResolve({});
+    await expect(working.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
+    expect(working.calls()).toEqual([]);
+    const empty = fakeResolve({ current: ["Promo", "untitled-id"] });
+    await expect(empty.projects.open(link, {}, { onlyIfIdle: true })).rejects.toThrow('Resolve has "Promo" open');
+  });
+
+  it("never leaves a project that is rendering, or has work in it that was never saved", async () => {
+    const link = { kind: "local", name: "Interview", projectId: "int-id" } as const;
+    const rendering = fakeResolve({ rendering: true });
+    await expect(rendering.projects.open(link, {})).rejects.toThrow('Resolve is rendering in "Promo"');
+    const unsaved = fakeResolve({ current: ["Untitled Project", "new-id"] });
+    await expect(unsaved.projects.open(link, {})).rejects.toThrow("was never saved");
+    expect([...rendering.calls(), ...unsaved.calls()]).toEqual([]);
+  });
+
   it("says when Resolve can't find the project, back in the project it had open", async () => {
     const { projects, calls } = fakeResolve({});
     await expect(
@@ -192,17 +226,42 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
   });
 });
 
+it("doesn't let an agent leave what a Resolve it just started has open", async () => {
+  vi.useFakeTimers();
+  try {
+    const { connection, scripts } = fakeConnection({
+      script: (name) => (name === "status" ? { state: "connected" } : { project: { name: "Interview", id: "int-id" }, database: null, folder: null }),
+    });
+    let launched = false;
+    const projects = createResolveProjects(connection, 1, {
+      processes: async () => ({ resolve: launched, scriptServer: launched }),
+      launch: async () => void (launched = true),
+    });
+    const opening = projects.open({ kind: "local", name: "Interview", projectId: "int-id" }, {}, { onlyIfIdle: true });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await opening;
+    expect(launched).toBe(true);
+    expect(scripts.at(-1)).toMatchObject({ name: "open_project", args: { onlyIfIdle: true } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 describe("opening a project that takes longer than a script may run", () => {
   it("waits for Resolve to show it open", async () => {
     let polls = 0;
+    let opening = false;
     const { connection } = fakeConnection({
       script: (name) => {
-        if (name === "open_project") throw new ResolveError("timeout", "Script timed out after 60s.");
-        polls += 1;
-        return { project: polls < 3 ? "Promo" : "Client X", projectId: polls < 3 ? "promo-id" : "cx-id", database: null };
+        if (name === "open_project") {
+          opening = true;
+          throw new ResolveError("timeout", "Script timed out after 60s.");
+        }
+        if (opening) polls += 1;
+        return { state: "connected", project: polls < 3 ? "Promo" : "Client X", projectId: polls < 3 ? "promo-id" : "cx-id", database: null };
       },
     });
-    const opened = await createResolveProjects(connection, 1).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
+    const opened = await createResolveProjects(connection, 1, RESOLVE_IS_UP).open({ kind: "local", name: "Client X", projectId: "cx-id" }, {});
     expect(opened).toEqual({ project: { name: "Client X", id: "cx-id" }, database: null, folder: null });
     expect(polls).toBe(3);
   });
