@@ -58,7 +58,13 @@ export function createResolveProjects(connection: ResolveConnection, pollMs = 30
     },
     async create(name) {
       await start();
-      return connection.runScript<OpenedProject>("create_project", { name }, 60);
+      try {
+        return await connection.runScript<OpenedProject>("create_project", { name }, 60);
+      } catch (error) {
+        // As in open: saving the open project first can take Resolve longer than a script may run.
+        if (!(error instanceof ResolveError && (error.kind === "timeout" || error.kind === "unavailable"))) throw error;
+        return waitForProject(connection, { kind: "local", name, projectId: null }, pollMs);
+      }
     },
   };
 }

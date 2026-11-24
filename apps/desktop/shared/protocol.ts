@@ -507,6 +507,8 @@ export interface AppMeta {
   } | null;
   /** The Resolve project a message in this thread's project made Resolve leave, to open again; null when none. */
   reopen: string | null;
+  /** Add project can make a new one in Resolve. Missing from older servers. */
+  createsProjects?: boolean;
   /** Linker-Edit is opening this project in Resolve. */
   opening: string | null;
   /** Linker-Edit is making an AI timeline of this project its main one. */

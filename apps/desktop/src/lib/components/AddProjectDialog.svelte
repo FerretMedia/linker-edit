@@ -44,6 +44,10 @@
     { value: "folder", label: "Folder", Icon: FolderInput },
   ] as const;
 
+  // An older server would add a project that isn't there.
+  const tabs = $derived(TABS.filter((item) => item.value !== "new" || server?.state?.createsProjects));
+  const cloudOpen = $derived(resolve.state === "connected" && !!resolve.database && !["disk", "postgresql"].includes(resolve.database.type.toLowerCase()));
+
   const openProject = $derived(resolve.state === "connected" ? resolve.project : null);
   // Starts where the likely project is; the user picks the tab after that.
   function tabFor(id: string | null): (typeof TABS)[number]["value"] {
@@ -140,7 +144,7 @@
       </button>
     {/if}
     <div class="flex gap-1 rounded-lg bg-accent p-1" role="tablist">
-      {#each TABS as item (item.value)}
+      {#each tabs as item (item.value)}
         <button
           type="button"
           role="tab"
@@ -161,7 +165,7 @@
         class="flex flex-col gap-3"
         onsubmit={(event) => {
           event.preventDefault();
-          if (newName.trim()) add({ kind: "new", name: newName.trim() });
+          if (newName.trim() && !cloudOpen) add({ kind: "new", name: newName.trim() });
         }}
       >
         <label class="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -170,13 +174,17 @@
         </label>
         <div class="flex items-center gap-3">
           <p class="flex-1 text-xs text-muted-foreground">
+            {#if cloudOpen}
+              Resolve has a library open that Linker-Edit makes no projects in. Open a local or network one in Resolve's Project Manager first.
+            {:else}
             Makes an empty project in {resolve.state === "connected" && resolve.database ? `"${resolve.database.name}"` : "the database Resolve has open"}
             and opens it.{#if openProject}&nbsp;Resolve saves and closes "{openProject}" first.{/if}
+            {/if}
           </p>
           <button
             type="submit"
             class="h-8 shrink-0 rounded-md bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-            disabled={!newName.trim()}
+            disabled={!newName.trim() || cloudOpen}
           >
             Make
           </button>
@@ -240,8 +248,8 @@
       </label>
       <p class="text-xs text-muted-foreground">
         You open {LIBRARY_LABEL.cloud} projects in Resolve's Project Manager yourself: {LIBRARY_LABEL.cloud}'s terms don't allow scripts
-        to use it, so Linker-Edit never opens, creates or uploads cloud projects. If the project is open in Resolve now, add it from the
-        first tab instead.
+        to use it, so Linker-Edit never opens, creates or uploads cloud projects. If the project is open in Resolve now, add it from
+        Open in Resolve instead.
       </p>
       <button
         type="button"

@@ -232,6 +232,16 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
     expect(idle.calls()).toEqual([["CreateProject", [], "Roastery"], ["SaveProject", "Roastery"]]);
   });
 
+  it("saves an empty project that is kept in a folder before it makes or opens another", async () => {
+    const state = { current: ["Interview", "untitled-id"] };
+    const made = fakeResolve(state);
+    await made.projects.create("Roastery");
+    expect(made.calls()[0]).toEqual(["SaveProject", "Interview"]);
+    const opened = fakeResolve(state);
+    await opened.projects.open({ kind: "local", name: "Promo", projectId: "promo-id" }, {});
+    expect(opened.calls()[0]).toEqual(["SaveProject", "Interview"]);
+  });
+
   it("makes no project over unsaved work or a render, with a taken name, or outside a local or network database", async () => {
     const refused = async (state: Record<string, unknown>, name: string, reason: string) => {
       const { projects, calls } = fakeResolve(state);
@@ -257,6 +267,16 @@ describe.skipIf(!hasPython)("Resolve projects", () => {
       ["LoadProject", [], "Promo"],
     ]);
   });
+});
+
+it("waits for a new project that takes longer to make than a script may run", async () => {
+  const { connection } = fakeConnection({
+    script: (name) => {
+      if (name === "create_project") throw new ResolveError("timeout", "Script timed out after 60s.");
+      return { state: "connected", project: "Roastery", projectId: "made-id", database: null };
+    },
+  });
+  expect(await createResolveProjects(connection, 1, RESOLVE_IS_UP).create("Roastery")).toMatchObject({ project: { name: "Roastery", id: "made-id" } });
 });
 
 it("doesn't let an agent leave what a Resolve it just started has open", async () => {

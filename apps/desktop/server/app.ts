@@ -653,6 +653,7 @@ export function createApp(options: AppOptions) {
       preview: previewProject === (entry?.projectId ?? null) ? preview : { state: "idle" },
       context: entry?.thread.context ?? null,
       blocked: entry ? blockedFor(entry.thread, entry.projectId) : null,
+      createsProjects: true,
       opening,
       applying,
       reopen: previous && entry && project?.saved.link && !entry.thread.busy && isOpen(project) ? previous.link.name : null,
@@ -742,6 +743,8 @@ export function createApp(options: AppOptions) {
   }
 
   function select(client: Client, threadId: string | null) {
+    // It may have left while Resolve took its time.
+    if (!clients.has(client)) return;
     clients.set(client, { threadId });
     sendSnapshot(client);
     sendMeta();
@@ -958,7 +961,7 @@ export function createApp(options: AppOptions) {
       const made = await options.resolveProjects.create(name);
       addLinked(client, linkFromOpen({ name: made.project.name, id: made.project.id, database: made.database }));
     } catch (error) {
-      toast(client, `Couldn't make "${name}" in Resolve: ${errorText(error)}`);
+      if (clients.has(client)) toast(client, `Couldn't make "${name}" in Resolve: ${errorText(error)}`);
     } finally {
       creating = null;
       await refreshResolve().catch(() => {});

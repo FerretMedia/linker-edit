@@ -41,6 +41,9 @@ def untouched(p):
     root = call(media, "GetRootFolder") if media else None
     if call(p, "GetTimelineCount") != 0 or not root or call(root, "GetClipList") or call(root, "GetSubFolderList"):
         return False
+    # A saved project can be empty too, in any folder.
+    if local_library():
+        return not saved_somewhere(p.GetName())
     return p.GetName() not in (pm.GetProjectListInCurrentFolder() or [])
 
 

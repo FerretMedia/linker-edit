@@ -987,7 +987,7 @@ describe("app projects", () => {
     const resolve = resolveWith(connected("Promo", "promo-id"));
     const made: string[] = [];
     let finish: (error?: Error) => void = () => {};
-    const { client, send, store } = setupWith({
+    const { app, client, send, store } = setupWith({
       store: memoryProjectStore([{ project: { ...workspaceProject } }]),
       checkResolve: resolve.checkResolve,
       resolveProjects: {
@@ -1019,6 +1019,19 @@ describe("app projects", () => {
     expect(made).toEqual(["Roastery", "Roastery"]);
     expect(client.state.projects[1]).toMatchObject({ name: "Roastery", link: { kind: "local", name: "Roastery", projectId: "made-id" } });
     expect(client.state.projectId).toBe(client.state.projects[1]!.id);
+
+    // A page closed meanwhile gets nothing more; the project is added all the same.
+    const sent: unknown[] = [];
+    const leaving = { send: (data: string) => void sent.push(data) };
+    const leave = app.connect(leaving);
+    app.handleMessage(leaving, { type: "add_project", source: { kind: "new", name: "Later" } });
+    await client.until((state) => /Making "Later"/.test(state.blocked?.message ?? ""));
+    leave();
+    const before = sent.length;
+    finish();
+    await client.until((state) => state.projects.length === 3);
+    app.setUpdate("9.9.9");
+    expect(sent).toHaveLength(before);
   });
 
   describe("a turn that starts Resolve", () => {
