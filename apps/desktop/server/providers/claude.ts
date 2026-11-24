@@ -1,3 +1,5 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ApprovalMode } from "../../shared/protocol.ts";
 import type { AppConfig } from "../config.ts";
@@ -65,6 +67,8 @@ const RUNS_AS_ROOT = process.platform !== "win32" && process.getuid?.() === 0;
 export function claudePermissionMode(mode: ApprovalMode): "bypassPermissions" | "default" {
   return mode === "auto" && !RUNS_AS_ROOT ? "bypassPermissions" : "default";
 }
+
+const userClaudeFiles = () => `${(process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude")).replaceAll("\\", "/")}/**`;
 
 export function createClaudeSession(
   config: AppConfig,
@@ -172,8 +176,15 @@ export function createClaudeSession(
           // Loaded up front, so a chat doesn't start with a tool search before it can touch Resolve.
           [LINKER_MCP_NAME]: { type: "stdio", ...linkerMcpCommand(config), alwaysLoad: true },
         },
-        disallowedTools: CLAUDE_DISALLOWED_RESOLVE_TOOLS,
-        ...(config.autoCompactWindow === undefined ? {} : { settings: { autoCompactWindow: config.autoCompactWindow } }),
+        strictMcpConfig: true,
+        // Not settingSources: [], which would also drop settings that can hold the user's sign-in.
+        skills: [],
+        settings: {
+          claudeMdExcludes: [userClaudeFiles()],
+          ...(config.autoCompactWindow === undefined ? {} : { autoCompactWindow: config.autoCompactWindow }),
+        },
+        // With skills off, Workflow's description grows by thousands of tokens.
+        disallowedTools: [...CLAUDE_DISALLOWED_RESOLVE_TOOLS, "Workflow"],
         hooks: {
           // Runs in every permission mode, bypassPermissions included: refuses what the policy refuses,
           // and backs the project up before a script changes it.

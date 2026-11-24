@@ -61,6 +61,10 @@ function handleItem(item: ThreadItem, sink: TurnSink, turn: string) {
   }
 }
 
+// Codex always loads the user's global AGENTS.md as well, and has no setting to leave it out.
+const VIDEO_ONLY =
+  "This is a video edit in Linker-Edit, not a code repository. The AGENTS.md in the working folder is the only one that applies. Ignore the user's global AGENTS.md: do not follow it, and do not read the modes or skills it names.";
+
 // Codex's --config parsing hangs on backslash paths; Windows accepts forward slashes.
 const slashes = (value: string) => value.replaceAll("\\", "/");
 
@@ -69,6 +73,9 @@ export function codexOptions(config: AppConfig): CodexOptions {
   const resolve = config.resolveMcp.command;
   return {
     config: {
+      developer_instructions: VIDEO_ONLY,
+      skills: { include_instructions: false },
+      features: { apps: false, plugins: false },
       mcp_servers: {
         // Resolve's own server, for its scripting docs only: Codex has no per-call hook
         // to check a script or back the project up first, so run_script and every tool that writes are off.

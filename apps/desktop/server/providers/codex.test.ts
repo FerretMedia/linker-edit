@@ -114,10 +114,13 @@ describe("Codex session", () => {
     expect(items().map((item) => item.kind === "notice" && item.text)).toEqual(["usage limit reached", "stream closed"]);
   });
 
-  it("gives Codex forward-slash paths, which its --config parsing needs, and only Resolve's read tools", () => {
+  it("gives Codex forward-slash paths, which its --config parsing needs, only Resolve's read tools, and nothing of the user's setup for code", () => {
     const options = codexOptions(testConfig);
     expect(JSON.stringify(options.config)).not.toContain("\\\\");
     expect(options.config).toMatchObject({
+      developer_instructions: expect.any(String),
+      skills: { include_instructions: false },
+      features: { apps: false, plugins: false },
       mcp_servers: {
         resolve: {
           command: "C:/Program Files/Blackmagic Design/DaVinci Resolve/ResolveMCP.exe",
