@@ -114,6 +114,13 @@ class Item:
         log("SetProperty", self.data["id"], key, value)
         return key != "Nonsense"
 
+    def GetFades(self):
+        return self.data.get("fades", {"FadeIn": 5, "FadeOut": 0})
+
+    def SetFades(self, fades):
+        log("SetFades", self.data["id"], fades)
+        return True
+
     def GetTrackTypeAndIndex(self):
         return [self.track_type, self.track]
 
