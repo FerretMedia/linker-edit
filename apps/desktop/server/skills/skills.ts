@@ -94,6 +94,9 @@ ${skills.map(({ name, description: about, sources }) => `- ${name}: ${about} (${
 export function readSkill(roots: SkillRoot[], name: string, file?: string): string {
   const skills = listSkills(roots);
   const skill = skills.find((candidate) => candidate.name === name);
+  // Agents ask for a skill's file as if it were a skill.
+  const owner = skill || !SKILL_NAME.test(name) ? undefined : skills.find((other) => roots.some(({ dir }) => fs.existsSync(path.join(dir, other.name, `${name}.md`))));
+  if (owner) return readSkill(roots, owner.name, `${name}.md`);
   if (!skill) throw new Error(skills.length ? `There is no skill "${name}". There are: ${skills.map((candidate) => candidate.name).join(", ")}.` : "There are no skills here.");
   if (file) {
     if (!DETAIL_FILE.test(file)) throw new Error(`"${file}" isn't a file name a skill can have, such as "interview.md".`);

@@ -66,6 +66,9 @@ describe("skills", () => {
     write("workspace", "sound/rock.md", "Loud.");
     expect(readSkill(roots, "sound", "rock.md")).toBe("Loud.");
     expect(readSkill(roots, "color", "")).toBe(readSkill(roots, "color"));
+    // Asked for as if it were a skill.
+    expect(readSkill(roots, "skin")).toBe("Warmer skin.");
+    expect(() => readSkill(roots, "../color/skin")).toThrow(/no skill/);
     write("shipped", "secret.md", "No.");
     for (const file of ["../secret.md", "..\\secret.md", path.join(dir, "shipped", "secret.md"), "SKILL.md.bak"]) {
       expect(() => readSkill(roots, "color", file)).toThrow(/isn't a file name/);
