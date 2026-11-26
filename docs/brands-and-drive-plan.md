@@ -2,13 +2,15 @@
 
 ## What changes
 
-- **Brand tree.** The sidebar groups projects in a tree of brands, sub-brands and series. These shapes are allowed:
+- **Brands are Linker orgs.** Linker-Edit lists every Linker org the signed-in person belongs to, and each org is a brand. Inside a brand the user makes sub-brands and series. These shapes are allowed:
   - brand, project
   - brand, series, project
   - brand, sub-brand, project
   - brand, sub-brand, series, project
 
   Today a workspace can hold series and nothing nests deeper (`apps/desktop/server/collections/collections.ts:88`).
+- **The sidebar stays T3 Code's inbox.** Pinned, Active, Working, Snoozed and Settled stay as they are. The tree lives on a new **Brands** page, opened by a button next to the settings button. On that page the user makes, renames, moves and deletes sub-brands and series.
+- **Starting a project picks where it goes.** **Add project** asks for a brand, then optionally a sub-brand or a series.
 - **Google Drive sync.** Linker-Edit signs in to Google Drive itself and keeps brands and projects in a Drive folder. Each computer picks which projects it mirrors. A mirrored project has every file on local disk and syncs both ways. Any other project stays in the cloud and only shows in the sidebar. Google Drive for desktop is not used. It can only mirror all of My Drive, the user's My Drive holds 5 TB, and it has no API that pins a single folder offline on Windows.
 - **Storage per computer.** A settings page lists every computer with its disks, free space and the space each project takes on it. Once Drive sync lands, it also shows how much of each project is local and how much is cloud only.
 - **Add existing projects from Drive.** A computer browses the brand tree on Drive and mirrors a project with one click. A local project can be moved up to Drive.
@@ -20,7 +22,8 @@ T3 Code has no nested folders to copy. Its newest release (v0.1.12, PR #35925) l
 | PR | Branch | Builds on | Review before merge |
 | --- | --- | --- | --- |
 | 0 | `spike/drive-scope` (throwaway, not merged) | trunk | no |
-| A | `feat/brand-tree` | trunk | yes, it changes the sidebar |
+| L | FerretMedia/Linker `feat/edit-orgs`, to `dev` | Linker `dev` | no |
+| A | `feat/brand-tree` | trunk, and L live for the live check | yes, new page and new button |
 | B | `feat/computer-storage` | trunk | yes, new settings page |
 | C | `feat/google-drive-signin` | 0's answer | no |
 | D | `feat/drive-sync` | C | no, nothing new on screen besides sync state |
@@ -28,11 +31,12 @@ T3 Code has no nested folders to copy. Its newest release (v0.1.12, PR #35925) l
 | F | `feat/brands-on-drive` | A and D | yes, it changes adding a project |
 | G | `feat/storage-drive` | B and D | yes, it changes the storage page |
 
-A, B and 0 start from trunk and run in parallel. C waits for the spike's answer on the OAuth scope. D, E, F and G stack on C. F is stacked on D and rebased onto trunk after A merges. G does the same after B merges.
+A, B, L and 0 start from their trunks and run in parallel. A builds against the contract in "Data shapes" and uses a fake Linker in its tests. C waits for the spike's answer on the OAuth scope. D, E, F and G stack on C. F is stacked on D and rebased onto trunk after A merges. G does the same after B merges.
 
 Files each PR may touch:
 
-- A: `apps/desktop/shared/protocol.ts` (collection types), `apps/desktop/server/collections/*`, `apps/desktop/server/projects/store.ts` (`ProjectCollection` only), `apps/desktop/src/lib/labels.ts`, `apps/desktop/src/lib/components/Sidebar.svelte`, `apps/desktop/src/lib/components/sidebar/*`, `CollectionEditor.svelte`, `CollectionsSettings.svelte`, `apps/desktop/e2e/collections.spec.ts`, the iPad fixtures if the snapshot shape changes.
+- L: Linker `apps/app/src/routes/api/edit/orgs/+server.ts` and its spec, plus `org-service.ts` when a server-side lister is needed.
+- A: `apps/desktop/shared/protocol.ts` (collection types), `apps/desktop/server/collections/*`, `apps/desktop/server/linker.ts` (orgs call), `apps/desktop/server/projects/store.ts` (`ProjectCollection` only), `apps/desktop/src/lib/labels.ts`, the settings button row in the sidebar chrome, a new `BrandsPage.svelte`, `CollectionEditor.svelte`, `CollectionsSettings.svelte` (removed, its content moves to the Brands page), `AddProjectDialog.svelte`, `apps/desktop/e2e/collections.spec.ts`, the iPad fixtures if the snapshot shape changes.
 - B: `protocol.ts` (storage messages), new `apps/desktop/server/storage/*`, `apps/desktop/server/app.ts` wiring, a new `ComputersStorageSettings.svelte`, `SettingsPage.svelte`.
 - C: new `apps/desktop/server/drive/auth.ts`, `drive/client.ts`, settings row for the Google account.
 - D: `drive/sync/*`, `projects/store.ts` (Drive link fields), `protocol.ts` (sync state).
@@ -44,6 +48,7 @@ Files each PR may touch:
 
 - The user picked our own Drive sync over Google Drive for desktop (2026-11-26).
 - The UI words are **Brand**, **Sub-brand** and **Series** (2026-11-26). They replace "workspace" everywhere in `labels.ts`.
+- A brand is a Linker org, and the sidebar keeps T3 Code's inbox (2026-11-26). Sub-brands and series are managed on their own page.
 - Blackmagic Cloud stays out. Its terms ban automated scripts (see `AGENTS.md`), so the Resolve project travels as a `.drp` file inside the project's Drive folder.
 - One computer edits a project at a time. Resolve has one project open per computer already. Drive adds a lock that says which computer holds the project.
 
@@ -64,7 +69,31 @@ const PARENT_KINDS: Record<CollectionKind, readonly (CollectionKind | null)[]> =
 function collectionChain(collections: Map<string, SavedCollection>, project: SavedProject): SavedCollection[];
 ```
 
-A project's rules, lessons, skills and `autonomous` flag come from the chain in order, root first, then the project. Today's `collectionChain` returns `{ workspace, series }`. It becomes the array above, and every caller moves to it in the same PR. A `collection.json` with kind `"workspace"` is read as `"brand"` and written back as `"brand"` on its next save.
+A brand is never made in Linker-Edit. Each Linker org gets a local brand collection with `orgId` set, made the first time the org is listed. It holds the brand's rules, lessons and skills. Its name and picture come from Linker. A brand whose org the person left stays on disk, is greyed, and can't take new projects.
+
+```ts
+interface SavedCollection {
+	// ...today's fields
+	kind: CollectionKind;
+	/** The Linker org, for a brand only. */
+	orgId: string | null;
+}
+```
+
+Linker contract, served by PR L:
+
+```ts
+// GET https://app.linker.cool/api/edit/orgs
+// Authorization: Bearer <Linker-Edit's Linker access token>
+// 200
+interface EditOrgs {
+	orgs: { id: string; name: string; imageUrl: string | null; role: "admin" | "member" }[];
+}
+```
+
+Linker-Edit caches the last answer, so brands still show offline.
+
+A project's rules, lessons, skills and `autonomous` flag come from the chain in order, root first, then the project. Today's `collectionChain` returns `{ workspace, series }`. It becomes the array above, and every caller moves to it in the same PR. An old `workspace` collection has no org. It loads as a sub-brand with no brand, and the Brands page lists it under **Not in a brand** with a **Move to** button.
 
 Drive link, in the project's committed `linker-edit.json`, so every computer sees the same Drive folder:
 
@@ -133,15 +162,23 @@ The user has 5 TB already on Drive. "Add existing projects from Drive" only work
 - [ ] Verification: run the script against the user's account and paste the table into this plan.
 - [ ] Decision this settles: when `drive.file` plus Picker reads a picked folder's contents, C uses `drive.file`. Otherwise C uses `drive`, and the user decides between a verified app and "bring your own OAuth client".
 
-## PR A: brand tree
+## PR L: Linker lists a person's orgs for Linker-Edit
 
-- [ ] Depends on: trunk.
+- [ ] Depends on: Linker `dev`.
+- [ ] Builds: `GET /api/edit/orgs` answers the contract above. It checks the token the same way `/api/edit/whoami` does and asks Clerk for the user's org memberships, sorted by name like `listMyOrgs`.
+- [ ] Unit: a valid token gets its orgs. A token from another client id gets 403. A missing token gets 401.
+- [ ] Live: after deploy, `curl` with a real Linker-Edit access token. Pass when every org the user sees in Linker's org switcher is listed. This needs `EDIT_CONNECT_CLIENT_IDS` set on the `linker-app` Worker, which waits on the user's OK.
+- [ ] Perf: none, one Clerk call.
+
+## PR A: brands, sub-brands and series
+
+- [ ] Depends on: trunk. The live check needs L deployed.
 - [ ] Files: listed above.
-- [ ] Builds: `CollectionKind` becomes `"brand" | "subbrand" | "series"`, with `PARENT_KINDS` deciding where each can go. `collectionChain` returns the whole chain. The sidebar draws the tree with T3's folder header row and per-device open and closed state. **Move to** on a project and on a collection offers every allowed parent. Old `workspace` files load as brands.
+- [ ] Builds: `CollectionKind` becomes `"brand" | "subbrand" | "series"`, with `PARENT_KINDS` deciding where each can go. `collectionChain` returns the whole chain. Brands come from Linker orgs. A new button next to the settings button opens the **Brands** page. It shows every brand with its sub-brands, series and projects, and lets the user make, rename, move and delete sub-brands and series. The brief editor moves there from settings. **Add project** asks for a brand, then a sub-brand or series. The sidebar's inbox doesn't change.
 - [ ] Result: the user builds all four shapes from the top of this plan, and each project's agent gets the rules of every level above it, brand first.
-- [ ] Unit: `parentRefusal` for every pair in `PARENT_KINDS` and a few that aren't allowed. `collectionChain` on all four shapes. Loading a `workspace` file gives a brand. Deleting a sub-brand that still holds a series is refused.
-- [ ] Live: in the Electron app, make brand "Ferret Media", sub-brand "Shorts", series "Weekly" and one project in each level. Restart the app. Pass when the tree, open and closed state, and the project's brief (`read_skill` in a turn) show all three levels in order.
-- [ ] Perf: sidebar render time with 200 projects in 30 collections. Probe: Playwright `performance.now()` around the first paint of `Sidebar.svelte` with a seeded store. Measure trunk first. Fail above trunk plus 20 percent.
+- [ ] Unit: `parentRefusal` for every pair in `PARENT_KINDS` and a few that aren't allowed. `collectionChain` on all four shapes. A new org in the Linker answer makes a brand, and a missing one greys it. An old `workspace` file loads under **Not in a brand**. Deleting a sub-brand that still holds a series is refused.
+- [ ] Live: in the Electron app, signed in to Linker, open **Brands**. Make sub-brand "Shorts" and series "Weekly" under one org, and start a project in each. Restart the app. Pass when the Brands page shows both, and the project's brief (`read_skill` in a turn) shows brand, sub-brand and series in that order.
+- [ ] Perf: Brands page first paint with 200 projects in 30 collections. Probe: Playwright `performance.now()` with a seeded store. Fail above 300 ms.
 
 ## PR B: storage per computer
 
