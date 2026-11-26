@@ -73,6 +73,7 @@
     onAddProject,
     onProjectSettings,
     onSettings,
+    onUsage,
     onSignOut = null,
   }: {
     /** The open machine's, for the foot: its Resolve, updates and Linker account. Null while none is connected. */
@@ -92,6 +93,7 @@
     onAddProject: () => void;
     onProjectSettings: (machineId: string, projectId: string) => void;
     onSettings: () => void;
+    onUsage: () => void;
     /** On a web address: signs this browser out of Linker. */
     onSignOut?: (() => void) | null;
   } = $props();
@@ -759,6 +761,7 @@
     machine={meta && multi ? (machineNames.get(meta.machineId) ?? null) : null}
     {asked}
     {onSettings}
+    {onUsage}
     {onSignOut}
     send={sendHere}
     onCheckAppUpdate={checkForUpdates}

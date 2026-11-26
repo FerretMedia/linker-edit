@@ -1,6 +1,7 @@
 <script lang="ts">
   // The sidebar's foot: Linker-Edit's own parts, in T3 Code's SidebarFooter spacing (MIT, see NOTICE).
   import AudioLines from "@lucide/svelte/icons/audio-lines";
+  import ChartNoAxesColumn from "@lucide/svelte/icons/chart-no-axes-column";
   import LogOut from "@lucide/svelte/icons/log-out";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings from "@lucide/svelte/icons/settings";
@@ -16,6 +17,7 @@
     asked,
     send,
     onSettings,
+    onUsage,
     onSignOut,
     onCheckAppUpdate,
   }: {
@@ -28,6 +30,8 @@
     /** To the open machine. */
     send: (message: ClientMessage) => void;
     onSettings: () => void;
+    /** Opens the usage page, as T3 Code's sidebar does. */
+    onUsage: () => void;
     /** On a web address: signs this browser out of Linker. */
     onSignOut: (() => void) | null;
     onCheckAppUpdate: () => void;
@@ -125,6 +129,15 @@
       onclick={onSettings}
     >
       <Settings />
+    </button>
+    <button
+      type="button"
+      class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-(--control-radius) text-sidebar-muted-foreground/80 outline-hidden ring-ring hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset [&>svg]:size-4 [&>svg]:text-(--sidebar-icon-color) hover:[&>svg]:text-sidebar-foreground"
+      aria-label="Usage"
+      title="Usage (Ctrl+U)"
+      onclick={onUsage}
+    >
+      <ChartNoAxesColumn />
     </button>
     {#if onSignOut}
       <button
