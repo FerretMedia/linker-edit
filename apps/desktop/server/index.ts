@@ -28,6 +28,7 @@ import { createResolveProjects } from "./resolveProjects.ts";
 import { checkResolve } from "./resolveStatus.ts";
 import { prepareWorkspace } from "./rules.ts";
 import { fileSettings } from "./settings.ts";
+import { createStorage } from "./storage/storage.ts";
 import { createStudy } from "./study/study.ts";
 import { findFfmpeg, prepareTools, toolsReady } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
@@ -126,6 +127,7 @@ const app = createApp({
   appUpdates,
   library: createLibrary({ store: fileLibraryStore(config.libraryFile), cacheDir: config.libraryCacheDir, probe: ffmpegProbe(findFfmpeg) }),
   usage: createUsage({ ratesFile: path.join(path.dirname(config.libraryCacheDir), "usage-model-rates.json"), version: VERSION }),
+  storage: createStorage({ dataDir: path.dirname(config.configFile), file: path.join(path.dirname(config.configFile), "storage.json") }),
 });
 
 export const url = `http://127.0.0.1:${config.port}`;

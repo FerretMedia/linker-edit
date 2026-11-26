@@ -361,13 +361,18 @@ export function createServer(
       json(200, { app: "linker-edit", name: os.hostname(), version: app.version, protocol: PROTOCOL_VERSION } satisfies Hello);
       return;
     }
-    if (urlPath === "/api/machines" || urlPath.startsWith("/machines/")) {
+    if (urlPath === "/api/machines" || urlPath === "/api/machines/storage" || urlPath.startsWith("/machines/")) {
       if (!fromOwnWindow(req)) {
         json(403, { error: "Not allowed." });
         return;
       }
       if (urlPath.startsWith("/machines/")) await machines.proxy(req, res);
-      else json(200, await machines.list(query.get("fresh") === "1"));
+      else if (urlPath === "/api/machines") json(200, await machines.list(query.get("fresh") === "1"));
+      else if (!app.storage) json(404, { error: "Storage isn't measured in this build." });
+      else {
+        const id = query.get("id") ?? "";
+        json(200, await app.storage.card(id, () => machines.ask(id, "/api/storage")));
+      }
       return;
     }
     if (source !== "local" && connect) {
@@ -546,6 +551,14 @@ export function createServer(
         .playableTimeline(query.get("project") || null, query.get("id") || null, query.get("commit") || null)
         .then((timeline) => (timeline ? json(200, timeline) : json(404, { error: "That timeline isn't in Resolve or in that save." })))
         .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
+    // What this computer's disks and projects take, for the computer that shows every computer's.
+    if (urlPath === "/api/storage") {
+      app.measureStorage().then(
+        (report) => json(200, report),
+        (error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }),
+      );
       return;
     }
     if (urlPath === "/api/usage" || urlPath === "/api/usage/limits") {

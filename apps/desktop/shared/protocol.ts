@@ -420,6 +420,29 @@ export interface Machines {
   machines: Machine[];
 }
 
+/** Where a project is with Google Drive on this computer; until Drive sync lands, no project has one. */
+export type MirrorState = "cloud" | "downloading" | "mirrored" | "error";
+
+/** GET /api/storage: this computer's disks, and the space each project takes on it. */
+export interface ComputerStorage {
+  /** This computer's id at Linker (LinkerConnect.computerId); "" in builds without Linker Connect. */
+  computerId: string;
+  /** Every disk that holds a project, and the one with Linker-Edit's own data. */
+  disks: { path: string; label: string; totalBytes: number; freeBytes: number }[];
+  /** Largest first. localBytes is null when the project's folder isn't there, as on a drive that's unplugged. */
+  projects: { projectId: string; name: string; localBytes: number | null; cloudBytes: number | null; mirror: MirrorState | null }[];
+  measuredAt: string;
+}
+
+/**
+ * GET /api/machines/storage?id=<machine>: a computer's storage as this computer's server got it. One that doesn't
+ * answer shows the last report it gave, with why.
+ */
+export type StorageCard =
+  | { state: "fresh"; report: ComputerStorage }
+  | { state: "stale"; report: ComputerStorage; problem: string }
+  | { state: "none"; problem: string };
+
 /** GET /api/computers: this computer's name, and the user's other computers found over Tailscale. */
 export interface Computers {
   name: string;

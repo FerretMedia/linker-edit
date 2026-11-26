@@ -682,6 +682,7 @@ describe("Linker Connect", () => {
     });
     for (const headers of [{ origin: "https://evil.example" }, { "sec-fetch-site": "cross-site" }, viaTunnel, viaTailscale]) {
       expect((await request("GET", "/api/machines", headers)).status).toBe(403);
+      expect((await request("GET", "/api/machines/storage?id=office", headers)).status).toBe(403);
       expect((await request("GET", "/machines/office/api/hello", headers)).status).toBe(403);
     }
     const socket = new WebSocket(`ws://127.0.0.1:${port}/machines/office/ws`, { origin: "https://evil.example" });

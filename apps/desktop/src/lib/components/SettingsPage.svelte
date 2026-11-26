@@ -6,6 +6,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Globe from "@lucide/svelte/icons/globe";
+  import HardDrive from "@lucide/svelte/icons/hard-drive";
   import Info from "@lucide/svelte/icons/info";
   import Library from "@lucide/svelte/icons/library";
   import LogIn from "@lucide/svelte/icons/log-in";
@@ -22,6 +23,7 @@
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
   import { sidebarPrefs } from "#lib/sidebarPrefs.svelte.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
+  import ComputersStorageSettings from "./ComputersStorageSettings.svelte";
   import LinkerConnectSettings from "./LinkerConnectSettings.svelte";
   import RemoteAccessSettings from "./RemoteAccessSettings.svelte";
   import Segmented from "./Segmented.svelte";
@@ -60,7 +62,7 @@
     onClose: () => void;
   } = $props();
 
-  const ICONS = { general: Settings2, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
+  const ICONS = { general: Settings2, resolve: Clapperboard, transcription: AudioLines, remote: Globe, storage: HardDrive, account: UserRound, about: Info };
   const title = $derived(SETTINGS_SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings");
 
   // Its remote access and Linker account settings below talk to it too.
@@ -460,6 +462,8 @@
               />
             </div>
           </section>
+        {:else if section === "storage"}
+          <ComputersStorageSettings />
         {:else if section === "account"}
           <SettingsGroup title="Linker" description="Optional. Brings your Linker account, and later its projects, to Linker-Edit. Nothing else needs it.">
             {#if app.linker.state === "signed_in"}
