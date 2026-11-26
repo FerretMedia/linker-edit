@@ -1,6 +1,7 @@
-// The brief's tools on the agents' "linker" MCP server: how an agent changes a workspace's or series' rules, adds
+// The brief's tools on the agents' "linker" MCP server: how an agent changes a brand's, sub-brand's or series' rules, adds
 // a lesson learned from feedback, and keeps its notes on example videos. The rules and lessons steer every later
 // edit, so the user accepts or declines each change, in full access too.
+import { PARENT_KINDS } from "../../shared/protocol.ts";
 import { COLLECTION_LABEL } from "../../src/lib/labels.ts";
 
 export const SAVE_BRIEF = "save_brief";
@@ -10,19 +11,19 @@ export const SAVE_EXAMPLE = "save_example";
 const where = {
   for: {
     type: "string",
-    enum: ["workspace", "series"],
-    description: `Whose: the ${COLLECTION_LABEL.workspace.lower} (the brand) or a ${COLLECTION_LABEL.series.lower} (one format). Defaults to the most specific one this thread's project is in.`,
+    enum: Object.keys(PARENT_KINDS),
+    description: `Whose: the ${COLLECTION_LABEL.brand.lower}, the ${COLLECTION_LABEL.subbrand.lower} (a part of the brand, such as a channel) or a ${COLLECTION_LABEL.series.lower} (one format). Defaults to the most specific one this thread's project is in.`,
   },
   series: {
     type: "string",
-    description: `With for "series": the name of a ${COLLECTION_LABEL.series.lower} in this ${COLLECTION_LABEL.workspace.lower}, when it isn't this project's own.`,
+    description: `With for "series": the name of a ${COLLECTION_LABEL.series.lower} next to this project's, in the same ${COLLECTION_LABEL.brand.lower} or ${COLLECTION_LABEL.subbrand.lower}, when it isn't this project's own.`,
   },
 };
 
 export const BRIEF_TOOLS = [
   {
     name: SAVE_BRIEF,
-    description: `Propose new rules for the ${COLLECTION_LABEL.workspace.lower} or a ${COLLECTION_LABEL.series.lower}: the brief every edit in it follows. Pass the complete new text, not a patch: it replaces the rules. They are kept in its SKILL.md; leave front matter out, Linker-Edit writes it. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
+    description: `Propose new rules for the ${COLLECTION_LABEL.brand.lower}, the ${COLLECTION_LABEL.subbrand.lower} or a ${COLLECTION_LABEL.series.lower}: the brief every edit in it follows. Pass the complete new text, not a patch: it replaces the rules. They are kept in its SKILL.md; leave front matter out, Linker-Edit writes it. The user sees what changes and accepts or declines. Naming a ${COLLECTION_LABEL.series.lower} that doesn't exist makes it.`,
     inputSchema: {
       type: "object",
       properties: {

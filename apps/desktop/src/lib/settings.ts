@@ -1,9 +1,7 @@
 import type { ResolveStatus } from "#shared/protocol.ts";
-import { COLLECTIONS_TITLE } from "./labels.ts";
 
 export const SETTINGS_SECTIONS = [
   { id: "general", label: "General" },
-  { id: "workspaces", label: COLLECTIONS_TITLE },
   { id: "resolve", label: "Resolve" },
   { id: "transcription", label: "Transcription" },
   { id: "remote", label: "Remote access" },

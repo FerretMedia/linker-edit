@@ -7,7 +7,6 @@
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import Globe from "@lucide/svelte/icons/globe";
   import Info from "@lucide/svelte/icons/info";
-  import Layers from "@lucide/svelte/icons/layers";
   import Library from "@lucide/svelte/icons/library";
   import LogIn from "@lucide/svelte/icons/log-in";
   import LogOut from "@lucide/svelte/icons/log-out";
@@ -23,7 +22,6 @@
   import { resolveStatusLine, SETTINGS_SECTIONS, type SettingsSection } from "#lib/settings.ts";
   import { sidebarPrefs } from "#lib/sidebarPrefs.svelte.ts";
   import { loadTheme, saveTheme, type Theme } from "#lib/theme.ts";
-  import CollectionsSettings from "./CollectionsSettings.svelte";
   import LinkerConnectSettings from "./LinkerConnectSettings.svelte";
   import RemoteAccessSettings from "./RemoteAccessSettings.svelte";
   import Segmented from "./Segmented.svelte";
@@ -62,7 +60,7 @@
     onClose: () => void;
   } = $props();
 
-  const ICONS = { general: Settings2, workspaces: Layers, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
+  const ICONS = { general: Settings2, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
   const title = $derived(SETTINGS_SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings");
 
   // Its remote access and Linker account settings below talk to it too.
@@ -356,8 +354,6 @@
               {/if}
             {/if}
           </SettingsGroup>
-        {:else if section === "workspaces"}
-          <CollectionsSettings {app} {send} />
         {:else if section === "resolve"}
           <SettingsGroup title="Status">
             <SettingsRow label={status.title}>

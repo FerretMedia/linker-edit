@@ -4,7 +4,8 @@
   import HardDrive from "@lucide/svelte/icons/hard-drive";
   import Server from "@lucide/svelte/icons/server";
   import type { CollectionSummary, ProjectIcon as Icon, ProjectSummary } from "#shared/protocol.ts";
-  import { COLLECTION_LABEL, COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION } from "#lib/labels.ts";
+  import { placeOptions } from "#lib/brands.ts";
+  import { COLLECTION_PICKER_LABEL, LIBRARY_LABEL, NO_COLLECTION } from "#lib/labels.ts";
   import Dialog from "./Dialog.svelte";
   import Switch from "./Switch.svelte";
   import IconPicker from "./sidebar/IconPicker.svelte";
@@ -21,12 +22,12 @@
     onClose,
   }: {
     project: ProjectSummary;
-    /** Every workspace and series, to put the project in one. */
+    /** Every brand, sub-brand and series, to put the project in one. */
     collections: CollectionSummary[];
     /** The project open in Resolve when no Linker-Edit project has it, to link this one to. */
     relinkTo: string | null;
     onSave: (changes: { name?: string; icon?: Icon | null; autonomous?: boolean }) => void;
-    /** Puts the project in a workspace or series, or in none. */
+    /** Puts the project in a brand, sub-brand or series, or in none. */
     onMove: (collectionId: string | null) => void;
     onRelink: () => void;
     onRemove: () => void;
@@ -45,19 +46,8 @@
   const initialCollection = untrack(() => collections.find((collection) => collection.projectIds.includes(initial.id))?.id ?? "");
   let collectionId = $state(initialCollection);
 
-  // Workspaces, each followed by its series, then series on their own.
-  const collectionOptions = $derived.by(() => {
-    const workspaces = collections.filter((collection) => collection.kind === "workspace");
-    const series = (parentId: string | null) =>
-      collections.filter((collection) => collection.kind === "series" && collection.parentId === parentId);
-    return [
-      ...workspaces.flatMap((workspace) => [
-        { id: workspace.id, label: workspace.name },
-        ...series(workspace.id).map((entry) => ({ id: entry.id, label: `${workspace.name} / ${entry.name}` })),
-      ]),
-      ...series(null).map((entry) => ({ id: entry.id, label: `${entry.name} (${COLLECTION_LABEL.series.lower})` })),
-    ];
-  });
+  // Each brand followed by what is in it, then those from before brands.
+  const collectionOptions = $derived(placeOptions(collections));
 
 
   function save() {
@@ -110,11 +100,11 @@
     <select class={field} bind:value={collectionId}>
       <option value="">{NO_COLLECTION}</option>
       {#each collectionOptions as option (option.id)}
-        <option value={option.id}>{option.label}</option>
+        <option value={option.id} disabled={option.disabled && option.id !== initialCollection}>{option.label}</option>
       {/each}
     </select>
     {#if !collections.length}
-      <span>Make {COLLECTION_LABEL.workspace.lowerMany} and {COLLECTION_LABEL.series.lowerMany} in Settings.</span>
+      <span>Brands are your Linker orgs. Sign in with Linker to use them.</span>
     {/if}
   </label>
 

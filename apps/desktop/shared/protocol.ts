@@ -95,11 +95,11 @@ export interface ProjectSummary extends ProjectSidebarState {
   /** Newest first, archived ones included. */
   threads: ThreadSummary[];
   /**
-   * A workspace's or series' setup threads: the agent studies example videos and finished projects and writes the
-   * brief here. It has no Resolve project and never gets one.
+   * A brand's, sub-brand's or series' setup threads: the agent studies example videos and finished projects and
+   * writes the brief here. It has no Resolve project and never gets one.
    */
   setup: boolean;
-  /** Its agent makes the first cut without asking: its own choice, or its series' or workspace's. */
+  /** Its agent makes the first cut without asking: its own choice, or its brand's, sub-brand's or series'. */
   autonomous: boolean;
 }
 
@@ -532,7 +532,7 @@ export interface AppMeta {
   /** Null in tests and builds that don't say. */
   setup: ComputerSetup | null;
   linker: LinkerAccount;
-  /** Every workspace and series, workspaces first, each in the order it was made. */
+  /** Every brand, sub-brand and series, brands first, each in the order it was made. */
   collections: CollectionSummary[];
   /** The skills every project gets: Linker-Edit's and your own. Missing from older servers. */
   skills?: { name: string; description: string }[];
@@ -575,7 +575,8 @@ export type ClientMessage =
   | { type: "rename_thread"; threadId: string; title: string }
   | { type: "archive_thread"; threadId: string; archived: boolean }
   | { type: "delete_thread"; threadId: string }
-  | { type: "add_project"; source: ProjectSource }
+  /** collectionId puts the new project in a brand, sub-brand or series. */
+  | { type: "add_project"; source: ProjectSource; collectionId?: string | null }
   | ({ type: "update_project"; projectId: string; name?: string; autonomous?: boolean } & ProjectSidebarChanges)
   /** Writes the brief to the project's files and has the agent of the open, empty thread make the first cut. */
   | { type: "start_video"; brief: VideoBrief }
@@ -602,6 +603,8 @@ export type ClientMessage =
   /** Stops waiting for a Linker sign-in started in the browser (GET /api/linker/sign-in starts one). */
   | { type: "linker_cancel_sign_in" }
   | { type: "linker_sign_out" }
+  /** Asks Linker again which orgs, so which brands, the person is in. */
+  | { type: "refresh_brands" }
   /** Downloads the speech engine now, or stops that download. */
   | { type: "transcription_setup" }
   | { type: "transcription_cancel" }
@@ -659,7 +662,7 @@ export interface LibraryFolder {
   note: string;
 }
 
-/** Which library. Most specific last in a chain: universal, then (later) workspace and series, then the project. */
+/** Which library. Most specific last in a chain: universal, then (later) brand and series, then the project. */
 export type LibraryScope = { kind: "universal" } | { kind: "project"; projectId: string };
 
 /** A project and timeline a library file was brought into by an agent. */
@@ -778,10 +781,28 @@ export type LibraryServerMessage =
   | { type: "library_view"; view: LibraryView }
   | { type: "library_sorted"; requestId: number; sort: LibrarySort | { error: string } };
 
-// --- Workspaces & series ---
+// --- Brands, sub-brands & series ---
 
-/** A workspace is a client, brand or channel; a series holds episodes. The UI words are in src/lib/labels.ts. */
-export type CollectionKind = "workspace" | "series";
+/**
+ * A brand is a Linker org; a sub-brand is a part of it, such as a channel; a series holds episodes. The UI words
+ * are in src/lib/labels.ts.
+ */
+export type CollectionKind = "brand" | "subbrand" | "series";
+
+/** What each kind can go in; null is the top. A new level is a row here. */
+export const PARENT_KINDS: Record<CollectionKind, readonly (CollectionKind | null)[]> = {
+  brand: [null],
+  subbrand: ["brand"],
+  series: ["brand", "subbrand"],
+};
+
+/** A Linker org the person is in, as Linker's GET /api/edit/orgs lists it. Each is a brand in Linker-Edit. */
+export interface LinkerOrg {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  role: "admin" | "member";
+}
 
 export type IconColor = "gray" | "red" | "orange" | "amber" | "green" | "teal" | "blue" | "violet" | "pink";
 
@@ -796,14 +817,24 @@ export interface CollectionSummary {
   id: string;
   kind: CollectionKind;
   name: string;
-  /** The workspace a series is in; always null for a workspace. One level deep. */
+  /**
+   * What it is in, as PARENT_KINDS allows; null for a brand. A sub-brand or series with none is from before brands
+   * (a workspace, or a series on its own), shown under "Not in a brand" until it is moved into one.
+   */
   parentId: string | null;
+  /** A brand's Linker org; null for a sub-brand or series. */
+  org: {
+    id: string;
+    imageUrl: string | null;
+    /** Linker last listed the person signed in as in it. Otherwise the brand is greyed and takes nothing new. */
+    member: boolean;
+  } | null;
   icon: CollectionIcon;
   /** The style guide for the agent, in plain words; its SKILL.md without the front matter. */
   rules: string;
   /** Where the rules are kept, to edit them in another editor too. */
   rulesFile: string;
-  /** Projects directly in it, not those in its series. */
+  /** Projects directly in it, not those in its sub-brands or series. */
   projectIds: string[];
   /** Its projects' agent makes the first cut without asking, and says afterwards what it decided. */
   autonomous: boolean;
@@ -819,7 +850,7 @@ export interface CollectionSummary {
   edits: ApprovedEdit[];
 }
 
-/** One skill of a workspace or series: how a kind of work is done there. */
+/** One skill of a brand, sub-brand or series: how a kind of work is done there. */
 export interface SavedSkill {
   name: string;
   /** What work it is for, as the agent's list says it. */
@@ -851,7 +882,7 @@ export interface ApprovedEdit {
 }
 
 export type CollectionMessage =
-  /** A series may go in a workspace; a workspace goes in nothing. */
+  /** Where PARENT_KINDS allows. A brand is never made here: brands are Linker orgs. */
   | { type: "create_collection"; kind: CollectionKind; name: string; parentId?: string | null; icon?: CollectionIcon }
   | { type: "update_collection"; id: string; name?: string; icon?: CollectionIcon; rules?: string; parentId?: string | null; autonomous?: boolean }
   /** Forgets a lesson or the notes on an example. */
@@ -863,9 +894,9 @@ export type CollectionMessage =
   | { type: "remove_skill"; id: string; name: string }
   /** Opens its setup thread, where the agent studies example videos and writes the brief; made on first use. */
   | { type: "setup_collection"; id: string }
-  /** Refused while projects or series are in it. */
+  /** Refused for a brand, and while projects, sub-brands or series are in it. */
   | { type: "delete_collection"; id: string }
-  /** Puts a project in a workspace or series, or in none. */
+  /** Puts a project in a brand, sub-brand or series, or in none. */
   | { type: "move_project"; projectId: string; collectionId: string | null };
 
 // --- Sidebar (T3 Code) ---

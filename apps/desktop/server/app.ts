@@ -42,7 +42,7 @@ import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromI
 import type { LinkerService } from "./linker.ts";
 import type { ConnectService } from "./connect/connect.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
-import { NEW_THREAD_SIDEBAR, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
+import { NEW_THREAD_SIDEBAR, type ProjectCollection, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
 import { parseProjectIcon } from "../shared/project-icon.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
@@ -81,7 +81,7 @@ export interface AppOptions {
   resolveProjects?: ResolveProjects;
   /** Gets a project folder ready for agents, such as its AGENTS.md with the project's rules. */
   prepareFolder?: (dir: string, rules: string) => void;
-  /** Workspaces and series; kept in memory only without it. */
+  /** Brands, sub-brands and series; kept in memory only without it. */
   collections?: CollectionStore;
   /** Skills every project gets, most general first. */
   skills?: SkillRoot[];
@@ -216,6 +216,7 @@ export function createApp(options: AppOptions) {
     store: options.collections ?? memoryCollectionStore(),
     skills: options.skills ?? [],
     projects: () => [...projects.values()].map((project) => project.saved),
+    orgs: () => options.linker?.orgs() ?? null,
     setCollection(projectId, collection, commitMessage) {
       const project = projects.get(projectId);
       if (!project) return;
@@ -229,6 +230,7 @@ export function createApp(options: AppOptions) {
       sendMeta();
     },
   });
+  collections.syncBrands();
 
   function projectName(saved: SavedProject): string {
     // Follows a rename of what it sets up.
@@ -445,13 +447,11 @@ export function createApp(options: AppOptions) {
     const listed = [...projects.values()].flatMap((project) => {
       const { saved } = project;
       if (!saved.link || saved.setup) return [];
-      const own = collections.get(saved.collection?.id ?? "");
-      const workspace = own?.kind === "series" ? collections.get(own.parentId ?? "") : own;
       return [
         {
           name: projectName(saved),
-          ...(workspace ? { workspace: workspace.name } : {}),
-          ...(own?.kind === "series" ? { series: own.name } : {}),
+          // Its brand, sub-brand and series by name.
+          ...Object.fromEntries(collections.chain(saved).map((part) => [part.kind, part.name])),
           ...(saved.archived ? { archived: true } : {}),
           ...(isOpen(project) ? { open: true } : {}),
           ...(canOpen(project) || isOpen(project) ? {} : { note: "Blackmagic Cloud: only the user can open it." }),
@@ -724,7 +724,10 @@ export function createApp(options: AppOptions) {
   }
   options.transcriber?.onStatus(sendMeta);
   options.remote?.onStatus(sendMeta);
-  options.linker?.onStatus(sendMeta);
+  options.linker?.onStatus(() => {
+    collections.syncBrands();
+    sendMeta();
+  });
   options.connect?.onStatus(sendMeta);
   options.appUpdates?.onStatus(sendMeta);
 
@@ -952,19 +955,19 @@ export function createApp(options: AppOptions) {
     };
   }
 
-  function addLinked(client: Client, next: { link: ResolveLink; local: LocalLink }) {
+  function addLinked(client: Client, next: { link: ResolveLink; local: LocalLink }, collection: ProjectCollection | null) {
     const existing = [...projects.values()].find((project) => sameLink(next, project.saved));
     if (existing) {
       toast(client, `"${projectName(existing.saved)}" is already in Linker-Edit.`, "info");
       select(client, defaultThread(existing.saved.id));
       return;
     }
-    const state = addProject(store.create({ name: null, ...next }));
+    const state = addProject(store.create({ name: null, ...next, collection }));
     state.history?.commitProjectFile(`Link to Resolve project "${next.link.name}"`).catch((error: unknown) => console.error(error));
     select(client, defaultThread(state.saved.id));
   }
 
-  async function createInResolve(client: Client, sent: unknown) {
+  async function createInResolve(client: Client, sent: unknown, collection: ProjectCollection | null) {
     const name = typeof sent === "string" ? sent.trim() : "";
     if (!options.resolveProjects || !name) return toast(client, "Give the project a name.");
     if (resolveBusy()) return toast(client, "Resolve is busy. Wait until the running turn or render finishes.");
@@ -973,7 +976,7 @@ export function createApp(options: AppOptions) {
     sendMeta();
     try {
       const made = await options.resolveProjects.create(name);
-      addLinked(client, linkFromOpen({ name: made.project.name, id: made.project.id, database: made.database }));
+      addLinked(client, linkFromOpen({ name: made.project.name, id: made.project.id, database: made.database }), collection);
     } catch (error) {
       if (clients.has(client)) toast(client, `Couldn't make "${name}" in Resolve: ${errorText(error)}`);
     } finally {
@@ -983,13 +986,18 @@ export function createApp(options: AppOptions) {
     }
   }
 
-  function addProjectFrom(client: Client, source: ProjectSource) {
-    if (source.kind === "new") return void createInResolve(client, source.name);
+  /** collectionId is the brand, sub-brand or series it goes in, checked before anything is added. */
+  function addProjectFrom(client: Client, source: ProjectSource, collectionId: string | null) {
+    const placed = collectionId ? collections.place(collectionId) : null;
+    if (placed && "refusal" in placed) return toast(client, placed.refusal);
+    const collection = placed && { id: placed.collection.id, name: placed.collection.name };
+    if (source.kind === "new") return void createInResolve(client, source.name, collection);
     let state: ProjectState;
     if (source.kind === "folder") {
       try {
         const adopted = store.adopt(expandHome(source.dir));
         state = addProject(adopted.project, adopted.threads);
+        if (collection) collections.handle({ type: "move_project", projectId: state.saved.id, collectionId: collection.id });
       } catch (error) {
         toast(client, errorText(error));
         return;
@@ -1010,7 +1018,7 @@ export function createApp(options: AppOptions) {
         }
         next = linkFromSource(source);
       }
-      return addLinked(client, next);
+      return addLinked(client, next, collection);
     }
     select(client, defaultThread(state.saved.id));
   }
@@ -1408,7 +1416,7 @@ export function createApp(options: AppOptions) {
     }
   }
 
-  /** A workspace's or series' setup thread: its newest one, in a project made for it on first use. */
+  /** A brand's, sub-brand's or series' setup thread: its newest one, in a project made for it on first use. */
   function openSetup(client: Client, collectionId: string) {
     const collection = collections.get(collectionId);
     if (!collection) return;
@@ -1419,7 +1427,7 @@ export function createApp(options: AppOptions) {
     select(client, projectThreads(project.saved.id).find((thread) => !thread.archived)?.id ?? newThread(project.saved.id).id);
   }
 
-  /** Workspaces and series: create, update, delete, and moving a project into one. */
+  /** Brands, sub-brands and series: create, update, delete, and moving a project into one. */
   function handleCollectionMessage(client: Client, message: ClientMessage) {
     const refusal = collections.handle(message);
     if (refusal) toast(client, refusal);
@@ -1513,7 +1521,7 @@ export function createApp(options: AppOptions) {
         removeThread(message.threadId);
         break;
       case "add_project":
-        addProjectFrom(client, message.source);
+        addProjectFrom(client, message.source, message.collectionId ?? null);
         break;
       case "update_project":
         updateProject(message.projectId, message);
@@ -1563,6 +1571,9 @@ export function createApp(options: AppOptions) {
         break;
       case "linker_sign_out":
         void options.linker?.signOut();
+        break;
+      case "refresh_brands":
+        options.linker?.listOrgs().catch((error: unknown) => toast(client, errorText(error)));
         break;
       case "set_resolve_here":
         if (typeof message.resolveHere === "boolean") setResolveHere(message.resolveHere);

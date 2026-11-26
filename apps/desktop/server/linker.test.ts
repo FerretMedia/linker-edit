@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createLinker, metadataDocumentUrl, pkce, type LinkerOptions } from "./linker.ts";
+import { createLinker, metadataDocumentUrl, parseOrgs, pkce, type LinkerOptions } from "./linker.ts";
 
 const AUTH = "https://clerk.example";
 const APP = "https://app.example";
@@ -16,6 +16,8 @@ interface FakeOptions {
   registration?: boolean;
   plan?: number;
   refresh?: "ok" | "invalid_grant" | "offline";
+  /** What GET /api/edit/orgs answers; a number is a status with no list. */
+  orgs?: unknown[] | number;
 }
 
 /** Clerk and Linker's API as far as signing in goes; records what was asked. */
@@ -69,6 +71,12 @@ function fakeLinker(fake: FakeOptions = {}) {
       return json({ error: "unauthorized" }, 401);
     }
     if (url === `${APP}/api/connector`) return json({ plan: "Max", paid: true }, fake.plan ?? 200);
+    if (url === `${APP}/api/edit/orgs`) {
+      const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
+      if (!auth?.startsWith("Bearer access-")) return json({ error: "unauthorized" }, 401);
+      const orgs = fake.orgs ?? [];
+      return typeof orgs === "number" ? json({ error: "nope" }, orgs) : json({ orgs });
+    }
     if (url === `${AUTH}/oauth/token/revoke`) return new Response(null, { status: 200 });
     return new Response("Not found", { status: 404 });
   }) as typeof fetch;
@@ -300,5 +308,58 @@ describe("staying signed in", () => {
     expect(linkerWith(fake).status()).toEqual({ state: "signed_out", problem: null });
     const revoke = fake.calls.find((call) => call.url.endsWith("/revoke"));
     expect(new URLSearchParams(revoke?.body).get("token")).toBe("refresh-1");
+  });
+});
+
+describe("the person's Linker orgs, which are their brands", () => {
+  const FERRET = { id: "org_ferret", name: "Ferret Media", imageUrl: "https://img.example/ferret.png", role: "admin" };
+
+  it("lists them at sign-in with the account's token, and keeps them for when Linker can't be reached", async () => {
+    const fake = fakeLinker({ orgs: [FERRET, { id: "org_north", name: "Studio North" }] });
+    const linker = linkerWith(fake);
+    expect(linker.orgs()).toBeNull();
+    await signIn(linker, fake);
+    expect(linker.orgs()).toEqual([FERRET, { id: "org_north", name: "Studio North", imageUrl: null, role: "member" }]);
+
+    // Offline after a restart: the last answer stands.
+    const offline = linkerWith({ ...fake, fetchFn: (async () => Promise.reject(new TypeError("fetch failed"))) as typeof fetch });
+    await offline.refresh();
+    expect(offline.orgs()?.map((org) => org.name)).toEqual(["Ferret Media", "Studio North"]);
+    await expect(offline.listOrgs()).rejects.toThrow("Couldn't reach Linker, so your brands are as it last listed them.");
+    expect(offline.orgs()).toHaveLength(2);
+  });
+
+  it("follows a change at start, says when Linker won't list them, and forgets them on signing out", async () => {
+    const fake = fakeLinker({ orgs: [FERRET] });
+    await signIn(linkerWith(fake), fake);
+
+    // Left the org on Linker: the next start lists none.
+    const restarted = linkerWith(fakeLinker({ orgs: [] }));
+    await restarted.refresh();
+    expect(restarted.orgs()).toEqual([]);
+
+    // Linker refusing keeps the last answer, and says why.
+    const refusing = linkerWith(fakeLinker({ orgs: 404 }));
+    await expect(refusing.listOrgs()).rejects.toThrow("Linker didn't list your orgs (404).");
+    expect(refusing.orgs()).toEqual([]);
+
+    await restarted.signOut();
+    expect(restarted.orgs()).toBeNull();
+    expect(linkerWith(fake).orgs()).toBeNull();
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "linker-account.json"), "utf8"))).not.toHaveProperty("orgs");
+  });
+
+  it("asks nothing while signed out", async () => {
+    const fake = fakeLinker({ orgs: [FERRET] });
+    await linkerWith(fake).listOrgs();
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("reads only what makes sense of Linker's answer", () => {
+    expect(parseOrgs({ orgs: [{ id: "a", name: "A", imageUrl: "", role: "owner" }, { id: "", name: "B" }, { name: "C" }, null, { id: "d", name: 4 }] })).toEqual([
+      { id: "a", name: "A", imageUrl: null, role: "member" },
+    ]);
+    expect(parseOrgs({ error: "nope" })).toBeNull();
+    expect(parseOrgs(null)).toBeNull();
   });
 });

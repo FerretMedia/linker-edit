@@ -8,8 +8,9 @@
   import Monitor from "@lucide/svelte/icons/monitor";
   import MonitorUp from "@lucide/svelte/icons/monitor-up";
   import type { ProjectSource } from "#shared/protocol.ts";
+  import { isOpen, lineage, roots, subtree } from "#lib/brands.ts";
   import { trimSeparators } from "#lib/browsePath.ts";
-  import { LIBRARY_LABEL } from "#lib/labels.ts";
+  import { COLLECTION_LABEL, LIBRARY_LABEL, NO_COLLECTION, NOT_IN_A_BRAND } from "#lib/labels.ts";
   import type { MachineConnection } from "#lib/machines.svelte.ts";
   import Dialog from "./Dialog.svelte";
   import FolderPicker from "./FolderPicker.svelte";
@@ -21,7 +22,8 @@
   }: {
     /** Every machine, this computer first: the project is added on the one chosen, and its threads run there. */
     machines: MachineConnection[];
-    onAdd: (machineId: string, source: ProjectSource) => void;
+    /** collectionId is the brand, sub-brand or series it goes in. */
+    onAdd: (machineId: string, source: ProjectSource, collectionId: string | null) => void;
     onClose: () => void;
   } = $props();
 
@@ -34,6 +36,14 @@
   /** Null while it loads. */
   const library = $derived(server?.library ?? null);
   const browseFolders = (path: string) => server?.browseFolders(path) ?? Promise.resolve({ error: "Not connected." });
+
+  // Where it goes: a brand, then something in it, each kept by the machine the project is added on.
+  const collections = $derived(server?.state?.collections ?? []);
+  const tops = $derived(roots(collections));
+  let rootId = $state("");
+  let placeId = $state("");
+  const root = $derived(tops.find((entry) => entry.id === rootId) ?? null);
+  const inside = $derived(root ? subtree(collections, root).slice(1) : []);
   const STATUS = { connecting: "Connecting…", offline: "Offline" };
 
   const TABS = [
@@ -58,6 +68,8 @@
   function choose(id: string) {
     machineId = id;
     tab = tabFor(id);
+    rootId = "";
+    placeId = "";
   }
   let filter = $state("");
   let newName = $state("");
@@ -98,7 +110,7 @@
 
   function add(source: ProjectSource) {
     if (!machineId) return;
-    onAdd(machineId, source);
+    onAdd(machineId, source, placeId || rootId || null);
     onClose();
   }
 
@@ -142,6 +154,37 @@
         <Monitor class="size-3.5" />
         On {machine.name}
       </button>
+    {/if}
+    {#if collections.length}
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+          {COLLECTION_LABEL.brand.one}
+          <select class={field} bind:value={rootId} onchange={() => (placeId = "")}>
+            <option value="">{NO_COLLECTION}</option>
+            {#each tops.filter((entry) => entry.kind === "brand") as entry (entry.id)}
+              <option value={entry.id} disabled={!isOpen(collections, entry)}>{entry.name}</option>
+            {/each}
+            {#if tops.some((entry) => entry.kind !== "brand")}
+              <optgroup label={NOT_IN_A_BRAND}>
+                {#each tops.filter((entry) => entry.kind !== "brand") as entry (entry.id)}
+                  <option value={entry.id}>{entry.name}</option>
+                {/each}
+              </optgroup>
+            {/if}
+          </select>
+        </label>
+        {#if root && inside.length}
+          <label class="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+            {COLLECTION_LABEL.subbrand.one} or {COLLECTION_LABEL.series.lower}
+            <select class={field} bind:value={placeId}>
+              <option value="">Directly in {root.name}</option>
+              {#each inside as { collection } (collection.id)}
+                <option value={collection.id}>{lineage(collections, collection).slice(1).map((entry) => entry.name).join(" / ")}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+      </div>
     {/if}
     <div class="flex gap-1 rounded-lg bg-accent p-1" role="tablist">
       {#each tabs as item (item.value)}

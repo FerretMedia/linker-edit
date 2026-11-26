@@ -1,5 +1,14 @@
-import type { ClientMessage, CollectionIcon, CollectionKind, CollectionMessage, CollectionSummary, IconColor } from "../../shared/protocol.ts";
-import { COLLECTION_LABEL } from "../../src/lib/labels.ts";
+import {
+  PARENT_KINDS,
+  type ClientMessage,
+  type CollectionIcon,
+  type CollectionKind,
+  type CollectionMessage,
+  type CollectionSummary,
+  type IconColor,
+  type LinkerOrg,
+} from "../../shared/protocol.ts";
+import { COLLECTION_LABEL, parentWords } from "../../src/lib/labels.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
@@ -7,13 +16,15 @@ import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJE
 import { listSkills, removeSkill, savedSkills, saveSkill, skillsSection, type SkillRoot } from "../skills/skills.ts";
 import { exampleName, RULES_FILE, skillBody, type CollectionStore, type SavedCollection } from "./store.ts";
 
-/** What the workspaces and series need from the app around them. */
+/** What the brands, sub-brands and series need from the app around them. */
 export interface CollectionsHost {
   store: CollectionStore;
   /** Skills every project gets, most general first. */
   skills: SkillRoot[];
   projects(): SavedProject[];
-  /** Saves the project in its new workspace or series, or in none; commitMessage is for its edit history. */
+  /** The Linker orgs of the person signed in, as Linker last listed them; null when nobody is signed in. */
+  orgs(): LinkerOrg[] | null;
+  /** Saves the project in its new brand, sub-brand or series, or in none; commitMessage is for its edit history. */
   setCollection(projectId: string, collection: ProjectCollection | null, commitMessage: string): void;
   /** Takes a deleted collection's setup threads out of the app. */
   removeProject(projectId: string): void;
@@ -38,9 +49,9 @@ const MAX_EDITS = 30;
 
 export const ICON_COLORS: readonly IconColor[] = ["gray", "red", "orange", "amber", "green", "teal", "blue", "violet", "pink"];
 
-/** A workspace's or series' own skills, next to its SKILL.md. */
+/** A collection's own skills, next to its SKILL.md. */
 const SKILLS_DIR = "skills";
-const KINDS: readonly CollectionKind[] = ["workspace", "series"];
+const KINDS = Object.keys(PARENT_KINDS) as CollectionKind[];
 const MAX_NAME = 80;
 // SKILL.md is for a style guide, not a book; this keeps a paste accident out of every prompt.
 const MAX_RULES = 20_000;
@@ -73,20 +84,29 @@ function defaultIcon(name: string): CollectionIcon {
   return { kind: "monogram", text: "", color: ICON_COLORS[1 + (hash % (ICON_COLORS.length - 1))]! };
 }
 
-/** The workspace a project is in, directly or through its series, and the series. */
-export function collectionChain(
-  collections: Map<string, SavedCollection>,
-  project: SavedProject,
-): { workspace: SavedCollection | null; series: SavedCollection | null } {
-  const own = project.collection ? collections.get(project.collection.id) : undefined;
-  if (!own) return { workspace: null, series: null };
-  if (own.kind === "workspace") return { workspace: own, series: null };
-  return { workspace: (own.parentId ? collections.get(own.parentId) : undefined) ?? null, series: own };
+/** A collection and what it is in, root first: its brand, then its sub-brand, then itself. */
+function lineage(collections: Map<string, SavedCollection>, collection: SavedCollection | undefined): SavedCollection[] {
+  const chain: SavedCollection[] = [];
+  // PARENT_KINDS only points up, so this ends within its few levels.
+  for (let at = collection; at; at = at.parentId ? collections.get(at.parentId) : undefined) chain.unshift(at);
+  return chain;
+}
+
+/** Root first: the brand, then the sub-brand and the series when there are any. Empty for a project in none. */
+export function collectionChain(collections: Map<string, SavedCollection>, project: SavedProject): SavedCollection[] {
+  return lineage(collections, project.collection ? collections.get(project.collection.id) : undefined);
+}
+
+/** Why a collection of this kind can't go in one of parentKind (null: in nothing); null when it can. */
+export function parentRefusal(kind: CollectionKind, parentKind: CollectionKind | null): string | null {
+  if (PARENT_KINDS[kind].includes(parentKind)) return null;
+  const { lower } = COLLECTION_LABEL[kind];
+  return PARENT_KINDS[kind].includes(null) ? `A ${lower} can't go inside anything.` : `A ${lower} can only go in a ${parentWords(kind)}.`;
 }
 
 /**
- * Workspaces and series: groups above projects, each with its own rules for the agent. A workspace holds series
- * and projects; a series holds projects. One level deep: a series can't hold a series.
+ * Brands, sub-brands and series: groups above projects, each with its own rules for the agent. A brand is a
+ * Linker org; inside it go sub-brands and series as PARENT_KINDS allows, and projects in any of them.
  */
 export function createCollections(host: CollectionsHost) {
   const { store } = host;
@@ -94,13 +114,14 @@ export function createCollections(host: CollectionsHost) {
   for (const collection of store.load()) {
     if (KINDS.includes(collection.kind)) collections.set(collection.id, collection);
   }
-  // A series whose workspace went missing stands on its own rather than disappearing.
+  // One whose parent went missing or can't hold it waits under "Not in a brand" rather than disappearing.
   for (const collection of collections.values()) {
     const parent = collection.parentId ? collections.get(collection.parentId) : undefined;
-    if (collection.parentId && (collection.kind !== "series" || parent?.kind !== "workspace")) collection.parentId = null;
+    if (collection.parentId && (!parent || parentRefusal(collection.kind, parent.kind))) collection.parentId = null;
   }
 
   const label = (collection: SavedCollection) => `${COLLECTION_LABEL[collection.kind].one} "${collection.name}"`;
+  const GONE = `That ${COLLECTION_LABEL.brand.lower}, ${COLLECTION_LABEL.subbrand.lower} or ${COLLECTION_LABEL.series.lower} is gone.`;
 
   /** A collection's part of the brief as agents read it: its rules, its lessons, and where its example notes are. */
   function briefText(collection: SavedCollection): string {
@@ -118,10 +139,9 @@ export function createCollections(host: CollectionsHost) {
       .join("\n\n");
   }
 
-  /** Whether this project's agent makes the first cut without asking. */
+  /** Whether this project's agent makes the first cut without asking: its own choice, else its nearest collection's. */
   function autonomous(project: SavedProject): boolean {
-    const { workspace, series } = collectionChain(collections, project);
-    return project.autonomous ?? (series ?? workspace)?.autonomous === true;
+    return project.autonomous ?? collectionChain(collections, project).at(-1)?.autonomous === true;
   }
 
   function skillsDir(id: string): string | null {
@@ -129,26 +149,38 @@ export function createCollections(host: CollectionsHost) {
     return file && path.join(path.dirname(file), SKILLS_DIR);
   }
 
+  const skillRootsOf = (chain: SavedCollection[]): SkillRoot[] =>
+    chain.flatMap((part) => {
+      const dir = skillsDir(part.id);
+      return dir ? [{ label: label(part), dir }] : [];
+    });
+
   /** Where this project's skills are, most general first. */
-  function skillRoots(project: SavedProject): SkillRoot[] {
-    const { workspace, series } = collectionChain(collections, project);
-    return [
-      ...host.skills,
-      ...[workspace, series].flatMap((part) => {
-        const dir = part && skillsDir(part.id);
-        return dir ? [{ label: label(part), dir }] : [];
-      }),
-    ];
+  const skillRoots = (project: SavedProject): SkillRoot[] => [...host.skills, ...skillRootsOf(collectionChain(collections, project))];
+
+  /** Why nothing new can go in this collection's brand: the person isn't in its Linker org, or isn't signed in. */
+  function closedRefusal(collection: SavedCollection): string | null {
+    const root = lineage(collections, collection)[0]!;
+    const orgs = host.orgs();
+    if (root.kind !== "brand" || orgs?.some((org) => org.id === root.orgId)) return null;
+    return orgs
+      ? `You're not in "${root.name}" on Linker any more, so it takes nothing new.`
+      : `Sign in to Linker to put things in the ${COLLECTION_LABEL.brand.lower} "${root.name}".`;
   }
 
-  /** Why parentId can't hold a collection of this kind; null when it can. */
-  function parentRefusal(kind: CollectionKind, parentId: string | null): string | null {
-    if (parentId === null) return null;
-    if (kind === "workspace") return `A ${COLLECTION_LABEL.workspace.lower} can't go inside another one.`;
-    const parent = collections.get(parentId);
-    if (!parent) return `That ${COLLECTION_LABEL.workspace.lower} is gone.`;
-    if (parent.kind !== "workspace") return `A ${COLLECTION_LABEL.series.lower} can only go in a ${COLLECTION_LABEL.workspace.lower}.`;
-    return null;
+  /** Why a collection of this kind can't go in parentId; null when it can. */
+  function placeRefusal(kind: CollectionKind, parentId: string | null): string | null {
+    const parent = parentId === null ? null : collections.get(parentId);
+    if (parent === undefined) return GONE;
+    return parentRefusal(kind, parent?.kind ?? null) ?? (parent && closedRefusal(parent));
+  }
+
+  /** The collection a project can go in, or why it can't: it's gone, or its brand is closed to the person. */
+  function place(collectionId: string): { collection: SavedCollection } | { refusal: string } {
+    const collection = collections.get(collectionId);
+    if (!collection) return { refusal: GONE };
+    const refusal = closedRefusal(collection);
+    return refusal ? { refusal } : { collection };
   }
 
   function cleanName(name: unknown): string | null {
@@ -167,14 +199,15 @@ export function createCollections(host: CollectionsHost) {
   }
 
   function create(message: Extract<CollectionMessage, { type: "create_collection" }>): string | null {
-    if (!KINDS.includes(message.kind)) return "Pick a workspace or a series.";
+    if (message.kind === "brand") return `${COLLECTION_LABEL.brand.many} are your Linker orgs: make one in Linker and it shows up here.`;
+    if (!KINDS.includes(message.kind)) return `Pick a ${COLLECTION_LABEL.subbrand.lower} or a ${COLLECTION_LABEL.series.lower}.`;
     const name = cleanName(message.name);
     if (!name) return "Give it a name.";
-    const parentId = message.kind === "series" ? (message.parentId ?? null) : null;
-    const refusal = parentRefusal(message.kind, parentId);
+    const parentId = message.parentId ?? null;
+    const refusal = placeRefusal(message.kind, parentId);
     if (refusal) return refusal;
     const icon = isCollectionIcon(message.icon) ? message.icon : defaultIcon(name);
-    const collection = store.create({ kind: message.kind, name, parentId, icon, rules: "" });
+    const collection = store.create({ kind: message.kind, name, parentId, orgId: null, icon, rules: "" });
     collections.set(collection.id, collection);
     return null;
   }
@@ -184,6 +217,7 @@ export function createCollections(host: CollectionsHost) {
     if (!current) return null;
     const next = { ...current };
     if (message.name !== undefined) {
+      if (current.kind === "brand") return `A ${COLLECTION_LABEL.brand.lower}'s name comes from Linker. Change it there.`;
       const name = cleanName(message.name);
       if (!name) return "Give it a name.";
       next.name = name;
@@ -197,8 +231,8 @@ export function createCollections(host: CollectionsHost) {
       if (message.rules.length > MAX_RULES) return `Rules can be up to ${MAX_RULES.toLocaleString("en-US")} characters.`;
       next.rules = message.rules;
     }
-    if (message.parentId !== undefined) {
-      const refusal = parentRefusal(next.kind, message.parentId);
+    if (message.parentId !== undefined && message.parentId !== current.parentId) {
+      const refusal = placeRefusal(next.kind, message.parentId);
       if (refusal) return refusal;
       next.parentId = message.parentId;
     }
@@ -212,17 +246,19 @@ export function createCollections(host: CollectionsHost) {
   function remove(id: string): string | null {
     const collection = collections.get(id);
     if (!collection) return null;
-    const series = [...collections.values()].filter((other) => other.parentId === id).length;
+    if (collection.kind === "brand") return `${label(collection)} is a Linker org, so it stays.`;
+    const inside = [...collections.values()].filter((other) => other.parentId === id);
     const inIt = host.projects().filter((project) => project.collection?.id === id);
     const projects = inIt.filter((project) => !project.setup).length;
-    if (series || projects) {
+    if (inside.length || projects) {
       const what = [
-        series ? `${series} ${series === 1 ? COLLECTION_LABEL.series.lower : COLLECTION_LABEL.series.lowerMany}` : "",
-        projects ? `${projects} project${projects === 1 ? "" : "s"}` : "",
-      ]
-        .filter(Boolean)
-        .join(" and ");
-      return `${label(collection)} still has ${what} in it. Move ${series + projects === 1 ? "it" : "them"} out first.`;
+        ...KINDS.flatMap((kind) => {
+          const count = inside.filter((other) => other.kind === kind).length;
+          return count ? [`${count} ${count === 1 ? COLLECTION_LABEL[kind].lower : COLLECTION_LABEL[kind].lowerMany}`] : [];
+        }),
+        ...(projects ? [`${projects} project${projects === 1 ? "" : "s"}`] : []),
+      ].join(" and ");
+      return `${label(collection)} still has ${what} in it. Move ${inside.length + projects === 1 ? "it" : "them"} out first.`;
     }
     collections.delete(id);
     store.remove(id);
@@ -231,29 +267,42 @@ export function createCollections(host: CollectionsHost) {
     return null;
   }
 
-  /** The collection a brief tool writes to: the project's workspace or series, or a series of its workspace by name. */
+  /**
+   * The collection a brief tool writes to: one of the project's chain by kind (the nearest by default), or a
+   * series by name next to the project's own, made by save_brief when there is none.
+   */
   function target(project: SavedProject, input: Record<string, unknown>): { collection: SavedCollection } | { create: string; parentId: string } | { error: string } {
-    const { workspace, series } = collectionChain(collections, project);
-    const where = input.for === "workspace" || input.for === "series" ? input.for : series ? "series" : "workspace";
-    if (!workspace && !series) {
-      return { error: `This project isn't in a ${COLLECTION_LABEL.workspace.lower} or ${COLLECTION_LABEL.series.lower}, so it has no brief. The user puts it in one in the project's settings.` };
+    const chain = collectionChain(collections, project);
+    const nearest = chain.at(-1);
+    if (!nearest) {
+      return {
+        error: `This project isn't in a ${COLLECTION_LABEL.brand.lower}, ${COLLECTION_LABEL.subbrand.lower} or ${COLLECTION_LABEL.series.lower}, so it has no brief. The user puts it in one in the project's settings.`,
+      };
     }
-    if (where === "workspace") {
-      return workspace ? { collection: workspace } : { error: `This project's ${COLLECTION_LABEL.series.lower} isn't in a ${COLLECTION_LABEL.workspace.lower}. Pass for: "series".` };
+    const kind = KINDS.find((candidate) => candidate === input.for) ?? nearest.kind;
+    const own = chain.find((part) => part.kind === kind);
+    if (kind !== "series") {
+      return own ? { collection: own } : { error: `This project isn't in a ${COLLECTION_LABEL[kind].lower}. Pass for: "${nearest.kind}".` };
     }
     const name = cleanName(input.series);
-    if (!name) return series ? { collection: series } : { error: `Name the ${COLLECTION_LABEL.series.lower} in series.` };
-    if (series && series.name.toLowerCase() === name.toLowerCase()) return { collection: series };
-    if (!workspace) return { error: `This project's ${COLLECTION_LABEL.series.lower} isn't in a ${COLLECTION_LABEL.workspace.lower}, so it can only change its own.` };
+    if (!name) return own ? { collection: own } : { error: `Name the ${COLLECTION_LABEL.series.lower} in series.` };
+    if (own && own.name.toLowerCase() === name.toLowerCase()) return { collection: own };
+    // Another series goes next to the project's own, in its brand or sub-brand.
+    const home = chain.findLast((part) => part.kind !== "series");
+    if (!home) {
+      return { error: `This project's ${COLLECTION_LABEL.series.lower} isn't in a ${parentWords("series")}, so it can only change its own.` };
+    }
     const found = [...collections.values()].find(
-      (candidate) => candidate.kind === "series" && candidate.parentId === workspace.id && candidate.name.toLowerCase() === name.toLowerCase(),
+      (candidate) => candidate.kind === "series" && candidate.parentId === home.id && candidate.name.toLowerCase() === name.toLowerCase(),
     );
-    return found ? { collection: found } : { create: name, parentId: workspace.id };
+    if (found) return { collection: found };
+    const closed = closedRefusal(home);
+    return closed ? { error: closed } : { create: name, parentId: home.id };
   }
 
   function saveRules(found: { collection: SavedCollection } | { create: string; parentId: string }, rules: string): SavedCollection {
     if ("create" in found) {
-      const created = store.create({ kind: "series", name: found.create, parentId: found.parentId, icon: defaultIcon(found.create), rules });
+      const created = store.create({ kind: "series", name: found.create, parentId: found.parentId, orgId: null, icon: defaultIcon(found.create), rules });
       collections.set(created.id, created);
       return created;
     }
@@ -280,18 +329,19 @@ export function createCollections(host: CollectionsHost) {
       if (project.collection) host.setCollection(projectId, null, `Take the project out of "${project.collection.name}"`);
       return null;
     }
-    const collection = collections.get(collectionId);
-    if (!collection) return `That ${COLLECTION_LABEL.workspace.lower} or ${COLLECTION_LABEL.series.lower} is gone.`;
-    if (project.collection?.id !== collection.id) {
-      host.setCollection(projectId, { id: collection.id, name: collection.name }, `Put the project in ${label(collection)}`);
-    }
+    if (project.collection?.id === collectionId) return null;
+    const placed = place(collectionId);
+    if ("refusal" in placed) return placed.refusal;
+    const { collection } = placed;
+    host.setCollection(projectId, { id: collection.id, name: collection.name }, `Put the project in ${label(collection)}`);
     return null;
   }
 
   return {
-    /** Workspaces first, then series, each in the order they were made. */
+    /** Brands first, then sub-brands, then series, each in the order they were made. */
     summaries(): CollectionSummary[] {
       const projects = host.projects();
+      const orgs = host.orgs();
       return [...collections.values()]
         .sort((a, b) => KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind))
         .map((collection) => ({
@@ -299,6 +349,7 @@ export function createCollections(host: CollectionsHost) {
           kind: collection.kind,
           name: collection.name,
           parentId: collection.parentId,
+          org: collection.orgId === null ? null : orgSummary(collection.orgId, orgs),
           icon: collection.icon,
           rules: collection.rules,
           rulesFile: store.rulesFile(collection.id) ?? "",
@@ -317,29 +368,46 @@ export function createCollections(host: CollectionsHost) {
 
     get: (id: string): SavedCollection | undefined => collections.get(id),
 
+    /** The project's brand, sub-brand and series, root first. */
+    chain: (project: SavedProject): SavedCollection[] => collectionChain(collections, project),
+
+    place,
+
+    /** Makes a brand for each Linker org that has none yet, and follows a rename in Linker. A brand is never deleted here. */
+    syncBrands() {
+      let changed = false;
+      for (const org of host.orgs() ?? []) {
+        const name = cleanName(org.name) ?? "Linker org";
+        const brand = [...collections.values()].find((collection) => collection.kind === "brand" && collection.orgId === org.id);
+        if (!brand) {
+          const made = store.create({ kind: "brand", name, parentId: null, orgId: org.id, icon: defaultIcon(name), rules: "" });
+          collections.set(made.id, made);
+        } else if (brand.name !== name) {
+          const renamed = { ...brand, name };
+          collections.set(renamed.id, renamed);
+          store.save(renamed);
+          renameInProjects(renamed);
+        } else continue;
+        changed = true;
+      }
+      if (changed) host.changed();
+    },
+
     /**
-     * The agent's rules for this project: the editing rules, then its workspace's, its series' and its own, each
-     * with the lessons learned there. A setup thread gets the setup assistant's rules instead.
+     * The agent's rules for this project: the editing rules, then those of its brand, sub-brand, series and its
+     * own, each with the lessons learned there. A setup thread gets the setup assistant's rules instead.
      */
     rulesFor(project: SavedProject): string {
-      const { workspace, series } = collectionChain(collections, project);
-      if (project.setup) {
-        const subject = series ?? workspace;
-        if (subject) {
-          const parts = subject.kind === "workspace" ? [subject, ...[...collections.values()].filter((other) => other.parentId === subject.id)] : [workspace, subject];
-          const state = parts
-            .flatMap((part) => (part ? [`## ${label(part)}\n\n${briefText(part) || "Nothing yet."}`] : []))
-            .join("\n\n");
-          return setupRules(label(subject), state);
-        }
+      const chain = collectionChain(collections, project);
+      const nearest = chain.at(-1);
+      if (project.setup && nearest) {
+        const parts = [...chain, ...[...collections.values()].filter((other) => other.parentId === nearest.id)];
+        const state = parts.map((part) => `## ${label(part)}\n\n${briefText(part) || "Nothing yet."}`).join("\n\n");
+        return setupRules(label(nearest), state);
       }
-      const sources: RuleSource[] = [];
       // Like a repository inside folders with instructions of their own: each heading names the file it is from.
-      for (const part of [workspace, series]) {
-        if (part) sources.push({ heading: `${label(part)} (${store.rulesFile(part.id) ?? RULES_FILE})`, text: briefText(part) });
-      }
+      const sources: RuleSource[] = chain.map((part) => ({ heading: `${label(part)} (${store.rulesFile(part.id) ?? RULES_FILE})`, text: briefText(part) }));
       sources.push({ heading: `This project (${PROJECT_NOTES_FILE} in the working folder)`, text: readProjectNotes(project.dir) });
-      const nearest = series ?? workspace;
       const skills = skillsSection(listSkills(skillRoots(project)));
       return agentRules(sources, [PROJECT_RULES, ...(autonomous(project) ? [AUTONOMOUS_RULES] : []), ...(nearest ? [LEARNING_RULES] : []), ...(skills ? [skills] : [])]);
     },
@@ -348,7 +416,7 @@ export function createCollections(host: CollectionsHost) {
 
     autonomous,
 
-    /** save_brief: new rules for the project's workspace or a series, shown to the user as a change. */
+    /** save_brief: new rules for one of the project's collections or a series, shown to the user as a change. */
     proposeBrief(project: SavedProject, input: Record<string, unknown>): BriefProposal | { error: string } {
       const found = target(project, input);
       if ("error" in found) return found;
@@ -370,14 +438,14 @@ export function createCollections(host: CollectionsHost) {
     proposeLesson(project: SavedProject, input: Record<string, unknown>, projectName: string): BriefProposal | { error: string } {
       const found = target(project, input);
       if ("error" in found) return found;
-      if ("create" in found) return { error: `There is no ${COLLECTION_LABEL.series.lower} "${found.create}" in this ${COLLECTION_LABEL.workspace.lower}.` };
+      if ("create" in found) return { error: `There is no ${COLLECTION_LABEL.series.lower} "${found.create}" next to this project's.` };
       const rule = text(input.rule);
       const feedback = text(input.feedback);
       if (!rule || !feedback) return { error: "Pass the rule, and the user's own words it comes from in feedback." };
       if (rule.length > MAX_LESSON) return { error: `A lesson is one short rule, up to ${MAX_LESSON} characters. For more, change the rules with save_brief.` };
       const { collection } = found;
       if (collection.lessons.length >= MAX_LESSONS) {
-        return { error: `${label(collection)} has ${MAX_LESSONS} lessons already. Fold them into its rules with save_brief; the user removes lessons in Settings.` };
+        return { error: `${label(collection)} has ${MAX_LESSONS} lessons already. Fold them into its rules with save_brief; the user removes lessons on the Brands page.` };
       }
       return {
         shows: { for: label(collection), feedback: feedback.slice(0, MAX_FEEDBACK), rule },
@@ -407,15 +475,14 @@ export function createCollections(host: CollectionsHost) {
 
     /** An AI timeline of this project became its main one, after this many rounds of feedback. */
     recordEdit(project: SavedProject, projectName: string, rounds: number) {
-      const { workspace, series } = collectionChain(collections, project);
-      const nearest = series ?? workspace;
+      const nearest = collectionChain(collections, project).at(-1);
       if (!nearest) return;
       const edit = { at: new Date().toISOString(), project: projectName, rounds };
       change(nearest.id, (current) => ({ ...current, edits: [edit, ...current.edits].slice(0, MAX_EDITS) }));
       host.changed();
     },
 
-    /** Handles the workspace and series messages; others are left alone. Returns why it was refused, if it was. */
+    /** Handles the brand, sub-brand and series messages; others are left alone. Returns why it was refused, if it was. */
     handle(message: ClientMessage): string | null {
       if (!isMessage(message)) return null;
       let refusal: string | null = null;
@@ -441,8 +508,8 @@ export function createCollections(host: CollectionsHost) {
         case "save_skill": {
           const own = collections.get(message.id);
           const dir = own && skillsDir(own.id);
-          const parent = own?.parentId ? skillsDir(own.parentId) : null;
-          if (dir) refusal = saveSkill(dir, message, listSkills([...host.skills, ...(parent ? [{ label: "", dir: parent }] : [])]));
+          // A skill of the same name as one above it adds to that one.
+          if (dir) refusal = saveSkill(dir, message, listSkills([...host.skills, ...skillRootsOf(lineage(collections, own).slice(0, -1))]));
           break;
         }
         case "remove_skill": {
@@ -455,6 +522,12 @@ export function createCollections(host: CollectionsHost) {
       return refusal;
     },
   };
+}
+
+/** A brand's org as clients see it: its picture, and whether Linker last listed the person in it. */
+function orgSummary(orgId: string, orgs: LinkerOrg[] | null): CollectionSummary["org"] {
+  const org = orgs?.find((candidate) => candidate.id === orgId);
+  return { id: orgId, imageUrl: org?.imageUrl ?? null, member: !!org };
 }
 
 export type Collections = ReturnType<typeof createCollections>;

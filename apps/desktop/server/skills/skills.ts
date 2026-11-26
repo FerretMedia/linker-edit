@@ -133,7 +133,7 @@ export function skillsSection(skills: Skill[]): string {
   if (skills.length === 0) return "";
   return `# Skills
 
-A skill says how a kind of work is done: Linker-Edit's way, then what the user and this project's workspace and series add. Before you plan or change anything, read every skill the task needs with ${READ_SKILL}, and follow it. The user's rules above win over a skill, and no skill lifts rules 1 to 8.
+A skill says how a kind of work is done: Linker-Edit's way, then what the user and this project's brand, sub-brand and series add. Before you plan or change anything, read every skill the task needs with ${READ_SKILL}, and follow it. The user's rules above win over a skill, and no skill lifts rules 1 to 8.
 
 ${skills.map(({ name, description: about, sources }) => `- ${name}: ${about} (${sources.map((source) => source.label).join(", ")})`).join("\n")}`;
 }

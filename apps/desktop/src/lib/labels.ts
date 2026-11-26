@@ -1,4 +1,4 @@
-import type { ClipChange, CollectionKind, Provider, ResolveLink } from "#shared/protocol.ts";
+import { PARENT_KINDS, type ClipChange, type CollectionKind, type Provider, type ResolveLink } from "#shared/protocol.ts";
 
 // Resolve's own MCP server, and Linker-Edit's, whose tools work in Resolve except the ones named here.
 const RESOLVE_PREFIX = "mcp__resolve__";
@@ -10,7 +10,7 @@ export const PROVIDER_LABEL: Record<Provider, string> = { claude: "Claude", code
 export const isResolveTool = (name: string) =>
   name.startsWith(RESOLVE_PREFIX) || (name.startsWith(LINKER_PREFIX) && !NOT_RESOLVE.has(name.slice(LINKER_PREFIX.length)));
 
-/** A change to a workspace's or series' brief that an agent proposes; the user accepts or declines it. */
+/** A change to a brand's, sub-brand's or series' brief that an agent proposes; the user accepts or declines it. */
 export type BriefRequest =
   | { kind: "rules"; for: string; summary: string; was: string; rules: string }
   | { kind: "lesson"; for: string; feedback: string; rule: string };
@@ -123,15 +123,30 @@ export const LIBRARY_LABEL: Record<ResolveLink["kind"], string> = {
 };
 
 /**
- * What workspaces and series are called, in the app and in the agent's rules. Renaming them is a change here.
- * In code they are collections.
+ * What brands, sub-brands and series are called, in the app and in the agent's rules. Renaming them is a change
+ * here. In code they are collections.
  */
 export const COLLECTION_LABEL: Record<CollectionKind, { one: string; many: string; lower: string; lowerMany: string }> = {
-  workspace: { one: "Workspace", many: "Workspaces", lower: "workspace", lowerMany: "workspaces" },
+  brand: { one: "Brand", many: "Brands", lower: "brand", lowerMany: "brands" },
+  subbrand: { one: "Sub-brand", many: "Sub-brands", lower: "sub-brand", lowerMany: "sub-brands" },
   series: { one: "Series", many: "Series", lower: "series", lowerMany: "series" },
 };
 
-/** The settings section and the project settings field for them. */
-export const COLLECTIONS_TITLE = `${COLLECTION_LABEL.workspace.many} & ${COLLECTION_LABEL.series.lowerMany}`;
-export const COLLECTION_PICKER_LABEL = `${COLLECTION_LABEL.workspace.one} / ${COLLECTION_LABEL.series.lower}`;
-export const NO_COLLECTION = `No ${COLLECTION_LABEL.workspace.lower}`;
+/** The words for a kind; an older computer still says "workspace", which is a sub-brand now. */
+export const collectionLabel = (kind: CollectionKind) => COLLECTION_LABEL[kind] ?? COLLECTION_LABEL.subbrand;
+
+/** "brand or sub-brand": the kinds a collection of this kind can go in, in words. */
+export const parentWords = (kind: CollectionKind) =>
+  PARENT_KINDS[kind].flatMap((parent) => (parent ? [COLLECTION_LABEL[parent].lower] : [])).join(" or ");
+
+/** "sub-brands and series": what can go in a collection of this kind, in words; empty when nothing can. */
+export const childWords = (kind: CollectionKind) =>
+  (Object.keys(PARENT_KINDS) as CollectionKind[])
+    .filter((child) => PARENT_KINDS[child].includes(kind))
+    .map((child) => COLLECTION_LABEL[child].lowerMany)
+    .join(" and ");
+
+/** The project settings field for them, and where sub-brands and series from before brands are listed. */
+export const COLLECTION_PICKER_LABEL = `${COLLECTION_LABEL.brand.one}, ${COLLECTION_LABEL.subbrand.lower} or ${COLLECTION_LABEL.series.lower}`;
+export const NO_COLLECTION = `No ${COLLECTION_LABEL.brand.lower}`;
+export const NOT_IN_A_BRAND = `Not in a ${COLLECTION_LABEL.brand.lower}`;
