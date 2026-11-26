@@ -14,6 +14,7 @@ import type { Sessions } from "./connect/sessions.ts";
 import type { WebOrigins } from "./connect/webOrigins.ts";
 import { createMachines } from "./machines.ts";
 import { probeLinkerEdit, requestSource, type Probe, type RemoteGate } from "./remote.ts";
+import { parseUsageProviders, parseUsageWindow } from "./usage/summary.ts";
 
 const MIME: Record<string, string> = {
   ".html": "text/html",
@@ -545,6 +546,15 @@ export function createServer(
         .playableTimeline(query.get("project") || null, query.get("id") || null, query.get("commit") || null)
         .then((timeline) => (timeline ? json(200, timeline) : json(404, { error: "That timeline isn't in Resolve or in that save." })))
         .catch((error: unknown) => json(500, { error: error instanceof Error ? error.message : String(error) }));
+      return;
+    }
+    if (urlPath === "/api/usage" || urlPath === "/api/usage/limits") {
+      const usage = app.usage;
+      const window = urlPath === "/api/usage" ? parseUsageWindow(query) : null;
+      if (!usage) json(404, { error: "Usage isn't available here." });
+      else if (urlPath === "/api/usage/limits") usage.limits().then((limits) => json(200, limits), (error: unknown) => json(500, { error: String(error) }));
+      else if (!window) json(400, { error: "Ask for since and until days, or from and to times." });
+      else usage.read(window, parseUsageProviders(query)).then((report) => json(200, report), (error: unknown) => json(500, { error: String(error) }));
       return;
     }
     if (urlPath.startsWith("/media/")) {

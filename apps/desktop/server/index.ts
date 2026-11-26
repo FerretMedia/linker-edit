@@ -32,6 +32,7 @@ import { createStudy } from "./study/study.ts";
 import { findFfmpeg, prepareTools, toolsReady } from "./transcribe/tools.ts";
 import { createTranscriber } from "./transcribe/transcriber.ts";
 import { isNewer, latestVersion, VERSION } from "./updates.ts";
+import { createUsage } from "./usage/summary.ts";
 
 const config = loadConfigOrExit();
 
@@ -124,6 +125,7 @@ const app = createApp({
   },
   appUpdates,
   library: createLibrary({ store: fileLibraryStore(config.libraryFile), cacheDir: config.libraryCacheDir, probe: ffmpegProbe(findFfmpeg) }),
+  usage: createUsage({ ratesFile: path.join(path.dirname(config.libraryCacheDir), "usage-model-rates.json"), version: VERSION }),
 });
 
 export const url = `http://127.0.0.1:${config.port}`;

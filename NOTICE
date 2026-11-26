@@ -11,7 +11,12 @@ sidebar/SidebarProjectFolderHeader.tsx, sidebar/SidebarListMarkers.tsx,
 ui/collapsible-section-header.tsx, ProjectFavicon.tsx, ProjectMonogram.tsx,
 settings/ProjectIconPickerDialog.tsx, projectIconColors.ts, projectIdentity.ts and
 projectIconOptions.ts, and packages/client-runtime/src/state/threadSort.ts,
-threadSettled.ts and threadInbox.ts:
+threadSettled.ts and threadInbox.ts. The usage page (src/lib/components/usage/, src/lib/usage.ts,
+shared/usage.ts and server/usage/) is ported from T3 Code's apps/web/src/components/usage/,
+packages/shared/src/usageFormat.ts, usageMerge.ts, usageLimits.ts and usageLimitsCopy.ts,
+apps/server/src/usage/usagePricing.ts, usageAggregation.ts and usageTranscriptReader.ts, and
+apps/server/src/provider/Drivers/claudeUsage.ts, codexUsage.ts, claudeUsageLimits.ts and
+codexUsageLimits.ts:
 
   MIT License
 

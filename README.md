@@ -227,6 +227,17 @@ Everything said and every Resolve result stays in the agent's context for the re
 
 Codex has no context meter or compaction here: its SDK doesn't report how full the context is or run `/compact`.
 
+## Usage
+
+**Usage** (the chart icon at the bottom of the sidebar, or Ctrl+U / ⌘U) shows what Claude Code and Codex used on the computer of the thread you have open, as in T3 Code. It counts every session of theirs on that computer, Linker-Edit's own chats and any you ran elsewhere, from the transcripts they keep in `~/.claude/projects` and `~/.codex/sessions` (or `CLAUDE_CONFIG_DIR` and `CODEX_HOME`).
+
+- **Cost** and **Tokens** show the past 24 hours or 7, 30 or 90 days: the total, each agent's share, a chart per day or hour, the token mix and a table by model or by day. Cost is what the same tokens would cost on the API, from [LiteLLM's public price list](https://github.com/BerriAI/litellm), not your subscription bill. A model the list doesn't know shows as **Unpriced**.
+- **Limits** shows how much of your Claude and ChatGPT plan's session and weekly allowance is left, and when it resets. The line in each bar is where even spending would be. Reading them sends no prompt, so it costs nothing; an API key has no limits to show.
+- **The filter** after the computer's name hides Claude or Codex.
+- **Keys** on the page: C, T and L switch between Cost, Tokens and Limits, Ctrl+Shift+1 to 4 (⌘⇧1 to 4) pick the period, and Esc closes it.
+
+Unlike T3 Code, it covers one computer at a time, and there's no per-model detail or custom price list.
+
 ## Preview
 
 **Preview** in the top right plays a timeline beside the chat, in two ways:
@@ -397,4 +408,4 @@ For anything larger, please open an issue before writing the code, so we can agr
 
 ## Credits
 
-MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio decoding by [FFmpeg](https://ffmpeg.org) through `ffmpeg-static` (GPL), both run as separate programs. Linker-Edit drives Resolve through the MCP server Blackmagic Design ships with DaVinci Resolve Studio; it starts your installed copy and doesn't distribute it. The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens and provider icons are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.
+MIT licensed. Speech to text by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT) with OpenAI's Whisper model, and audio decoding by [FFmpeg](https://ffmpeg.org) through `ffmpeg-static` (GPL), both run as separate programs. Linker-Edit drives Resolve through the MCP server Blackmagic Design ships with DaVinci Resolve Studio; it starts your installed copy and doesn't distribute it. The edit history format follows [Vit](https://github.com/LucasHJin/vit). The interface is modelled on [T3 Code](https://github.com/pingdotgg/t3code); its theme tokens, provider icons and usage page are adapted from T3 Code, MIT licensed, Copyright (c) 2026 T3 Tools Inc. Built with SvelteKit. DaVinci Resolve is a trademark of Blackmagic Design; Linker-Edit is not affiliated with Blackmagic Design.

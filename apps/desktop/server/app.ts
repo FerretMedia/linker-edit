@@ -57,6 +57,7 @@ import { readOrigins, type Applied } from "./resolve/versions.ts";
 import { LINKER_MCP_NAME, PROJECT_NOTES_FILE, readProjectFile, writeProjectFile } from "./rules.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
+import type { UsageService } from "./usage/summary.ts";
 
 export interface AppOptions {
   version: string;
@@ -114,6 +115,8 @@ export interface AppOptions {
   library?: LibraryService;
   /** Measures example videos and compares a cut with its raw footage, for the agents' study tools. */
   study?: StudyService;
+  /** Token usage and subscription limits of this computer's Claude Code and Codex, for the usage page. */
+  usage?: UsageService;
 }
 
 /** Starts the chat line that marks an approved edit; feedback rounds are counted from the last one. */
@@ -1683,6 +1686,7 @@ export function createApp(options: AppOptions) {
       return null;
     },
     previewFile: (name: string) => options.preview?.file(name) ?? null,
+    usage: options.usage ?? null,
     playableTimeline: async (projectId: string | null, id: string | null, commit: string | null) => {
       const project = projectId ? projects.get(projectId) : undefined;
       if (!project?.history) throw new Error("This project has no edit history, so there is nothing to play.");
