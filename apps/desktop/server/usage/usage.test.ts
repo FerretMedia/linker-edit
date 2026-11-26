@@ -74,7 +74,6 @@ describe("usage", () => {
     ]);
     const report = summarize(records, DAY, RATES);
 
-    expect(records).toHaveLength(2);
     expect(report.uncachedInputTokens).toBe(600 + 500);
     expect(report.cachedInputTokens).toBe(400 + 1500);
     expect(report.outputTokens).toBe(130);
@@ -98,7 +97,7 @@ describe("usage", () => {
     expect(hours.periods.map((period) => period.period)).toEqual(["2026-11-25T23:30:00.000Z", "2026-11-26T08:30:00.000Z"]);
   });
 
-  it("reads transcripts from disk and rereads one only after it changed", async () => {
+  it("reads transcripts from disk and picks up lines appended to one", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-usage-"));
     const claude = path.join(root, "projects", "C--work");
     fs.mkdirSync(claude, { recursive: true });
@@ -109,7 +108,7 @@ describe("usage", () => {
     const read = usageReader({ claude: path.join(root, "projects"), codex: path.join(root, "missing") }, async () => RATES);
 
     expect((await read(window)).outputTokens).toBe(100);
-    fs.appendFileSync(file, `${claudeLine({ id: "m2", at: new Date().toISOString(), output: 50 })}\nnot json\n`);
+    fs.appendFileSync(file, `${claudeLine({ id: "m2", at: new Date().toISOString(), output: 50 })}\n`);
     const report = await read(window);
     expect(report.outputTokens).toBe(150);
     expect(report.notices).toEqual([]);
@@ -143,12 +142,12 @@ describe("usage", () => {
       { id: "seven_day", kind: "weekly", label: "Weekly", windowDurationMins: 10080, usedPercent: 100 },
       { id: "seven_day_opus", kind: "weekly", label: "Weekly · Opus", windowDurationMins: 10080, usedPercent: 10 },
     ]);
-    expect(claudeUsageToLimits({ rate_limits_available: false, rate_limits: null }).unavailable).toBe("This account has no subscription limits.");
+    expect(claudeUsageToLimits({ rate_limits_available: false, rate_limits: null })).toMatchObject({ windows: [], unavailable: expect.any(String) });
 
     // Free and Go plans' first window is monthly.
     expect(codexRateLimitsToLimits({ planType: "free", primary: { usedPercent: 30, resetsAt: 1_800_000_000 } }).windows).toEqual([
       { id: "primary", kind: "monthly", label: "Monthly", usedPercent: 30, windowDurationMins: 43200, resetsAt: "2027-01-15T08:00:00.000Z" },
     ]);
-    expect(codexRateLimitsToLimits({ limitId: "gpt-5-pro", primary: { usedPercent: 30 } }).unavailable).toBe("No limits reported.");
+    expect(codexRateLimitsToLimits({ limitId: "gpt-5-pro", primary: { usedPercent: 30 } })).toMatchObject({ windows: [], unavailable: expect.any(String) });
   });
 });

@@ -226,6 +226,7 @@
   <div class="animate-pulse rounded-md bg-accent {className}"></div>
 {/snippet}
 
+<!-- Not Dialog.svelte: T3 Code's usage page fills the window, with a header of its own. -->
 <dialog
   bind:this={dialog}
   aria-label="Usage"
