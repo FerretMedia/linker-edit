@@ -9,6 +9,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { PROTOCOL_VERSION, type ClientMessage, type Computer, type Hello, type LinkedComputer } from "../shared/protocol.ts";
 import type { App } from "./app.ts";
 import type { LinkerService } from "./linker.ts";
+import type { GoogleAuth } from "./drive/auth.ts";
 import type { ConnectService } from "./connect/connect.ts";
 import type { Sessions } from "./connect/sessions.ts";
 import type { WebOrigins } from "./connect/webOrigins.ts";
@@ -177,6 +178,9 @@ const noRemote: RemoteRoutes = { gate: () => null, computers: async () => [] };
 /** Signing in with Linker in the browser; see server/linker.ts. */
 export type LinkerRoutes = Pick<LinkerService, "start" | "finish">;
 
+/** Signing in to Google Drive in the browser; see server/drive/auth.ts. */
+export type GoogleRoutes = Pick<GoogleAuth, "start">;
+
 /** Linker Connect (server/connect/connect.ts): this computer's tunnel, and opening your other computers. */
 export type ConnectRoutes = Pick<ConnectService, "host" | "admit" | "redeem" | "open" | "others" | "sessionOn"> & {
   sessions: Pick<Sessions, "enter" | "check" | "onRevoke" | "ticket" | "checkTicket">;
@@ -272,6 +276,7 @@ export function createServer(
   remote: RemoteRoutes = noRemote,
   linker?: LinkerRoutes,
   connect?: ConnectRoutes,
+  google?: GoogleRoutes,
 ): http.Server {
   const gate = remote.gate;
   const connectHost = () => connect?.host() ?? null;
@@ -503,6 +508,20 @@ export function createServer(
           .finish(query)
           .then((name) => page(200, `Signed in as ${name}`, "You're signed in to Linker. Close this tab and go back to Linker-Edit."))
           .catch((error: unknown) => page(400, "Not signed in", error instanceof Error ? error.message : String(error)));
+      }
+      return;
+    }
+    if (urlPath === "/api/google/sign-in") {
+      if (!google) {
+        page(404, "Google Drive isn't set up", "This build of Linker-Edit can't sign in to Google.");
+      } else if (source !== "local") {
+        // Google sends the browser back to 127.0.0.1, which is only this computer.
+        page(403, "Sign in on the computer itself", "Google can only sign in on the computer Linker-Edit runs on.");
+      } else {
+        google
+          .start()
+          .then((location) => res.writeHead(302, { location, "cache-control": "no-store", "referrer-policy": "no-referrer" }).end())
+          .catch((error: unknown) => page(502, "Couldn't start signing in", error instanceof Error ? error.message : String(error)));
       }
       return;
     }

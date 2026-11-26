@@ -5,7 +5,7 @@ export const SETTINGS_SECTIONS = [
   { id: "resolve", label: "Resolve" },
   { id: "transcription", label: "Transcription" },
   { id: "remote", label: "Remote access" },
-  { id: "account", label: "Linker account" },
+  { id: "account", label: "Accounts" },
   { id: "about", label: "About & updates" },
 ] as const;
 

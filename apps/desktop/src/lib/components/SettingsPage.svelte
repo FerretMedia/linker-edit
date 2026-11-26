@@ -65,9 +65,10 @@
 
   // Its remote access and Linker account settings below talk to it too.
   provideHost(() => host);
-  // Linker sends the browser back to 127.0.0.1, so signing in only works on the computer Linker-Edit runs on.
+  // Linker and Google send the browser back to 127.0.0.1, so signing in only works on the computer Linker-Edit runs on.
   const onThisComputer = $derived(host.local);
   const SIGN_IN = $derived(host.url("/api/linker/sign-in"));
+  const GOOGLE_SIGN_IN = $derived(host.url("/api/google/sign-in"));
 
   let theme = $state<Theme>(loadTheme());
   function pickTheme(next: Theme) {
@@ -515,6 +516,44 @@
               </SettingsRow>
             {/if}
           </SettingsGroup>
+
+          {#if app.googleDrive}
+            {@const drive = app.googleDrive}
+            <SettingsGroup title="Google Drive" description="Where Linker-Edit will keep your projects for all your computers. It sees only the files it makes and the ones you pick.">
+              {#if drive.state === "not_set_up"}
+                <SettingsRow label="Not set up in this build" description="This Linker-Edit has no Google sign-in yet, so it can't use Google Drive." />
+              {:else if drive.state === "signed_in"}
+                <SettingsRow label={drive.email} description={drive.name ? `Signed in as ${drive.name}.` : "Signed in."}>
+                  <button type="button" class="{button} flex items-center gap-1.5 text-destructive" onclick={() => send({ type: "google_sign_out" })}>
+                    <LogOut class="size-3.5" />
+                    Sign out
+                  </button>
+                </SettingsRow>
+              {:else if drive.state === "signing_in"}
+                <SettingsRow label="Finish signing in in your browser" description="Linker-Edit is waiting for Google to send you back.">
+                  <a class={button + " flex items-center"} href={GOOGLE_SIGN_IN} target="_blank" rel="noreferrer">Open it again</a>
+                  <button type="button" class={button} onclick={() => send({ type: "google_cancel_sign_in" })}>Cancel</button>
+                </SettingsRow>
+              {:else}
+                <SettingsRow
+                  label="Not signed in"
+                  description={onThisComputer ? "Signing in opens Google in your browser." : `Sign in on ${app.computer} itself: Google sends your browser back to it.`}
+                >
+                  {#snippet detail()}
+                    {#if drive.problem}
+                      <p class="mt-1 text-xs text-destructive">{drive.problem}</p>
+                    {/if}
+                  {/snippet}
+                  {#if onThisComputer}
+                    <a class="{primaryButton} flex items-center gap-1.5" href={GOOGLE_SIGN_IN} target="_blank" rel="noreferrer">
+                      <LogIn class="size-3.5" />
+                      Sign in
+                    </a>
+                  {/if}
+                </SettingsRow>
+              {/if}
+            </SettingsGroup>
+          {/if}
         {:else if section === "about"}
           <SettingsGroup title="Linker-Edit">
             <SettingsRow label="Version {releaseName(app.version)}">

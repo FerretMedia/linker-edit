@@ -40,6 +40,7 @@ import { libraryFile } from "./library/serve.ts";
 import { sortFolder } from "./library/sort.ts";
 import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromInput } from "./library/tools.ts";
 import type { LinkerService } from "./linker.ts";
+import type { GoogleAuth } from "./drive/auth.ts";
 import type { ConnectService } from "./connect/connect.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
 import { NEW_THREAD_SIDEBAR, type ProjectCollection, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
@@ -103,6 +104,8 @@ export interface AppOptions {
   remote?: RemoteAccessService;
   /** The optional Linker account. */
   linker?: LinkerService;
+  /** The Google account for Drive; none in a build without Linker-Edit's Google client. */
+  google?: GoogleAuth;
   /** Linker Connect: this computer at its own address at Linker, for your other computers. */
   connect?: ConnectService;
   /** Choices kept across restarts, such as supervised mode. */
@@ -642,6 +645,7 @@ export function createApp(options: AppOptions) {
       connect: options.connect?.status() ?? NO_CONNECT,
       computer: os.hostname(),
       linker: options.linker?.status() ?? { state: "signed_out", problem: null },
+      googleDrive: options.google?.status() ?? { state: "not_set_up" },
       collections: collections.summaries(),
       skills: collections.sharedSkills(),
     } satisfies Partial<AppMeta>;
@@ -679,6 +683,7 @@ export function createApp(options: AppOptions) {
       computer: shared.computer,
       setup: options.setup ?? null,
       linker: shared.linker,
+      googleDrive: shared.googleDrive,
       collections: shared.collections,
       skills: shared.skills,
     };
@@ -731,6 +736,7 @@ export function createApp(options: AppOptions) {
     collections.syncBrands();
     sendMeta();
   });
+  options.google?.onStatus(sendMeta);
   options.connect?.onStatus(sendMeta);
   options.appUpdates?.onStatus(sendMeta);
 
@@ -1577,6 +1583,12 @@ export function createApp(options: AppOptions) {
         break;
       case "refresh_brands":
         options.linker?.listOrgs().catch((error: unknown) => toast(client, errorText(error)));
+        break;
+      case "google_cancel_sign_in":
+        options.google?.cancel();
+        break;
+      case "google_sign_out":
+        void options.google?.signOut();
         break;
       case "set_resolve_here":
         if (typeof message.resolveHere === "boolean") setResolveHere(message.resolveHere);

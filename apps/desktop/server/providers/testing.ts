@@ -18,6 +18,7 @@ export const testConfig: AppConfig = {
   libraryFile: "C:\\library.json",
   libraryCacheDir: "C:\\cache\\library",
   linker: { authServer: "https://clerk.example", appUrl: "https://app.example", file: "C:\\linker-account.json" },
+  google: { client: null, file: "C:\\google-account.json" },
   connect: { file: "C:\\connect.json", sessionsFile: "C:\\connect-sessions.json" },
   apiToken: "test-token",
   resolveMcp: { command: "C:\\Program Files\\Blackmagic Design\\DaVinci Resolve\\ResolveMCP.exe" },

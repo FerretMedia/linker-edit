@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { GoogleClient } from "./drive/auth.ts";
 import { findResolveMcp } from "./resolve/locate.ts";
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,6 +20,12 @@ export const LINKER_AUTH_SERVER = "https://clerk.linker.cool";
  * can't read the Client ID Metadata Document Linker publishes (`invalid_client`), so this is the default.
  */
 export const LINKER_CLIENT_ID = "okxg8tSdwQEu1rbv";
+
+/**
+ * Linker-Edit's OAuth client in Google Cloud, of type Desktop app, for Google Drive; null until it's made. Google says
+ * a desktop client's secret isn't confidential. LINKER_EDIT_GOOGLE_CLIENT_ID and _SECRET in the environment win.
+ */
+export const GOOGLE_CLIENT: GoogleClient | null = null;
 
 /** Optional overrides, read from linker-edit.config.json in HOME_DIR. */
 interface UserConfig {
@@ -49,6 +56,8 @@ interface UserConfig {
   linkerClientId?: string;
   /** Your own cloudflared for Linker Connect, instead of one on PATH or the one Linker-Edit downloads. */
   cloudflared?: string;
+  /** A stand-in for Google's sign-in and Drive API, for testing. */
+  googleUrl?: string;
 }
 
 export interface ResolveMcpConfig {
@@ -76,6 +85,8 @@ export interface AppConfig {
   libraryCacheDir: string;
   /** Signing in with a Linker account; file is where the sign-in is kept. */
   linker: { authServer: string; appUrl: string; clientId?: string; file: string };
+  /** Signing in to Google Drive; no client means this build can't. */
+  google: { client: GoogleClient | null; file: string; url?: string };
   /** Linker Connect: this computer's link and tunnel token, the devices signed in through it, and cloudflared. */
   connect: { file: string; sessionsFile: string; cloudflared?: string };
   /** Lets the agents' MCP server call this server's API; web pages and other programs can't. */
@@ -97,6 +108,7 @@ function readUserConfig(file: string): UserConfig {
 export function loadConfig(
   file = process.env.LINKER_EDIT_CONFIG ?? path.join(HOME_DIR, "linker-edit.config.json"),
   findMcp: () => string | null = findResolveMcp,
+  env: Record<string, string | undefined> = process.env,
 ): AppConfig {
   const user = readUserConfig(file);
   const window = user.autoCompactWindow;
@@ -111,6 +123,8 @@ export function loadConfig(
   // Linker-Edit's own client exists only in production Clerk; against another Clerk (staging), the published
   // document or registering itself still applies unless linkerClientId says otherwise.
   const clientId = user.linkerClientId ?? (authServer.replace(/\/$/, "") === LINKER_AUTH_SERVER ? LINKER_CLIENT_ID : undefined);
+  const googleId = env.LINKER_EDIT_GOOGLE_CLIENT_ID;
+  const googleSecret = env.LINKER_EDIT_GOOGLE_CLIENT_SECRET;
   const tailscalePort = user.tailscalePort ?? 8443;
   if (!(Number.isInteger(tailscalePort) && tailscalePort > 0 && tailscalePort < 65536)) {
     throw new Error(`tailscalePort in ${file} must be a port number.`);
@@ -133,6 +147,11 @@ export function loadConfig(
       appUrl: user.linkerAppUrl ?? "https://app.linker.cool",
       ...(clientId ? { clientId } : {}),
       file: path.join(path.dirname(file), "linker-account.json"),
+    },
+    google: {
+      client: googleId && googleSecret ? { id: googleId, secret: googleSecret } : GOOGLE_CLIENT,
+      file: path.join(path.dirname(file), "google-account.json"),
+      ...(user.googleUrl ? { url: user.googleUrl } : {}),
     },
     connect: {
       file: path.join(path.dirname(file), "connect.json"),
