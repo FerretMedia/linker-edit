@@ -116,13 +116,14 @@ describe("passing requests on", () => {
   const askedAt: string[] = [];
   let port: number;
   let proxy: http.Server;
+  let machines: ReturnType<typeof createMachines>;
 
   beforeAll(async () => {
     const otherPort = await listen(other);
     const dead = http.createServer();
     const deadPort = await listen(dead);
     dead.close();
-    const machines = createMachines({
+    machines = createMachines({
       name: "Studio",
       version: "1",
       linked: async () => [
@@ -211,6 +212,14 @@ describe("passing requests on", () => {
     const off = await request("GET", "/machines/away/api/hello");
     expect(off.status).toBe(502);
     expect(JSON.parse(off.body).error).toContain("Couldn't reach Away");
+  });
+
+  it("asks a computer for JSON the same way, and says in words why it got none", async () => {
+    valid = `s${issued + 1}`;
+    expect(await machines.ask("office", "/api/echo")).toEqual({ body: "" });
+    expect(seen.at(-1)!).toMatchObject({ method: "GET", url: "/api/echo", headers: { authorization: `Bearer ${valid}` } });
+    await expect(machines.ask("away", "/api/echo")).rejects.toThrow("Couldn't reach Away");
+    await expect(machines.ask("nope", "/api/echo")).rejects.toThrow("isn't one of yours");
   });
 
   it("joins the window's socket to the other computer's, with a new session when it needs one", async () => {

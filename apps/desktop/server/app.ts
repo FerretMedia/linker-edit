@@ -55,6 +55,7 @@ import { AUTO_SETTLE_DAYS } from "../shared/protocol.ts";
 import { APP_TOOLS, findResolveTool, refusedInVisit } from "./resolve/tools.ts";
 import { readOrigins, type Applied } from "./resolve/versions.ts";
 import { LINKER_MCP_NAME, PROJECT_NOTES_FILE, readProjectFile, writeProjectFile } from "./rules.ts";
+import type { StorageService } from "./storage/storage.ts";
 import { createThread, DEFAULT_TITLE, type Thread } from "./thread.ts";
 import { describeResults, type Transcriber } from "./transcribe/transcriber.ts";
 import type { UsageService } from "./usage/summary.ts";
@@ -117,6 +118,8 @@ export interface AppOptions {
   study?: StudyService;
   /** Token usage and subscription limits of this computer's Claude Code and Codex, for the usage page. */
   usage?: UsageService;
+  /** Disks and project sizes on this computer and the user's others, for Settings > Computers and storage. */
+  storage?: StorageService;
 }
 
 /** Starts the chat line that marks an approved edit; feedback rounds are counted from the last one. */
@@ -1698,6 +1701,15 @@ export function createApp(options: AppOptions) {
     },
     previewFile: (name: string) => options.preview?.file(name) ?? null,
     usage: options.usage ?? null,
+    storage: options.storage ?? null,
+    /** This computer's report. Brands' setup threads hold no footage, so their folders aren't measured. */
+    measureStorage: () => {
+      if (!options.storage) return Promise.reject(new Error("Storage isn't measured in this build."));
+      const measured = [...projects.values()]
+        .filter(({ saved }) => !saved.setup)
+        .map(({ saved }) => ({ projectId: saved.id, name: projectName(saved), dir: saved.dir }));
+      return options.storage.measure((options.connect?.status() ?? NO_CONNECT).computerId, measured);
+    },
     playableTimeline: async (projectId: string | null, id: string | null, commit: string | null) => {
       const project = projectId ? projects.get(projectId) : undefined;
       if (!project?.history) throw new Error("This project has no edit history, so there is nothing to play.");

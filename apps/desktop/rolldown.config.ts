@@ -18,6 +18,13 @@ export default defineConfig([
     external,
     output: { file: "dist/desktop.js", format: "esm", codeSplitting: false },
   },
+  // Storage's folder walks run on a thread of their own (server/storage/storage.ts).
+  {
+    input: "server/storage/walkWorker.ts",
+    platform: "node",
+    external,
+    output: { file: "dist/storage-walk.js", format: "esm", codeSplitting: false },
+  },
   // The agents' "linker" MCP server runs as its own process.
   {
     input: "server/agents/linkerMcp.ts",

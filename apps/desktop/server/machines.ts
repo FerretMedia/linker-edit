@@ -17,6 +17,8 @@ const LIST_FRESH_FOR = 30_000;
 /** A request body up to this size is kept, so the request can be sent again with a new session or another way. */
 const REPLAYABLE = 1024 * 1024;
 const CONNECT_TIMEOUT = 10_000;
+/** How long ask waits for the whole answer: a computer measuring a big project for the first time takes a while. */
+const ASK_TIMEOUT = 60_000;
 /** What the window's WebSocket may ask for; see server/http.ts. */
 const WS_PROTOCOL = "linker-edit";
 
@@ -216,7 +218,14 @@ export function createMachines(options: MachinesOptions) {
     return (await next)?.session ?? null;
   }
 
-  function send(route: Route, session: string | null, req: http.IncomingMessage, rest: string, body: { chunks: Buffer[]; done: boolean }) {
+  /** req is the window's request, passed on, or for a request of this server's own just its method and headers. */
+  function send(
+    route: Route,
+    session: string | null,
+    req: http.IncomingMessage | Pick<http.IncomingMessage, "method" | "headers">,
+    rest: string,
+    body: { chunks: Buffer[]; done: boolean },
+  ) {
     return new Promise<http.IncomingMessage>((resolve, reject) => {
       const headers: http.OutgoingHttpHeaders = {};
       for (const [name, value] of Object.entries(req.headers)) if (!DROP_REQUEST.has(name) && value !== undefined) headers[name] = value;
@@ -242,8 +251,42 @@ export function createMachines(options: MachinesOptions) {
       });
       for (const chunk of body.chunks) upstream.write(chunk);
       if (body.done) upstream.end();
-      else req.pipe(upstream);
+      else if ("pipe" in req) req.pipe(upstream);
     });
+  }
+
+  /**
+   * Sends a request to a computer the first way there that answers, signed in where the way needs it. replayable
+   * says whether the request can be sent more than once: with a new session, or the next way there.
+   */
+  async function reach(
+    { machine, routes }: Found,
+    replayable: boolean,
+    sendOn: (route: Route, session: string | null) => Promise<http.IncomingMessage>,
+  ): Promise<{ upstream: http.IncomingMessage; route: Route } | { status: number; error: string }> {
+    let problem = unreachable(machine);
+    for (const [index, route] of routes.entries()) {
+      try {
+        let session = route.via === "linker" ? await sessionAt(route.origin) : null;
+        if (route.via === "linker" && !session) return { status: 401, error: signedOut(machine) };
+        let upstream = await sendOn(route, session);
+        // The other computer signed this one out: a new session, and the request again when it can be sent again.
+        if (upstream.statusCode === 401 && session && replayable) {
+          upstream.resume();
+          session = await sessionAt(route.origin, session);
+          if (!session) return { status: 401, error: signedOut(machine) };
+          upstream = await sendOn(route, session);
+        }
+        return { upstream, route };
+      } catch (error) {
+        if (!(error instanceof Unreachable)) problem = error instanceof Error ? error.message : String(error);
+        // The list is looked at again soon; meanwhile the next way there, when the request can be sent again.
+        foundAt = 0;
+        if (replayable && index < routes.length - 1) continue;
+        break;
+      }
+    }
+    return { status: 502, error: problem };
   }
 
   /** Passes a request from the window on to the computer it names; server/http.ts says who may. */
@@ -256,48 +299,57 @@ export function createMachines(options: MachinesOptions) {
       json(404, { error: NOT_FOUND });
       return;
     }
-    const { machine, routes } = entry;
     const body = await readUpTo(req, REPLAYABLE);
-    let problem = unreachable(machine);
-    for (const [index, route] of routes.entries()) {
-      let session: string | null = null;
-      let upstream: http.IncomingMessage;
-      try {
-        if (route.via === "linker") session = await sessionAt(route.origin);
-        if (route.via === "linker" && !session) {
-          json(401, { error: signedOut(machine) });
-          return;
-        }
-        upstream = await send(route, session, req, target.rest, body);
-        // The other computer signed this one out: a new session, and the request again when it can be sent again.
-        if (upstream.statusCode === 401 && session && body.done) {
-          upstream.resume();
-          session = await sessionAt(route.origin, session);
-          if (!session) {
-            json(401, { error: signedOut(machine) });
-            return;
-          }
-          upstream = await send(route, session, req, target.rest, body);
-        }
-      } catch (error) {
-        if (!(error instanceof Unreachable)) problem = error instanceof Error ? error.message : String(error);
-        // The list is looked at again soon; meanwhile the next way there, when the request can be sent again.
-        foundAt = 0;
-        if (body.done && index < routes.length - 1) continue;
-        break;
-      }
-      const headers: http.OutgoingHttpHeaders = {};
-      for (const [name, value] of Object.entries(upstream.headers)) if (!DROP_RESPONSE.has(name) && value !== undefined) headers[name] = value;
-      if (typeof headers.location === "string") headers.location = machineLocation(headers.location, route.origin, machine.base);
-      res.writeHead(upstream.statusCode ?? 502, headers);
-      upstream.on("error", () => res.destroy());
-      res.on("close", () => {
-        if (!res.writableFinished) upstream.destroy();
-      });
-      upstream.pipe(res);
+    const reached = await reach(entry, body.done, (route, session) => send(route, session, req, target.rest, body));
+    if ("error" in reached) {
+      json(reached.status, { error: reached.error });
       return;
     }
-    json(502, { error: problem });
+    const { upstream, route } = reached;
+    const headers: http.OutgoingHttpHeaders = {};
+    for (const [name, value] of Object.entries(upstream.headers)) if (!DROP_RESPONSE.has(name) && value !== undefined) headers[name] = value;
+    if (typeof headers.location === "string") headers.location = machineLocation(headers.location, route.origin, entry.machine.base);
+    res.writeHead(upstream.statusCode ?? 502, headers);
+    upstream.on("error", () => res.destroy());
+    res.on("close", () => {
+      if (!res.writableFinished) upstream.destroy();
+    });
+    upstream.pipe(res);
+  }
+
+  /** A computer's JSON answer at a path, got as the proxy gets it; throws with the reason in words. */
+  async function ask(id: string, rest: string): Promise<unknown> {
+    const entry = await find(id);
+    if (!entry) throw new Error(NOT_FOUND);
+    const reached = await reach(entry, true, (route, session) => send(route, session, { method: "GET", headers: { accept: "application/json" } }, rest, { chunks: [], done: true }));
+    if ("error" in reached) throw new Error(reached.error);
+    const { upstream } = reached;
+    const text = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => upstream.destroy(new Error(`${entry.machine.name} took too long to answer.`)), ASK_TIMEOUT);
+      let body = "";
+      upstream.setEncoding("utf8");
+      upstream.on("data", (chunk: string) => (body += chunk));
+      upstream.on("end", () => {
+        clearTimeout(timer);
+        resolve(body);
+      });
+      upstream.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+    let answer: { error?: unknown } | null = null;
+    try {
+      answer = JSON.parse(text) as { error?: unknown } | null;
+    } catch {
+      // Said below.
+    }
+    if (upstream.statusCode !== 200) {
+      throw new Error(typeof answer?.error === "string" ? answer.error : `${entry.machine.name} answered ${upstream.statusCode}.`);
+    }
+    // An older Linker-Edit answers a path it doesn't know with its page.
+    if (answer === null) throw new Error(`Update Linker-Edit on ${entry.machine.name} to see this.`);
+    return answer;
   }
 
   // The window asks for this subprotocol in desktop mode as on the web; the other computer never sees it.
@@ -411,6 +463,7 @@ export function createMachines(options: MachinesOptions) {
       return { machines: [self, ...others] };
     },
     proxy,
+    ask,
     upgrade,
   };
 }
