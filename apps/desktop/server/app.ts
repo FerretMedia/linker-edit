@@ -41,9 +41,10 @@ import { sortFolder } from "./library/sort.ts";
 import { describeFile, LIBRARY_IMPORT, LIBRARY_SEARCH, libraryImport, queryFromInput } from "./library/tools.ts";
 import type { LinkerService } from "./linker.ts";
 import type { GoogleAuth } from "./drive/auth.ts";
+import type { DriveSyncService } from "./drive/sync/service.ts";
 import type { ConnectService } from "./connect/connect.ts";
 import { isLinkedProject, linkFromOpen, linkKind, openProject, refreshedLink, type OpenProject } from "./projects/link.ts";
-import { NEW_THREAD_SIDEBAR, type ProjectCollection, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
+import { NEW_THREAD_SIDEBAR, PROJECT_FILE, type DriveLink, type ProjectCollection, type ProjectStore, type SavedProject, type SavedThread } from "./projects/store.ts";
 import { parseProjectIcon } from "../shared/project-icon.ts";
 import type { PreviewRenderer } from "./preview/preview.ts";
 import type { ProviderSession } from "./providers/types.ts";
@@ -106,6 +107,8 @@ export interface AppOptions {
   linker?: LinkerService;
   /** The Google account for Drive; none in a build without Linker-Edit's Google client. */
   google?: GoogleAuth;
+  /** Syncs the projects this computer mirrors from Google Drive. */
+  driveSync?: Pick<DriveSyncService, "start" | "stop" | "status" | "onStatus" | "onChanged">;
   /** Linker Connect: this computer at its own address at Linker, for your other computers. */
   connect?: ConnectService;
   /** Choices kept across restarts, such as supervised mode. */
@@ -266,7 +269,12 @@ export function createApp(options: AppOptions) {
     });
     projects.set(saved.id, state);
     for (const thread of savedThreads) addThread(saved.id, thread);
+    syncDrive(saved);
     return state;
+  }
+
+  function syncDrive(saved: SavedProject) {
+    if (saved.drive && saved.mirrored) options.driveSync?.start(saved.id, saved.dir, saved.drive);
   }
 
   function addThread(projectId: string, saved: SavedThread): Thread {
@@ -602,6 +610,7 @@ export function createApp(options: AppOptions) {
       threads: projectThreads(saved.id).map((thread) => thread.summary()),
       setup: saved.setup === true,
       autonomous: collections.autonomous(saved),
+      sync: options.driveSync?.status(saved.id),
     }));
   }
 
@@ -737,6 +746,14 @@ export function createApp(options: AppOptions) {
     sendMeta();
   });
   options.google?.onStatus(sendMeta);
+  options.driveSync?.onStatus(sendMeta);
+  options.driveSync?.onChanged((projectId, files) => {
+    const project = projects.get(projectId);
+    // Another computer's name, icon or brand for the project came down with its linker-edit.json.
+    if (!project || !files.includes(PROJECT_FILE)) return;
+    project.saved = store.reload(project.saved);
+    sendMeta();
+  });
   options.connect?.onStatus(sendMeta);
   options.appUpdates?.onStatus(sendMeta);
 
@@ -1091,6 +1108,7 @@ export function createApp(options: AppOptions) {
     }
     projects.delete(projectId);
     store.removeProject(projectId);
+    options.driveSync?.stop(projectId);
     for (const [client, view] of clients) {
       if (view.threadId && !threads.has(view.threadId)) {
         clients.set(client, { threadId: defaultThread() });
@@ -1695,6 +1713,16 @@ export function createApp(options: AppOptions) {
     handleMessage,
     refreshResolve,
     prepareTranscription,
+    /** Puts a project in a folder on Google Drive and keeps this computer's copy in sync with it, both ways. */
+    mirrorOnDrive(projectId: string, drive: DriveLink) {
+      const project = projects.get(projectId);
+      if (!project) throw new Error("That project isn't in Linker-Edit.");
+      project.saved = { ...project.saved, drive, mirrored: true };
+      store.saveProject(project.saved);
+      project.history?.commitProjectFile("Put the project on Google Drive").catch((error: unknown) => console.error("Couldn't commit linker-edit.json", error));
+      syncDrive(project.saved);
+      sendMeta();
+    },
     /** A newer release the UI offers, or null. */
     setUpdate(version: string | null) {
       if (version === update) return;

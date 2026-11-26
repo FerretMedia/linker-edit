@@ -1,3 +1,4 @@
+import * as os from "node:os";
 import * as path from "node:path";
 import { releaseName } from "#shared/release-name.ts";
 import type { DesktopToServer } from "#shared/protocol.ts";
@@ -6,6 +7,8 @@ import { createAppUpdates } from "./appUpdate.ts";
 import { fileCollectionStore } from "./collections/store.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
 import { createGoogleAuth } from "./drive/auth.ts";
+import { createDriveClient } from "./drive/client.ts";
+import { createDriveSync } from "./drive/sync/service.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
 import { fileLibraryStore } from "./library/folders.ts";
@@ -50,6 +53,10 @@ const remote = createRemoteAccess({ port: config.port, servePort: config.tailsca
 const linker = createLinker({ ...config.linker, redirectUri: `http://127.0.0.1:${config.port}/api/linker/callback` });
 // Google Drive, where the Drive sync keeps projects; only in a build with Linker-Edit's Google client.
 const google = config.google.client ? createGoogleAuth({ ...config.google, client: config.google.client }) : undefined;
+// Projects this computer mirrors sync with Drive through Linker-Edit's own engine, not Google Drive for desktop.
+const driveSync =
+  google && createDriveSync({ drive: createDriveClient({ token: google.token, url: config.google.url }), accountId: google.accountId, computer: os.hostname() });
+google?.onStatus(() => driveSync?.wake());
 // Linker Connect: up to 3 of your edit computers at their own addresses at Linker, through Cloudflare Tunnels.
 const connectSessions = createSessions({ file: config.connect.sessionsFile });
 const connect = createConnect({
@@ -120,6 +127,7 @@ const app = createApp({
   remote,
   linker,
   google,
+  driveSync,
   connect,
   settings: fileSettings(config.settingsFile),
   setup: {

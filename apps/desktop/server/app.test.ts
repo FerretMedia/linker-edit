@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { applyServerMessage } from "../src/lib/appState.ts";
-import type { AppState, ClientMessage, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage, VideoBrief } from "../shared/protocol.ts";
+import type { AppState, ClientMessage, DriveSync, HistoryEntry, PlayableTimeline, Provider, ResolveStatus, ServerMessage, VideoBrief } from "../shared/protocol.ts";
 import { createApp, type App, type AppOptions } from "./app.ts";
 import type { AgentTurn, History } from "./history/history.ts";
 import { QUIET_MS } from "./resolve/watch.ts";
@@ -74,7 +74,9 @@ function connected(project: string | null, projectId: string | null = null): Res
 
 const neverCreates = () => Promise.reject(new Error("Nothing asked for this."));
 
-type HarnessOptions = Partial<Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings" | "transcriber">> & {
+type HarnessOptions = Partial<
+  Pick<AppOptions, "checkResolve" | "preview" | "resolveProjects" | "resolveTools" | "backupProject" | "applyTimeline" | "settings" | "transcriber" | "driveSync">
+> & {
   store?: ReturnType<typeof memoryProjectStore>;
   history?: History;
 };
@@ -120,6 +122,7 @@ function setupWith(options: HarnessOptions, ...scripts: Script[]) {
     applyTimeline: options.applyTimeline,
     settings: options.settings,
     transcriber: options.transcriber,
+    driveSync: options.driveSync,
   });
   const client = testClient();
   const disconnect = app.connect(client);
@@ -1454,6 +1457,40 @@ describe("app projects", () => {
     expect(client.state.projects.map((project) => project.id)).toEqual(["workspace"]);
     expect(client.state.projectId).toBe("workspace");
     expect([...store.projects.keys()]).toEqual(["workspace"]);
+  });
+
+  it("syncs the projects this computer mirrors on Google Drive, and shows how each stands", () => {
+    const drive = { folderId: "f1", accountId: "a1" };
+    const calls: string[] = [];
+    const statuses = new Map<string, DriveSync>();
+    const listeners = { status: () => {}, changed: (_projectId: string, _files: string[]) => {} };
+    const driveSync: NonNullable<AppOptions["driveSync"]> = {
+      start: (id, dir, link) => void calls.push(`start ${id} ${dir} ${link.folderId}`),
+      stop: (id) => void calls.push(`stop ${id}`),
+      status: (id) => statuses.get(id),
+      onStatus: (listener) => void (listeners.status = listener),
+      onChanged: (listener) => void (listeners.changed = listener),
+    };
+    const store = memoryProjectStore([{ project: linked("Doc", "doc-id", { drive, mirrored: true }) }, { project: { ...workspaceProject, drive } }]);
+    const { app, client, send } = setupWith({ store, driveSync });
+    const doc = () => client.state.projects.find((project) => project.id === "doc")!;
+    expect(calls).toEqual(["start doc /projects/Doc f1"]);
+
+    app.mirrorOnDrive("workspace", drive);
+    expect(calls).toEqual(["start doc /projects/Doc f1", "start workspace /work f1"]);
+    expect(store.projects.get("workspace")).toMatchObject({ drive, mirrored: true });
+
+    statuses.set("doc", { state: "syncing", done: 50, total: 200 });
+    listeners.status();
+    expect(doc().sync).toEqual({ state: "syncing", done: 50, total: 200 });
+
+    // Another computer renamed it, and its linker-edit.json came down.
+    store.projects.set("doc", { ...store.projects.get("doc")!, name: "Doc v2" });
+    listeners.changed("doc", ["media/clip.mov", "linker-edit.json"]);
+    expect(doc().name).toBe("Doc v2");
+
+    send({ type: "remove_project", projectId: "doc" });
+    expect(calls.at(-1)).toBe("stop doc");
   });
 });
 

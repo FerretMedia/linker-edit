@@ -101,7 +101,16 @@ export interface ProjectSummary extends ProjectSidebarState {
   setup: boolean;
   /** Its agent makes the first cut without asking: its own choice, or its brand's, sub-brand's or series'. */
   autonomous: boolean;
+  /** Only for a project on Google Drive that this computer mirrors. Missing from older servers. */
+  sync?: DriveSync;
 }
+
+/** How a mirrored project's sync with Google Drive stands on its computer. */
+export type DriveSync =
+  | { state: "synced" }
+  /** Bytes moved out of what this pass moves; total is 0 until the pass knows. */
+  | { state: "syncing"; done: number; total: number }
+  | { state: "error"; message: string };
 
 /** What a new video starts from. Only the title and the footage folder are needed. */
 export interface VideoBrief {

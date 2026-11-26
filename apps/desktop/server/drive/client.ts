@@ -9,7 +9,7 @@ import * as fs from "node:fs";
  */
 
 export const GOOGLE_API = "https://www.googleapis.com";
-const FOLDER_TYPE = "application/vnd.google-apps.folder";
+export const FOLDER_TYPE = "application/vnd.google-apps.folder";
 /** Drive wants every chunk but the last in multiples of 256 KiB. */
 export const CHUNK_SIZE = 8 * 1024 * 1024;
 const FILE_FIELDS = "id,name,mimeType,parents,md5Checksum,size,modifiedTime,trashed";
@@ -102,6 +102,8 @@ function received(res: Response): number {
 /** fetch rejects with a TypeError when the connection fails, and a body stream errors with one when it drops. */
 const dropped = (error: unknown) => error instanceof TypeError;
 
+export type DriveClient = ReturnType<typeof createDriveClient>;
+
 export function createDriveClient(options: DriveClientOptions) {
   const api = (options.url ?? GOOGLE_API).replace(/\/$/, "");
   const fetchFn = options.fetch ?? fetch;
@@ -151,6 +153,15 @@ export function createDriveClient(options: DriveClientOptions) {
     return (await res.json()) as T;
   }
 
+  async function patch(fileId: string, params: Record<string, string>, body: Record<string, unknown>): Promise<DriveFile> {
+    const raw = await call<RawFile>(
+      `/drive/v3/files/${encodeURIComponent(fileId)}`,
+      { fields: FILE_FIELDS, ...params },
+      { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+    );
+    return parseFile(raw);
+  }
+
   /** Where Drive has a resumable upload up to, or the file when it has all of it. */
   async function uploaded(session: string, size: number): Promise<number | DriveFile> {
     // The session address is its own credential: no token, which may run out during a long upload.
@@ -193,6 +204,16 @@ export function createDriveClient(options: DriveClientOptions) {
         { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, mimeType: FOLDER_TYPE, parents: [parent] }) },
       );
       return parseFile(raw);
+    },
+
+    /** Renames a file, and moves it from one folder to another when they differ. */
+    async move(fileId: string, name: string, from: string, to: string): Promise<DriveFile> {
+      return patch(fileId, from === to ? {} : { addParents: to, removeParents: from }, { name });
+    },
+
+    /** Puts a file in Drive's bin, where the user can still restore it. */
+    async trash(fileId: string): Promise<DriveFile> {
+      return patch(fileId, {}, { trashed: true });
     },
 
     /** The person signed in. */
@@ -263,9 +284,10 @@ export function createDriveClient(options: DriveClientOptions) {
 
     /**
      * Writes a file's bytes from `from` on into dest, at the same place, so a partial download carries on. A dropped
-     * connection carries on from what arrived. dest must exist when from isn't 0.
+     * connection carries on from what arrived. dest must exist when from isn't 0. onProgress gets how much of the file
+     * dest has.
      */
-    async download(fileId: string, dest: string, from = 0): Promise<void> {
+    async download(fileId: string, dest: string, from = 0, onProgress?: (have: number) => void): Promise<void> {
       const handle = await fs.promises.open(dest, from > 0 ? "r+" : "w");
       try {
         let at = from;
@@ -278,6 +300,7 @@ export function createDriveClient(options: DriveClientOptions) {
             for await (const bytes of (res.body ?? []) as AsyncIterable<Uint8Array>) {
               await handle.write(bytes, 0, bytes.length, at);
               at += bytes.length;
+              onProgress?.(at);
             }
             await handle.truncate(at);
             return;

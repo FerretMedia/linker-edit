@@ -395,6 +395,8 @@ Linker-Edit is getting a Google Drive sync of its own, so each of your computers
 - **Linker-Edit sees only its own files on your Drive:** the ones it makes and the ones you pick. That's the one permission it asks for; your name and email come from Drive.
 - **Sign in on the edit machine itself.** Google sends your browser back to Linker-Edit on `127.0.0.1`.
 - **It keeps the sign-in in `~/LinkerEdit/google-account.json`,** readable only by you. **Sign out** removes it and tells Google to forget it.
+- **A project on Drive that this computer mirrors syncs both ways, every 30 seconds.** Its row in the sidebar and in the Projects menu shows a cloud: a tick when it's up to date, how far along it is while syncing, and an amber cloud when it can't sync. Hover the row to see why. Putting a project on Drive and mirroring one from Drive come next.
+- **Each computer keeps its own** edit history (`.git`), threads and `.linker-edit/local.json`. A file changed on two computers before they synced keeps both versions: the computer that syncs second renames its own to `<name> (from <computer>)`. A file you delete goes to Drive's bin and off your other computers; restore it in Drive to get it back.
 
 ## Testing
 
