@@ -13,6 +13,13 @@ import { applyChanges, excluded, planSync, remotePaths, type Action, type BaseFi
 export const MANIFEST_FILE = ".linker-edit/drive-manifest.json";
 /** Downloads arrive here, named by Drive id and md5, until their md5 matches. */
 const DOWNLOADS = ".linker-edit/drive-downloads";
+/**
+ * Files deleted on Drive wait here, in a folder per day, before they go for good. Drive also reports a file as gone
+ * when Linker-Edit merely lost access to it, and the local copy may be the only one left.
+ */
+const BIN = ".linker-edit/drive-bin";
+const BIN_DAYS = 30;
+const today = () => new Date().toISOString().slice(0, 10);
 
 interface PendingUpload {
   /** The resumable session's address; its own credential. */
@@ -131,6 +138,7 @@ export async function syncProject({ drive, dir, folderId, computer, onProgress, 
     save();
   }
   clearOldDownloads(actions);
+  emptyBin();
   if (actions.length === 0) return result;
 
   // A conflict copy is only on disk once its setAside ran.
@@ -235,6 +243,13 @@ export async function syncProject({ drive, dir, folderId, computer, onProgress, 
     }
   }
 
+  function emptyBin() {
+    const oldest = new Date(Date.now() - BIN_DAYS * 86_400_000).toISOString().slice(0, 10);
+    for (const day of fs.existsSync(abs(BIN)) ? fs.readdirSync(abs(BIN)) : []) {
+      if (day < oldest) fs.rmSync(path.join(abs(BIN), day), { recursive: true, force: true });
+    }
+  }
+
   function logSpeed(verb: string, file: string, bytes: number, since: number) {
     const seconds = Math.max((Date.now() - since) / 1000, 0.001);
     log(`${verb} ${file}: ${bytes} bytes in ${seconds.toFixed(1)} s, ${(bytes / seconds / 1e6).toFixed(1)} MB/s`);
@@ -316,7 +331,9 @@ export async function syncProject({ drive, dir, folderId, computer, onProgress, 
       }
       case "deleteLocal": {
         if (!(await unchangedSinceScan(action.path))) return skip(action.path);
-        fs.rmSync(abs(action.path), { force: true });
+        const binned = abs(`${BIN}/${today()}/${action.path}`);
+        fs.mkdirSync(path.dirname(binned), { recursive: true });
+        fs.renameSync(abs(action.path), binned);
         delete manifest.files[action.path];
         save();
         result.changed.push(action.path);

@@ -124,8 +124,13 @@ describe("Drive sync", () => {
     fs.rmSync(path.join(b.dir, "notes.txt"));
     await b.sync();
     expect(onDrive()).not.toContain("notes.txt");
+    a.write(".linker-edit/drive-bin/2000-01-01/old.txt", "long gone");
     expect(await a.sync()).toMatchObject({ changed: ["notes.txt"] });
+    expect(fs.existsSync(path.join(a.dir, ".linker-edit", "drive-bin", "2000-01-01"))).toBe(false);
     expect(files(a.dir)).toEqual(files(b.dir));
+    // Deleted on Drive: A keeps its copy in the bin, which never syncs.
+    const binned = path.join(a.dir, ".linker-edit", "drive-bin", new Date().toISOString().slice(0, 10), "notes.txt");
+    expect(fs.readFileSync(binned, "utf8")).toBe("A's notes");
     expect(Object.keys(files(a.dir)).sort()).toEqual(["cut.txt", "linker-edit.json", "media/intro.mov", "notes (from B).txt"]);
     expect(onDrive()).toEqual(["cut.txt", "linker-edit.json", "media/intro.mov", "notes (from B).txt"]);
   });
