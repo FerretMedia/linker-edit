@@ -5,7 +5,7 @@
     options,
     value,
     onChange,
-  }: { label: string; options: readonly { value: T; label: string }[]; value: T; onChange: (value: T) => void } = $props();
+  }: { label: string; options: readonly { value: T; label: string; title?: string }[]; value: T; onChange: (value: T) => void } = $props();
 </script>
 
 <div class="inline-flex rounded-lg border bg-muted p-0.5" role="radiogroup" aria-label={label}>
@@ -14,6 +14,7 @@
       type="button"
       role="radio"
       aria-checked={option.value === value}
+      title={option.title}
       class="h-7 rounded-md px-3 text-xs transition-colors {option.value === value
         ? 'bg-card text-foreground shadow-sm shadow-black/10 ring-1 ring-border'
         : 'text-muted-foreground hover:text-foreground'}"

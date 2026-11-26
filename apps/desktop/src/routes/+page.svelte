@@ -27,6 +27,7 @@
   import NewVideoStarter from "#lib/components/NewVideoStarter.svelte";
   import ThreadStarter from "#lib/components/ThreadStarter.svelte";
   import ToolRow from "#lib/components/ToolRow.svelte";
+  import UsagePage from "#lib/components/usage/UsagePage.svelte";
   import WorkingIndicator from "#lib/components/WorkingIndicator.svelte";
   import { ServerConnection } from "#lib/connection.svelte.ts";
   import { compactSuggested } from "#lib/context.ts";
@@ -104,6 +105,8 @@
   // The library page works the same way, at "#library" or "#library/project", and the Brands page at "#brands".
   let library = $state<LibraryTab | null>(libraryTabFromHash(location.hash));
   let brands = $state(location.hash === BRANDS_HASH);
+  // The usage page opens over the app, like T3 Code's, at "#usage".
+  let usage = $state(location.hash === "#usage");
   // The machine the settings and Brands pages show; it starts on the open thread's.
   let settingsMachineId = $state<string | null>(null);
   const settingsMachine = $derived.by(() => {
@@ -127,6 +130,7 @@
     settings = null;
     library = null;
     brands = false;
+    usage = false;
   }
   function showSection(section: SettingsSection) {
     history.replaceState(history.state, "", settingsHash(section));
@@ -140,14 +144,19 @@
     settings = sectionFromHash(location.hash);
     library = libraryTabFromHash(location.hash);
     brands = location.hash === BRANDS_HASH;
+    usage = location.hash === "#usage";
     // Remembers that the app came before, so closing goes back rather than adding another entry.
-    if ((settings || library || brands) && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
+    if ((settings || library || brands || usage) && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
   }
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "," && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       if (settings) closeSettings();
       else openSettings();
+    } else if (event.key.toLowerCase() === "u" && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      if (usage) closeSettings();
+      else location.hash = "#usage";
     } else if (event.key === "Escape" && (settings || library || brands) && !document.querySelector("dialog[open]")) {
       closeSettings();
     }
@@ -437,6 +446,7 @@
       onProjectSettings={(machineId, projectId) => (dialog = { kind: "settings", machineId, projectId })}
       onSettings={() => openSettings()}
       onBrands={openBrands}
+      onUsage={() => (location.hash = "#usage")}
       onSignOut={web.phase.kind === "app" ? () => web.signOut() : null}
     />
 
@@ -771,6 +781,9 @@
       onRemove={() => sendTo(machineId, { type: "remove_project", projectId: edited.id })}
       onClose={() => (dialog = null)}
     />
+  {/if}
+  {#if usage && app}
+    <UsagePage host={server.host} computer={app.computer} onClose={closeSettings} />
   {/if}
 {/if}
 
