@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FAKE_GOOGLE_CLIENT, FAKE_GOOGLE_PORT } from "./e2e/fake-google.ts";
+import { E2E_DRIVE_PROJECT, FAKE_GOOGLE_CLIENT, FAKE_GOOGLE_PORT, FAKE_GOOGLE_USER } from "./e2e/fake-google.ts";
 import { FAKE_LINKER_PORT, signedInAccount } from "./e2e/fake-linker.ts";
 
 // The e2e server gets its own port and workspace, and replays a recorded Claude turn: no tokens spent.
@@ -38,6 +38,12 @@ if (!process.env.TEST_WORKER_INDEX) {
   // A teammate's project folder to add through the folder picker.
   fs.mkdirSync(path.join(dir, "team", "Promo"), { recursive: true });
   fs.writeFileSync(path.join(dir, "team", "Promo", "linker-edit.json"), JSON.stringify({ version: 1, name: "Promo", resolve: null }));
+  // A project on the fake Google's Drive that this computer mirrors, with nothing downloaded yet.
+  const reel = path.join(dir, "team", "Launch reel");
+  fs.mkdirSync(path.join(reel, ".linker-edit"), { recursive: true });
+  const drive = { folderId: E2E_DRIVE_PROJECT.folderId, accountId: FAKE_GOOGLE_USER.permissionId };
+  fs.writeFileSync(path.join(reel, "linker-edit.json"), JSON.stringify({ version: 1, name: "Launch reel", resolve: null, drive }));
+  fs.writeFileSync(path.join(reel, ".linker-edit", "local.json"), JSON.stringify({ mirror: { state: "mirrored" } }));
   // A music folder for the library, with one second of a quiet tone.
   fs.mkdirSync(path.join(dir, "music"), { recursive: true });
   fs.writeFileSync(path.join(dir, "music", "Tone.wav"), toneWav());

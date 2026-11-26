@@ -2,8 +2,20 @@
 // packages/client-runtime/src/state/threadSort.ts, threadSettled.ts, threadInbox.ts and
 // apps/web/src/components/Sidebar.tsx and Sidebar.logic.ts.
 
-import type { ProjectSummary, ThreadSummary } from "#shared/protocol.ts";
+import type { DriveSync, ProjectSummary, ThreadSummary } from "#shared/protocol.ts";
 import { scopedKey } from "./machines.ts";
+
+/** How much of a Drive sync is done, once its pass knows how much it moves. */
+export const syncPercent = (sync: DriveSync): number | null =>
+  sync.state === "syncing" && sync.total > 0 ? Math.floor((sync.done * 100) / sync.total) : null;
+
+/** A project's Drive sync in words, for its tooltip and screen readers. */
+export function syncText(sync: DriveSync): string {
+  if (sync.state === "synced") return "Up to date on Google Drive";
+  if (sync.state === "error") return `Google Drive: ${sync.message}`;
+  const percent = syncPercent(sync);
+  return `Syncing with Google Drive${percent === null ? "" : `, ${percent}%`}`;
+}
 
 /** T3 Code's shelves, top to bottom. Working exists only in the inbox, not in project folders. */
 export type SidebarSection = "pinned" | "active" | "working" | "snoozed" | "settled";

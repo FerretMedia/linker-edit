@@ -11,7 +11,8 @@
   import Search from "@lucide/svelte/icons/search";
   import Settings from "@lucide/svelte/icons/settings";
   import { tick } from "svelte";
-  import type { SidebarProject } from "#lib/sidebar.ts";
+  import { syncText, type SidebarProject } from "#lib/sidebar.ts";
+  import DriveSyncState from "./DriveSyncState.svelte";
   import ProjectIcon from "./ProjectIcon.svelte";
 
   let {
@@ -194,7 +195,9 @@
         <li
           id="sidebar-project-scope-{index}"
           role="option"
-          aria-label="{item.label}{project?.open ? ', open in Resolve' : ''}{machine ? `, on ${machine}` : ''}{project?.offline ? ', offline' : ''}"
+          aria-label="{item.label}{project?.open ? ', open in Resolve' : ''}{machine ? `, on ${machine}` : ''}{project?.offline ? ', offline' : ''}{project?.sync
+            ? `, ${syncText(project.sync)}`
+            : ''}"
           aria-selected={item.value === "add" ? undefined : selected}
           data-highlighted={index === highlighted || undefined}
           data-testid={project ? "sidebar-scope-project" : undefined}
@@ -235,6 +238,9 @@
               <Monitor aria-hidden="true" class="size-3.5" />
               <span class="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-popover {MACHINE_DOT[machineStatus(project)]}"></span>
             </span>
+          {/if}
+          {#if project?.sync}
+            <DriveSyncState sync={project.sync} class="text-muted-foreground" />
           {/if}
           <span class="ml-auto flex shrink-0 items-center">
             {#if project && !project.offline}

@@ -106,25 +106,30 @@ interface DriveLink {
 }
 ```
 
-This computer's side, in the gitignored `.linker-edit/local.json`:
+This computer's side, in the gitignored `.linker-edit/local.json`, while it keeps a copy:
 
 ```ts
-type Mirror =
-	| { state: "cloud" }
-	| { state: "downloading"; done: number; total: number }
-	| { state: "mirrored"; manifest: string }
-	| { state: "error"; message: string };
+type Mirror = { state: "mirrored" };
 ```
+
+How the sync stands isn't stored. The manifest already says where a killed sync carries on, so the server works the state out on each pass and sends it as `ProjectSummary.sync`: `synced`, `syncing` with bytes done and total, or `error` with a message.
 
 Sync manifest, one per mirrored project at `.linker-edit/drive-manifest.json`:
 
 ```ts
 interface SyncManifest {
 	version: 1;
-	/** Drive's changes.list page token for this project. */
+	/** Drive's changes.list page token: remote has every change before it. */
 	pageToken: string;
-	/** Path relative to the project folder, with forward slashes. */
+	/** What Drive has in the project's folder, by Drive id. The feed covers the whole account; only what sits under the project's folder is kept. */
+	remote: {
+		folders: Record<string, { name: string; parent: string }>;
+		files: Record<string, { name: string; parent: string; md5: string; size: number }>;
+	};
+	/** What this computer and Drive last agreed on. Path relative to the project folder, with forward slashes. */
 	files: Record<string, { driveId: string; md5: string; size: number; mtimeMs: number }>;
+	/** Resumable uploads under way, so a restart carries on in the same session. */
+	uploads: Record<string, { session: string; md5: string; size: number }>;
 }
 ```
 
@@ -134,7 +139,7 @@ Storage, one report per computer:
 interface ComputerStorage {
 	computerId: string;
 	disks: { path: string; label: string; totalBytes: number; freeBytes: number }[];
-	projects: { projectId: string; localBytes: number; cloudBytes: number | null; mirror: Mirror["state"] | null }[];
+	projects: { projectId: string; localBytes: number; cloudBytes: number | null; sync: DriveSync | null }[];
 	measuredAt: string;
 }
 ```
@@ -145,7 +150,7 @@ What syncs and what doesn't:
 | --- | --- | --- |
 | media, `resolve/*.drp`, `linker-edit.json`, `AGENTS.md` | yes | the project itself |
 | `.linker-edit/threads/` | no | each computer already shows the other computers' threads through the home server |
-| `.linker-edit/local.json`, `drive-manifest.json` | no | this computer only |
+| `.linker-edit/local.json`, `drive-manifest.json`, `drive-downloads/` | no | this computer only |
 | `.git/` | no, see open questions | thousands of small files, and Drive has no atomic multi-file write |
 
 ## PR 0: spike on the Drive scope

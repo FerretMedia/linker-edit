@@ -1,11 +1,12 @@
 <script lang="ts">
   // T3 Code's project folder header (apps/web/src/components/sidebar/SidebarProjectFolderHeader.tsx; MIT, see NOTICE),
-  // with Linker-Edit's green "open in Resolve" dot.
+  // with Linker-Edit's green "open in Resolve" dot and its Google Drive sync.
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Monitor from "@lucide/svelte/icons/monitor";
   import SquarePen from "@lucide/svelte/icons/square-pen";
   import { LIBRARY_LABEL } from "#lib/labels.ts";
-  import { isUnread, threadStatus, type SidebarProject, type SidebarThread } from "#lib/sidebar.ts";
+  import { isUnread, syncText, threadStatus, type SidebarProject, type SidebarThread } from "#lib/sidebar.ts";
+  import DriveSyncState from "./DriveSyncState.svelte";
   import ProjectIcon from "./ProjectIcon.svelte";
 
   let {
@@ -51,6 +52,7 @@
       project.link ? `${project.link.name} · ${LIBRARY_LABEL[project.link.kind]}` : "Not linked to a Resolve project yet",
       project.dir,
       machine && `On ${machine}${project.offline ? ", offline: as it was when last seen" : ""}`,
+      project.sync && syncText(project.sync),
     ]
       .filter(Boolean)
       .join("\n"),
@@ -85,6 +87,12 @@
         <Monitor aria-hidden="true" class="size-3.5" />
         <span class="absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1 ring-sidebar {MACHINE_DOT[machineStatus]}"></span>
         <span class="sr-only">, on {machine}</span>
+      </span>
+    {/if}
+    {#if project.sync}
+      <!-- Under the hover's New thread button, like the count; the tooltip says it then. -->
+      <span class="flex shrink-0 group-hover/project-folder:invisible">
+        <DriveSyncState sync={project.sync} class="text-sidebar-muted-foreground" />
       </span>
     {/if}
     {#if project.open}
