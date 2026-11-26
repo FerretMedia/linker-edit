@@ -79,7 +79,7 @@ Linker-Edit opens in its own window. Closing the window stops it; `npx linker-ed
 
 ## Configuration
 
-**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, how the sidebar groups and settles threads, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
+**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, how the sidebar groups and settles threads, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files. **Computers and storage** lists every one of your computers with a bar per disk and the space each project takes there, largest first. A computer that's offline shows what it measured last, greyed, with when. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
 
 The defaults work for a standard install. To change where things go, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
 
