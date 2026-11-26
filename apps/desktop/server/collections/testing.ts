@@ -1,3 +1,5 @@
+import type { LinkerOrg } from "../../shared/protocol.ts";
+import type { LinkerService } from "../linker.ts";
 import { exampleName, NEW_COLLECTION, RULES_FILE, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** A CollectionStore in memory, for app tests. */
@@ -40,4 +42,14 @@ export function memoryCollectionStore(
       exampleNotes.delete(`${id}/${exampleName(name)}`);
     },
   };
+}
+
+/** A Linker account signed in with these orgs, for app tests: each org is a brand. */
+export function linkerWithOrgs(orgs: LinkerOrg[]): LinkerService {
+  return {
+    status: () => ({ state: "signed_in", name: "Jane", email: null, picture: null, plan: null, appUrl: "https://app.example" }),
+    onStatus: () => {},
+    orgs: () => orgs,
+    listOrgs: async () => {},
+  } as Partial<LinkerService> as LinkerService;
 }

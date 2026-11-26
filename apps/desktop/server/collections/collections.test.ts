@@ -2,25 +2,31 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { AppState, ClientMessage, ServerMessage } from "../../shared/protocol.ts";
+import { PARENT_KINDS, type AppState, type ClientMessage, type CollectionKind, type LinkerOrg, type ServerMessage } from "../../shared/protocol.ts";
 import { applyServerMessage } from "../../src/lib/appState.ts";
 import { createApp } from "../app.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { memoryProjectStore } from "../projects/testing.ts";
 import { EDITING_RULES, PROJECT_RULES } from "../rules.ts";
 import type { SkillRoot } from "../skills/skills.ts";
-import { createCollections } from "./collections.ts";
-import { memoryCollectionStore } from "./testing.ts";
+import { collectionChain, createCollections, parentRefusal } from "./collections.ts";
+import type { SavedCollection } from "./store.ts";
+import { linkerWithOrgs, memoryCollectionStore } from "./testing.ts";
 
-function setup(projects: SavedProject[] = [], skills: SkillRoot[] = []) {
-  const store = memoryCollectionStore();
+const org = (id: string, name: string): LinkerOrg => ({ id, name, imageUrl: `https://img.example/${id}.png` });
+const FERRET = org("org_ferret", "Ferret Media");
+
+function setup(projects: SavedProject[] = [], skills: SkillRoot[] = [], initial: SavedCollection[] = []) {
+  const store = memoryCollectionStore(initial);
   const saved = new Map(projects.map((project) => [project.id, project]));
   const commits: string[] = [];
+  let orgs: LinkerOrg[] | null = [FERRET];
   let changes = 0;
   const collections = createCollections({
     store,
     skills,
     projects: () => [...saved.values()],
+    orgs: () => orgs,
     setCollection(projectId, collection: ProjectCollection | null, commitMessage) {
       saved.set(projectId, { ...saved.get(projectId)!, collection });
       commits.push(commitMessage);
@@ -28,65 +34,169 @@ function setup(projects: SavedProject[] = [], skills: SkillRoot[] = []) {
     removeProject: (projectId) => saved.delete(projectId),
     changed: () => (changes += 1),
   });
+  collections.syncBrands();
   const send = (message: ClientMessage) => collections.handle(message);
   const byName = (name: string) => collections.summaries().find((collection) => collection.name === name)!;
-  return { collections, store, saved, commits, send, byName, changes: () => changes };
+  /** Linker answers with these orgs from now on; null is signed out. */
+  const setOrgs = (next: LinkerOrg[] | null) => {
+    orgs = next;
+    collections.syncBrands();
+  };
+  return { collections, store, saved, commits, send, byName, setOrgs, changes: () => changes };
 }
 
 const project = (id: string, dir = `/projects/${id}`): SavedProject => ({ id, dir, name: id, link: null, local: {}, icon: null, pinned: false, archived: false });
 
-describe("workspaces and series", () => {
-  it("nests one level deep: a series in a workspace, nothing in a series, a workspace in nothing", () => {
-    const { send, byName, collections } = setup();
-    expect(send({ type: "create_collection", kind: "workspace", name: "  Ferret   Media " })).toBeNull();
-    const workspace = byName("Ferret Media");
-    expect(workspace).toMatchObject({ kind: "workspace", parentId: null, rules: "", projectIds: [], icon: { kind: "monogram" } });
+const collection = (id: string, kind: CollectionKind, parentId: string | null): SavedCollection => ({
+  id,
+  kind,
+  name: id,
+  parentId,
+  orgId: kind === "brand" ? `org_${id}` : null,
+  icon: { kind: "monogram", text: "", color: "blue" },
+  rules: "",
+  library: [],
+  musicOnlyFromHere: false,
+  autonomous: false,
+  lessons: [],
+  edits: [],
+});
 
-    expect(send({ type: "create_collection", kind: "series", name: "Podcast", parentId: workspace.id })).toBeNull();
-    const series = byName("Podcast");
-    expect(series.parentId).toBe(workspace.id);
-
-    expect(send({ type: "create_collection", kind: "series", name: "Clips", parentId: series.id })).toMatch(/only go in a workspace/);
-    expect(send({ type: "create_collection", kind: "workspace", name: "Sub", parentId: workspace.id })).toBeNull();
-    // A workspace's parent is ignored on create, and refused on update.
-    expect(byName("Sub").parentId).toBeNull();
-    expect(send({ type: "update_collection", id: byName("Sub").id, parentId: workspace.id })).toMatch(/can't go inside/);
-    expect(send({ type: "update_collection", id: series.id, parentId: byName("Sub").id })).toBeNull();
-    expect(byName("Podcast").parentId).toBe(byName("Sub").id);
-    expect(send({ type: "update_collection", id: series.id, parentId: series.id })).toMatch(/only go in a workspace/);
-
-    // A series on its own is fine too.
-    expect(send({ type: "create_collection", kind: "series", name: "Shorts" })).toBeNull();
-    expect(byName("Shorts").parentId).toBeNull();
-    expect(send({ type: "create_collection", kind: "series", name: "   " })).toMatch(/name/);
-    // Workspaces first.
-    expect(collections.summaries().map((collection) => collection.name)).toEqual(["Ferret Media", "Sub", "Podcast", "Shorts"]);
+describe("where a brand, sub-brand or series can go", () => {
+  const kinds = Object.keys(PARENT_KINDS) as CollectionKind[];
+  const pairs = kinds.flatMap((kind) => [null, ...kinds].map((parent) => [kind, parent] as const));
+  it.each(pairs)("a %s in %s", (kind, parent) => {
+    const allowed = { brand: [null], subbrand: ["brand"], series: ["brand", "subbrand"] }[kind] as (CollectionKind | null)[];
+    expect(parentRefusal(kind, parent) === null).toBe(allowed.includes(parent));
   });
 
-  it("refuses to delete a workspace or series that still has projects or series in it", () => {
-    const { send, byName, store, collections } = setup([project("ep12"), project("ep11")]);
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
-    const workspace = byName("Ferret Media");
-    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: workspace.id });
-    const series = byName("Podcast");
-    send({ type: "move_project", projectId: "ep12", collectionId: series.id });
-    send({ type: "move_project", projectId: "ep11", collectionId: series.id });
+  it("says what is allowed when it isn't", () => {
+    expect(parentRefusal("series", "series")).toBe("A series can only go in a brand or sub-brand.");
+    expect(parentRefusal("subbrand", "subbrand")).toBe("A sub-brand can only go in a brand.");
+    expect(parentRefusal("subbrand", null)).toBe("A sub-brand can only go in a brand.");
+    expect(parentRefusal("brand", "brand")).toBe("A brand can't go inside anything.");
+  });
+});
 
-    expect(send({ type: "delete_collection", id: workspace.id })).toBe('Workspace "Ferret Media" still has 1 series in it. Move it out first.');
-    expect(send({ type: "delete_collection", id: series.id })).toBe('Series "Podcast" still has 2 projects in it. Move them out first.');
-    expect(store.collections.size).toBe(2);
+describe("collectionChain", () => {
+  const all = new Map(
+    [
+      collection("ferret", "brand", null),
+      collection("shorts", "subbrand", "ferret"),
+      collection("weekly", "series", "shorts"),
+      collection("podcast", "series", "ferret"),
+    ].map((entry) => [entry.id, entry]),
+  );
+  const inside = (id: string) => ({ ...project(id), collection: { id, name: id } });
+  it.each([
+    ["brand, project", "ferret", ["ferret"]],
+    ["brand, series, project", "podcast", ["ferret", "podcast"]],
+    ["brand, sub-brand, project", "shorts", ["ferret", "shorts"]],
+    ["brand, sub-brand, series, project", "weekly", ["ferret", "shorts", "weekly"]],
+  ])("%s, root first", (_shape, id, chain) => {
+    expect(collectionChain(all, inside(id)).map((entry) => entry.id)).toEqual(chain);
+  });
+
+  it("is empty for a project in none, or in one that's gone", () => {
+    expect(collectionChain(all, project("loose"))).toEqual([]);
+    expect(collectionChain(all, inside("gone"))).toEqual([]);
+  });
+});
+
+describe("brands, sub-brands and series", () => {
+  it("makes a brand for each Linker org, greys it when the person leaves, and follows a rename", () => {
+    const { byName, setOrgs, send, collections, store } = setup();
+    expect(byName("Ferret Media")).toMatchObject({
+      kind: "brand",
+      parentId: null,
+      org: { id: "org_ferret", imageUrl: "https://img.example/org_ferret.png", member: true },
+    });
+
+    setOrgs([FERRET, org("org_north", "Studio North")]);
+    expect(collections.summaries().map((entry) => [entry.name, entry.org?.member])).toEqual([
+      ["Ferret Media", true],
+      ["Studio North", true],
+    ]);
+
+    // Left on Linker: it stays on disk, greyed, and takes nothing new.
+    const north = byName("Studio North").id;
+    setOrgs([FERRET]);
+    expect(byName("Studio North").org).toEqual({ id: "org_north", imageUrl: null, member: false });
+    expect(store.collections.has(north)).toBe(true);
+    expect(send({ type: "create_collection", kind: "subbrand", name: "Shorts", parentId: north })).toBe(
+      'You\'re not in "Studio North" on Linker any more, so it takes nothing new.',
+    );
+    setOrgs(null);
+    expect(byName("Ferret Media").org?.member).toBe(false);
+    expect(send({ type: "create_collection", kind: "series", name: "Weekly", parentId: byName("Ferret Media").id })).toMatch(/^Sign in to Linker/);
+
+    // Linker's name wins, and only one brand per org.
+    setOrgs([{ ...FERRET, name: "Ferret Studios" }]);
+    expect(collections.summaries().filter((entry) => entry.kind === "brand").map((entry) => entry.name)).toEqual(["Ferret Studios", "Studio North"]);
+    expect(send({ type: "update_collection", id: byName("Ferret Studios").id, name: "Mine" })).toMatch(/comes from Linker/);
+    expect(send({ type: "create_collection", kind: "brand", name: "Mine" })).toMatch(/are your Linker orgs/);
+    expect(send({ type: "delete_collection", id: byName("Ferret Studios").id })).toMatch(/is a Linker org, so it stays/);
+  });
+
+  it("builds all four shapes, and moves sub-brands and series only where PARENT_KINDS allows", () => {
+    const { send, byName, collections } = setup();
+    const brand = byName("Ferret Media").id;
+    expect(send({ type: "create_collection", kind: "subbrand", name: "  Shorts  ", parentId: brand })).toBeNull();
+    expect(send({ type: "create_collection", kind: "series", name: "Weekly", parentId: byName("Shorts").id })).toBeNull();
+    expect(send({ type: "create_collection", kind: "series", name: "Podcast", parentId: brand })).toBeNull();
+    expect(byName("Shorts")).toMatchObject({ kind: "subbrand", parentId: brand, org: null });
+
+    expect(send({ type: "create_collection", kind: "series", name: "Clips", parentId: byName("Weekly").id })).toBe("A series can only go in a brand or sub-brand.");
+    expect(send({ type: "create_collection", kind: "subbrand", name: "Loose" })).toBe("A sub-brand can only go in a brand.");
+    expect(send({ type: "create_collection", kind: "series", name: "Gone", parentId: "gone" })).toMatch(/is gone/);
+    expect(send({ type: "create_collection", kind: "series", name: "   ", parentId: brand })).toMatch(/name/);
+
+    // A series moves between its brand and a sub-brand; a sub-brand never goes in a sub-brand or nowhere.
+    expect(send({ type: "update_collection", id: byName("Podcast").id, parentId: byName("Shorts").id })).toBeNull();
+    expect(byName("Podcast").parentId).toBe(byName("Shorts").id);
+    expect(send({ type: "update_collection", id: byName("Shorts").id, parentId: byName("Podcast").id })).toBe("A sub-brand can only go in a brand.");
+    expect(send({ type: "update_collection", id: byName("Shorts").id, parentId: null })).toBe("A sub-brand can only go in a brand.");
+    // Brands first, then sub-brands, then series.
+    expect(collections.summaries().map((entry) => entry.name)).toEqual(["Ferret Media", "Shorts", "Weekly", "Podcast"]);
+  });
+
+  it("loads one from before brands under no brand, and lets it move into one", () => {
+    const old = { ...collection("studio", "subbrand", null), name: "Studio" };
+    const loose = { ...collection("reels", "series", null), name: "Reels" };
+    const lost = { ...collection("lost", "series", "nowhere"), name: "Lost" };
+    const { byName, send } = setup([], [], [old, loose, lost]);
+    expect(byName("Studio").parentId).toBeNull();
+    expect(byName("Lost").parentId).toBeNull();
+    // A series can still go in it, as in a sub-brand.
+    expect(send({ type: "update_collection", id: "reels", parentId: "studio" })).toBeNull();
+    expect(send({ type: "update_collection", id: "studio", parentId: byName("Ferret Media").id })).toBeNull();
+    expect(byName("Studio").parentId).toBe(byName("Ferret Media").id);
+    expect(byName("Reels").parentId).toBe("studio");
+  });
+
+  it("refuses to delete one that still has projects, sub-brands or series in it", () => {
+    const { send, byName, store, collections } = setup([project("ep12"), project("ep11")]);
+    send({ type: "create_collection", kind: "subbrand", name: "Shorts", parentId: byName("Ferret Media").id });
+    const shorts = byName("Shorts");
+    send({ type: "create_collection", kind: "series", name: "Weekly", parentId: shorts.id });
+    const weekly = byName("Weekly");
+    send({ type: "move_project", projectId: "ep12", collectionId: weekly.id });
+    send({ type: "move_project", projectId: "ep11", collectionId: weekly.id });
+
+    expect(send({ type: "delete_collection", id: shorts.id })).toBe('Sub-brand "Shorts" still has 1 series in it. Move it out first.');
+    expect(send({ type: "delete_collection", id: weekly.id })).toBe('Series "Weekly" still has 2 projects in it. Move them out first.');
+    expect(store.collections.size).toBe(3);
 
     send({ type: "move_project", projectId: "ep12", collectionId: null });
-    send({ type: "move_project", projectId: "ep11", collectionId: workspace.id });
-    expect(send({ type: "delete_collection", id: series.id })).toBeNull();
-    expect(send({ type: "delete_collection", id: workspace.id })).toMatch(/still has 1 project in it/);
-    expect(collections.summaries().map((collection) => collection.name)).toEqual(["Ferret Media"]);
-    expect(store.collections.size).toBe(1);
+    send({ type: "move_project", projectId: "ep11", collectionId: shorts.id });
+    expect(send({ type: "delete_collection", id: weekly.id })).toBeNull();
+    expect(send({ type: "delete_collection", id: shorts.id })).toMatch(/still has 1 project in it/);
+    expect(collections.summaries().map((entry) => entry.name)).toEqual(["Ferret Media", "Shorts"]);
   });
 
   it("puts projects in a collection and keeps its name in them when it's renamed", () => {
-    const { send, byName, saved, commits, changes } = setup([project("ep12")]);
-    send({ type: "create_collection", kind: "series", name: "Podcast" });
+    const { send, byName, saved, commits, changes, setOrgs } = setup([project("ep12")]);
+    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: byName("Ferret Media").id });
     const series = byName("Podcast");
     send({ type: "move_project", projectId: "ep12", collectionId: series.id });
     expect(saved.get("ep12")!.collection).toEqual({ id: series.id, name: "Podcast" });
@@ -97,12 +207,20 @@ describe("workspaces and series", () => {
     expect(byName("The Podcast").rules).toBe("Keep it short.");
     expect(send({ type: "move_project", projectId: "ep12", collectionId: "gone" })).toMatch(/is gone/);
     expect(commits).toEqual(['Put the project in Series "Podcast"', 'Series "The Podcast" renamed']);
-    expect(changes()).toBe(3);
+    // One more for the brand Linker listed.
+    expect(changes()).toBe(4);
+
+    // A brand renamed in Linker is renamed in its projects too; one the person left takes no project.
+    send({ type: "move_project", projectId: "ep12", collectionId: byName("Ferret Media").id });
+    setOrgs([{ ...FERRET, name: "Ferret Studios" }]);
+    expect(saved.get("ep12")!.collection).toEqual({ id: byName("Ferret Studios").id, name: "Ferret Studios" });
+    setOrgs([]);
+    expect(send({ type: "move_project", projectId: "ep12", collectionId: series.id })).toMatch(/not in "Ferret Studios" on Linker any more/);
   });
 
   it("refuses an icon that isn't one", () => {
     const { send, byName } = setup();
-    send({ type: "create_collection", kind: "workspace", name: "W", icon: { kind: "emoji", emoji: "🎙", color: "pink" } });
+    send({ type: "create_collection", kind: "subbrand", name: "W", parentId: byName("Ferret Media").id, icon: { kind: "emoji", emoji: "🎙", color: "pink" } });
     const id = byName("W").id;
     send({ type: "update_collection", id, icon: { kind: "lucide", name: "<script>", color: "blue" } });
     send({ type: "update_collection", id, icon: { kind: "monogram", text: "AB", color: "nope" } as never });
@@ -111,33 +229,40 @@ describe("workspaces and series", () => {
     expect(byName("W").icon).toEqual({ kind: "lucide", name: "mic", color: "teal" });
   });
 
-  it("stacks the agent's rules: editing rules, workspace, series, then the project's own, most specific last", () => {
+  it("stacks the agent's rules: editing rules, brand, sub-brand, series, then the project's own, most specific last", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-rules-"));
     fs.writeFileSync(path.join(dir, "PROJECT.md"), "Ep 12 is the anniversary episode.\n");
     // A project from before PROJECT.md keeps the notes it had.
     fs.writeFileSync(path.join(dir, "RULES.md"), "Guest asked to cut the salary talk.\n");
     const { send, byName, collections, saved } = setup([project("ep12", dir), project("ep11")]);
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
-    send({ type: "update_collection", id: byName("Ferret Media").id, rules: "End on the logo." });
-    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: byName("Ferret Media").id });
-    send({ type: "update_collection", id: byName("Podcast").id, rules: "Lower thirds in Inter Bold." });
-    send({ type: "move_project", projectId: "ep12", collectionId: byName("Podcast").id });
-    send({ type: "move_project", projectId: "ep11", collectionId: byName("Podcast").id });
+    const brand = byName("Ferret Media").id;
+    send({ type: "update_collection", id: brand, rules: "End on the logo." });
+    send({ type: "create_collection", kind: "subbrand", name: "Shorts", parentId: brand });
+    send({ type: "update_collection", id: byName("Shorts").id, rules: "Vertical, 9:16." });
+    send({ type: "create_collection", kind: "series", name: "Weekly", parentId: byName("Shorts").id });
+    send({ type: "update_collection", id: byName("Weekly").id, rules: "Lower thirds in Inter Bold.", autonomous: true });
+    send({ type: "move_project", projectId: "ep12", collectionId: byName("Weekly").id });
+    send({ type: "move_project", projectId: "ep11", collectionId: byName("Shorts").id });
 
     const rules = collections.rulesFor(saved.get("ep12")!);
     expect(rules.startsWith(EDITING_RULES)).toBe(true);
     const order = [
       "# The user's rules",
-      `## Workspace "Ferret Media" (/collections/${byName("Ferret Media").id}/SKILL.md)\n\nEnd on the logo.`,
-      `## Series "Podcast" (/collections/${byName("Podcast").id}/SKILL.md)\n\nLower thirds in Inter Bold.`,
+      `## Brand "Ferret Media" (/collections/${brand}/SKILL.md)\n\nEnd on the logo.`,
+      `## Sub-brand "Shorts" (/collections/${byName("Shorts").id}/SKILL.md)\n\nVertical, 9:16.`,
+      `## Series "Weekly" (/collections/${byName("Weekly").id}/SKILL.md)\n\nLower thirds in Inter Bold.`,
       "## This project (PROJECT.md in the working folder)\n\nEp 12 is the anniversary episode.\n\nGuest asked to cut the salary talk.",
     ].map((part) => rules.indexOf(part));
     expect(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1]!))).toBe(true);
+    // Working alone follows the nearest one.
+    expect(collections.autonomous(saved.get("ep12")!)).toBe(true);
+    expect(collections.autonomous(saved.get("ep11")!)).toBe(false);
 
-    // Without notes of its own, the project gets the workspace's and series' rules only.
+    // Without notes of its own, a project in the sub-brand gets the brand's and the sub-brand's rules only.
     const other = collections.rulesFor(saved.get("ep11")!);
     expect(other).toContain("End on the logo.");
-    expect(other).toContain("Lower thirds in Inter Bold.");
+    expect(other).toContain("Vertical, 9:16.");
+    expect(other).not.toContain("Lower thirds in Inter Bold.");
     expect(other).not.toContain("## This project (");
 
     // A project in no collection, with no file yet, gets the editing rules and how to keep its file.
@@ -150,21 +275,22 @@ describe("workspaces and series", () => {
     fs.writeFileSync(path.join(dir, "sound", "SKILL.md"), "---\ndescription: Music and levels.\n---\n\nUnder speech.");
     const shipped = { label: "Linker-Edit", dir };
     const { send, byName, collections, saved } = setup([project("ep12"), project("loose")], [shipped]);
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
-    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: byName("Ferret Media").id });
-    send({ type: "move_project", projectId: "ep12", collectionId: byName("Podcast").id });
+    send({ type: "create_collection", kind: "subbrand", name: "Shorts", parentId: byName("Ferret Media").id });
+    send({ type: "create_collection", kind: "series", name: "Weekly", parentId: byName("Shorts").id });
+    send({ type: "move_project", projectId: "ep12", collectionId: byName("Weekly").id });
     expect(collections.skillRoots(saved.get("loose")!)).toEqual([shipped]);
     expect(collections.skillRoots(saved.get("ep12")!)).toEqual([
       shipped,
-      { label: 'Workspace "Ferret Media"', dir: path.join(`/collections/${byName("Ferret Media").id}`, "skills") },
-      { label: 'Series "Podcast"', dir: path.join(`/collections/${byName("Podcast").id}`, "skills") },
+      { label: 'Brand "Ferret Media"', dir: path.join(`/collections/${byName("Ferret Media").id}`, "skills") },
+      { label: 'Sub-brand "Shorts"', dir: path.join(`/collections/${byName("Shorts").id}`, "skills") },
+      { label: 'Series "Weekly"', dir: path.join(`/collections/${byName("Weekly").id}`, "skills") },
     ]);
     expect(collections.rulesFor(saved.get("loose")!)).toMatch(/\n\n# Skills\n\n.+\n\n- sound: Music and levels\. \(Linker-Edit\)$/);
   });
 });
 
-describe("workspaces and series in the app", () => {
-  it("sends collections to every client and gives both agents the project's rules at each turn", async () => {
+describe("brands in the app", () => {
+  it("sends collections to every client, puts a new project in one, and gives both agents the project's rules at each turn", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-file-"));
     const projects = memoryProjectStore([{ project: project("ep12", dir) }, { project: project("ep11") }]);
     const prepared = new Map<string, string>();
@@ -173,6 +299,7 @@ describe("workspaces and series in the app", () => {
       version: "0.0.0",
       store: projects,
       collections: memoryCollectionStore(),
+      linker: linkerWithOrgs([FERRET]),
       prepareFolder: (dir, text) => prepared.set(dir, text),
       createSession: (_provider, _mode, _dir, _resumeId, projectRules) => ({
         send: async () => void rules.push(projectRules()),
@@ -184,13 +311,13 @@ describe("workspaces and series in the app", () => {
     for (const each of clients) app.connect(each);
     const send = (message: ClientMessage) => app.handleMessage(clients[0]!, message);
 
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
-    const workspace = clients[1]!.state.collections[0]!;
-    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: workspace.id });
+    const brand = clients[1]!.state.collections[0]!;
+    expect(brand).toMatchObject({ kind: "brand", name: "Ferret Media", org: { member: true } });
+    send({ type: "create_collection", kind: "series", name: "Podcast", parentId: brand.id });
     const series = clients[1]!.state.collections.find((collection) => collection.kind === "series")!;
     send({ type: "move_project", projectId: "ep12", collectionId: series.id });
     send({ type: "move_project", projectId: "ep11", collectionId: series.id });
-    send({ type: "update_collection", id: workspace.id, rules: "Never use the word 'synergy'." });
+    send({ type: "update_collection", id: brand.id, rules: "Never use the word 'synergy'." });
 
     expect(clients[1]!.state.collections.find((collection) => collection.id === series.id)!.projectIds).toEqual(["ep12", "ep11"]);
     expect(projects.projects.get("ep12")!.collection).toEqual({ id: series.id, name: "Podcast" });
@@ -198,9 +325,17 @@ describe("workspaces and series in the app", () => {
     expect(prepared.get(dir)).toContain("Never use the word 'synergy'.");
     expect(prepared.get("/projects/ep11")).toContain("Never use the word 'synergy'.");
 
-    send({ type: "delete_collection", id: workspace.id });
-    expect(clients[0]!.toasts).toEqual(['Workspace "Ferret Media" still has 1 series in it. Move it out first.']);
+    send({ type: "delete_collection", id: series.id });
+    expect(clients[0]!.toasts).toEqual(['Series "Podcast" still has 2 projects in it. Move them out first.']);
     expect(clients[1]!.toasts).toEqual([]);
+
+    // Add project puts the new project where it was asked, and refuses a place that's gone before adding anything.
+    send({ type: "add_project", source: { kind: "cloud", name: "Promo" }, collectionId: series.id });
+    const added = clients[1]!.state.projects.find((entry) => entry.name === "Promo")!;
+    expect(projects.projects.get(added.id)!.collection).toEqual({ id: series.id, name: "Podcast" });
+    send({ type: "add_project", source: { kind: "cloud", name: "Trailer" }, collectionId: "gone" });
+    expect(clients[0]!.toasts.at(-1)).toMatch(/is gone/);
+    expect(clients[1]!.state.projects.some((entry) => entry.name === "Trailer")).toBe(false);
 
     // PROJECT.md saved in the app reaches every client and Codex's AGENTS.md; one that is too long isn't saved.
     send({ type: "save_project_file", projectId: "ep12", text: "# Ep 12\n\n## Brief\nThe anniversary episode." });
@@ -211,6 +346,7 @@ describe("workspaces and series in the app", () => {
     expect(fs.readFileSync(path.join(dir, "PROJECT.md"), "utf8")).toMatch(/^# Ep 12/);
 
     // Claude gets them in its system prompt, read when the turn starts.
+    send({ type: "select_thread", threadId: clients[0]!.state.projects.find((entry) => entry.id === "ep12")!.threads[0]!.id });
     send({ type: "send", text: "Cut the intro" });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(rules).toHaveLength(1);

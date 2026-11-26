@@ -14,6 +14,7 @@
   import X from "@lucide/svelte/icons/x";
   import type { ChatItem, ClientMessage, HistoryEntry, Provider } from "#shared/protocol.ts";
   import AddProjectDialog from "#lib/components/AddProjectDialog.svelte";
+  import BrandsPage from "#lib/components/BrandsPage.svelte";
   import ApprovalCard from "#lib/components/ApprovalCard.svelte";
   import Composer from "#lib/components/Composer.svelte";
   import HistoryPanel from "#lib/components/HistoryPanel.svelte";
@@ -32,6 +33,7 @@
   import { compactSuggested } from "#lib/context.ts";
   import { Host } from "#lib/host.ts";
   import { provideHost } from "#lib/hostContext.ts";
+  import { BRANDS_HASH } from "#lib/brands.ts";
   import { libraryHash, libraryTabFromHash, type LibraryTab } from "#lib/library.ts";
   import { machines } from "#lib/machines.svelte.ts";
   import { scopedKey } from "#lib/machines.ts";
@@ -100,11 +102,12 @@
 
   // The settings page replaces the app while open; its address is "#settings/<section>", so Back closes it.
   let settings = $state<SettingsSection | null>(sectionFromHash(location.hash));
-  // The library page works the same way, at "#library" or "#library/project".
+  // The library page works the same way, at "#library" or "#library/project", and the Brands page at "#brands".
   let library = $state<LibraryTab | null>(libraryTabFromHash(location.hash));
+  let brands = $state(location.hash === BRANDS_HASH);
   // The usage page opens over the app, like T3 Code's, at "#usage".
   let usage = $state(location.hash === "#usage");
-  // The machine the settings page shows; it starts on the open thread's.
+  // The machine the settings and Brands pages show; it starts on the open thread's.
   let settingsMachineId = $state<string | null>(null);
   const settingsMachine = $derived.by(() => {
     const chosen = settingsMachineId ? machines.get(settingsMachineId) : null;
@@ -117,11 +120,16 @@
     location.hash = settingsHash(section);
   }
   const openLibrary = (tab: LibraryTab = "universal") => (location.hash = libraryHash(tab));
+  function openBrands() {
+    settingsMachineId = active?.id ?? null;
+    location.hash = BRANDS_HASH;
+  }
   function closeSettings() {
     if (history.state?.fromApp) history.back();
     else history.replaceState(null, "", location.pathname + location.search);
     settings = null;
     library = null;
+    brands = false;
     usage = false;
   }
   function showSection(section: SettingsSection) {
@@ -135,9 +143,10 @@
   function onHashChange() {
     settings = sectionFromHash(location.hash);
     library = libraryTabFromHash(location.hash);
+    brands = location.hash === BRANDS_HASH;
     usage = location.hash === "#usage";
     // Remembers that the app came before, so closing goes back rather than adding another entry.
-    if ((settings || library || usage) && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
+    if ((settings || library || brands || usage) && !history.state?.fromApp) history.replaceState({ fromApp: true }, "");
   }
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "," && (event.ctrlKey || event.metaKey)) {
@@ -148,7 +157,7 @@
       event.preventDefault();
       if (usage) closeSettings();
       else location.hash = "#usage";
-    } else if (event.key === "Escape" && (settings || library) && !document.querySelector("dialog[open]")) {
+    } else if (event.key === "Escape" && (settings || library || brands) && !document.querySelector("dialog[open]")) {
       closeSettings();
     }
   }
@@ -189,7 +198,7 @@
 
   const chatTitle = $derived(thread?.title ?? "New thread");
 
-  // The workspace or series the open project is in, or sets up.
+  // The brand, sub-brand or series the open project is in, or sets up.
   const collection = $derived(
     project ? (app?.collections.find((candidate) => candidate.projectIds.includes(project.id) || candidate.setupProjectId === project.id) ?? null) : null,
   );
@@ -387,8 +396,19 @@
     onSection={showSection}
     onLibrary={() => openLibrary()}
     onSignOut={web.phase.kind === "app" ? () => web.signOut() : null}
+    send={(message) => shown.server.send(message)}
+    onClose={closeSettings}
+  />
+{:else if brands && settingsMachine && settingsApp}
+  {@const shown = settingsMachine}
+  <BrandsPage
+    app={settingsApp}
+    host={shown.host}
+    machines={sidebarMachines}
+    machineId={shown.id}
+    onMachine={(id) => (settingsMachineId = id)}
     send={(message) => {
-      // Its setup thread opens behind the settings page.
+      // Its setup thread opens in place of the Brands page.
       if (message.type === "setup_collection") {
         sendAndOpen(shown.id, message);
         closeSettings();
@@ -425,6 +445,7 @@
       onAddProject={() => (dialog = { kind: "add" })}
       onProjectSettings={(machineId, projectId) => (dialog = { kind: "settings", machineId, projectId })}
       onSettings={() => openSettings()}
+      onBrands={openBrands}
       onUsage={() => (location.hash = "#usage")}
       onSignOut={web.phase.kind === "app" ? () => web.signOut() : null}
     />
@@ -745,7 +766,7 @@
   {#if dialog?.kind === "add"}
     <AddProjectDialog
       machines={machines.list}
-      onAdd={(machineId, source) => sendAndOpen(machineId, { type: "add_project", source })}
+      onAdd={(machineId, source, collectionId) => sendAndOpen(machineId, { type: "add_project", source, ...(collectionId ? { collectionId } : {}) })}
       onClose={() => (dialog = null)}
     />
   {:else if settingsDialog}

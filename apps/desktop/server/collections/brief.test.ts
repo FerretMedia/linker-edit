@@ -8,7 +8,7 @@ import { createApp, type App } from "../app.ts";
 import type { SavedProject } from "../projects/store.ts";
 import { memoryProjectStore } from "../projects/testing.ts";
 import { AUTONOMOUS_RULES, EDITING_RULES, LEARNING_RULES } from "../rules.ts";
-import { memoryCollectionStore } from "./testing.ts";
+import { linkerWithOrgs, memoryCollectionStore } from "./testing.ts";
 
 type Script = (app: App) => Promise<void>;
 
@@ -28,6 +28,7 @@ function setup(...scripts: Script[]) {
     version: "0.0.0",
     store: projects,
     collections,
+    linker: linkerWithOrgs([{ id: "org_ferret", name: "Ferret Media", imageUrl: null }]),
     skills: [{ label: "Linker-Edit", dir: skills }],
     createSession: (_provider, _mode, _dir, _resumeId, projectRules) => ({
       send: async (text) => {
@@ -82,31 +83,32 @@ function setup(...scripts: Script[]) {
 }
 
 describe("a setup thread", () => {
-  it("opens once per workspace, as a project of its own that isn't counted among the workspace's projects", () => {
+  it("opens once per sub-brand, as a project of its own that isn't counted among the sub-brand's projects", () => {
     const { client, send, byName, projects } = setup();
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
-    send({ type: "setup_collection", id: byName("Ferret Media").id });
+    send({ type: "create_collection", kind: "subbrand", name: "Shorts", parentId: byName("Ferret Media").id });
+    const shorts = byName("Shorts").id;
+    send({ type: "setup_collection", id: shorts });
 
     const setupProject = client.state.projects.find((candidate) => candidate.setup)!;
-    expect(setupProject).toMatchObject({ name: "Ferret Media setup", link: null });
+    expect(setupProject).toMatchObject({ name: "Shorts setup", link: null });
     expect(client.state.projectId).toBe(setupProject.id);
-    expect(byName("Ferret Media")).toMatchObject({ setupProjectId: setupProject.id, projectIds: [] });
-    expect(projects.projects.get(setupProject.id)).toMatchObject({ setup: true, collection: { name: "Ferret Media" } });
+    expect(byName("Shorts")).toMatchObject({ setupProjectId: setupProject.id, projectIds: [] });
+    expect(projects.projects.get(setupProject.id)).toMatchObject({ setup: true, collection: { name: "Shorts" } });
 
     // Asked again, the same thread opens; a rename shows in its name.
     const threadId = client.state.threadId;
     send({ type: "select_thread", threadId: client.state.projects.find((candidate) => !candidate.setup)!.threads[0]!.id });
-    send({ type: "setup_collection", id: byName("Ferret Media").id });
+    send({ type: "setup_collection", id: shorts });
     expect(client.state.threadId).toBe(threadId);
     expect(client.state.projects.filter((candidate) => candidate.setup)).toHaveLength(1);
-    send({ type: "update_collection", id: byName("Ferret Media").id, name: "Ferret" });
-    expect(client.state.projects.find((candidate) => candidate.setup)!.name).toBe("Ferret setup");
+    send({ type: "update_collection", id: shorts, name: "Clips" });
+    expect(client.state.projects.find((candidate) => candidate.setup)!.name).toBe("Clips setup");
 
-    // It stays with its workspace, and goes when the workspace is deleted.
+    // It stays with its sub-brand, and goes when the sub-brand is deleted.
     send({ type: "move_project", projectId: setupProject.id, collectionId: null });
     expect(client.toasts).toEqual(["Setup threads stay with what they set up."]);
-    send({ type: "delete_collection", id: byName("Ferret").id });
-    expect(client.state.collections).toEqual([]);
+    send({ type: "delete_collection", id: shorts });
+    expect(client.state.collections.map((collection) => collection.name)).toEqual(["Ferret Media"]);
     expect(client.state.projects.map((candidate) => candidate.id)).toEqual(["ep12"]);
   });
 
@@ -123,7 +125,6 @@ describe("a setup thread", () => {
       replies.push(await running.briefTool("save_brief", { for: "series", series: "Reels", rules: "30 to 40 seconds, 9:16.", summary: "The reels format." }));
       replies.push(await running.briefTool("save_brief", { rules: "   ", summary: "Nothing." }));
     });
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
     send({ type: "setup_collection", id: byName("Ferret Media").id });
     send({ type: "send", text: "My reels are in D:/reels" });
 
@@ -133,13 +134,13 @@ describe("a setup thread", () => {
     send({ type: "set_approval_mode", mode: "ask" });
     send({ type: "set_approval_mode", mode: "auto" });
     expect(client.state.approvals).toHaveLength(1);
-    expect((await answer(false)).input).toEqual({ for: 'Workspace "Ferret Media"', summary: "First brief.", was: "", rules: "Captions in white." });
+    expect((await answer(false)).input).toEqual({ for: 'Brand "Ferret Media"', summary: "First brief.", was: "", rules: "Captions in white." });
     expect(byName("Ferret Media").rules).toBe("");
     expect(await answer(true)).toMatchObject({ tool: "mcp__linker__save_brief" });
     expect((await answer(true)).input).toMatchObject({ for: 'New series "Reels"', was: "" });
     await turnDone();
 
-    expect(rules[0]).toMatch(/^You are Linker-Edit's setup assistant\. You are learning how Workspace "Ferret Media" is edited/);
+    expect(rules[0]).toMatch(/^You are Linker-Edit's setup assistant\. You are learning how Brand "Ferret Media" is edited/);
     expect(rules[0]).not.toContain(EDITING_RULES);
     // Only the frames of a file got through to the Resolve tools.
     expect(resolveCalls).toEqual(["view_frames"]);
@@ -162,7 +163,6 @@ describe("learning from feedback", () => {
   async function inSeries(...scripts: Script[]) {
     const harness = setup(...scripts);
     const { send, byName } = harness;
-    send({ type: "create_collection", kind: "workspace", name: "Ferret Media" });
     send({ type: "create_collection", kind: "series", name: "Reels", parentId: byName("Ferret Media").id });
     send({ type: "move_project", projectId: "ep12", collectionId: byName("Reels").id });
     return harness;
@@ -173,7 +173,7 @@ describe("learning from feedback", () => {
     const { client, send, byName, answer, turnDone, rules } = await inSeries(
       async (running) => {
         replies.push(await running.briefTool("add_lesson", { rule: "Intro at most 3 seconds.", feedback: "the start drags" }));
-        replies.push(await running.briefTool("add_lesson", { for: "workspace", rule: "Never use the blue logo.", feedback: "wrong logo again" }));
+        replies.push(await running.briefTool("add_lesson", { for: "brand", rule: "Never use the blue logo.", feedback: "wrong logo again" }));
         replies.push(await running.briefTool("add_lesson", { rule: "Shorter.", feedback: "" }));
         // A lesson never makes a series; only new rules do.
         replies.push(await running.briefTool("add_lesson", { for: "series", series: "Vlog", rule: "No music.", feedback: "no music in vlogs" }));
@@ -182,7 +182,7 @@ describe("learning from feedback", () => {
     );
     send({ type: "send", text: "the start drags" });
     expect((await answer(true)).input).toEqual({ for: 'Series "Reels"', feedback: "the start drags", rule: "Intro at most 3 seconds." });
-    expect((await answer(false)).input).toMatchObject({ for: 'Workspace "Ferret Media"' });
+    expect((await answer(false)).input).toMatchObject({ for: 'Brand "Ferret Media"' });
     await turnDone();
 
     expect(replies.map((reply) => reply.isError)).toEqual([false, true, true, true]);
@@ -199,7 +199,7 @@ describe("learning from feedback", () => {
     expect(byName("Reels").lessons).toEqual([]);
   });
 
-  it("refuses the brief tools outside a turn and for a project with no workspace or series", async () => {
+  it("refuses the brief tools outside a turn and for a project with no brand, sub-brand or series", async () => {
     const replies: { text: string; isError: boolean }[] = [];
     const { app, send, turnDone } = setup(async (running) => {
       replies.push(await running.briefTool("add_lesson", { rule: "Intro at most 3 seconds.", feedback: "the start drags" }));
@@ -207,7 +207,7 @@ describe("learning from feedback", () => {
     expect(await app.briefTool("save_brief", { rules: "x", summary: "y" })).toMatchObject({ isError: true, text: expect.stringMatching(/No Linker-Edit turn/) });
     send({ type: "send", text: "hi" });
     await turnDone();
-    expect(replies[0]).toMatchObject({ isError: true, text: expect.stringMatching(/isn't in a workspace or series/) });
+    expect(replies[0]).toMatchObject({ isError: true, text: expect.stringMatching(/isn't in a brand, sub-brand or series/) });
   });
 
   it("reads a skill for the running turn's project, without asking in Supervised, and for no one else", async () => {

@@ -31,7 +31,7 @@ import Video from "@lucide/svelte/icons/video";
 import type { Component } from "svelte";
 import type { CollectionIcon, IconColor } from "#shared/protocol.ts";
 
-/** The lucide icons a workspace or series can have, by their lucide name. */
+/** The lucide icons a sub-brand or series can have, by their lucide name. */
 export const LUCIDE_ICONS: Record<string, Component<{ class?: string }>> = {
   folder: Folder,
   briefcase: Briefcase,

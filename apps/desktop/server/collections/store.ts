@@ -3,16 +3,18 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ApprovedEdit, CollectionIcon, CollectionKind, Lesson } from "../../shared/protocol.ts";
 
-/** A library folder of a workspace or series. Empty until the library comes to collections. */
+/** A library folder of a brand, sub-brand or series. Empty until the library comes to collections. */
 export type CollectionLibraryFolder = never;
 
-/** A workspace or series as kept on disk. */
+/** A brand, sub-brand or series as kept on disk. */
 export interface SavedCollection {
   id: string;
   kind: CollectionKind;
   name: string;
-  /** The workspace a series is in; null for a workspace. */
+  /** What it is in, as PARENT_KINDS allows; null for a brand, and for one from before brands. */
   parentId: string | null;
+  /** The Linker org, for a brand only. */
+  orgId: string | null;
   icon: CollectionIcon;
   /** Its SKILL.md without the front matter: the style guide for the agent. */
   rules: string;
@@ -33,7 +35,7 @@ export const NEW_COLLECTION = { library: [], musicOnlyFromHere: false, autonomou
 export interface CollectionStore {
   /** Every collection that could be read, in the order they were made. */
   load(): SavedCollection[];
-  create(fields: Pick<SavedCollection, "kind" | "name" | "parentId" | "icon" | "rules">): SavedCollection;
+  create(fields: Pick<SavedCollection, "kind" | "name" | "parentId" | "orgId" | "icon" | "rules">): SavedCollection;
   save(collection: SavedCollection): void;
   /** Takes it out of the list and deletes its folder, rules included. */
   remove(id: string): void;
@@ -67,11 +69,11 @@ export const skillBody = (text: string): string => text.replace(FRONT_MATTER, ""
  * The front matter Linker-Edit writes, so the folder works as a skill in Claude Code and Codex too. A skill's name
  * is its folder's, as the Agent Skills format asks.
  */
-function frontMatter(folder: string, { kind, name }: Pick<SavedCollection, "kind" | "name">): string {
+function frontMatter(folder: string, { kind, name }: { kind: CollectionFile["kind"]; name: string }): string {
   const about =
-    kind === "workspace"
-      ? `How videos for ${name} are edited. Use for every video of this brand.`
-      : `How ${name} videos are edited. Use for every video in this series.`;
+    kind === "series"
+      ? `How ${name} videos are edited. Use for every video in this series.`
+      : `How videos for ${name} are edited. Use for every video of this brand.`;
   return `name: ${folder}\ndescription: ${JSON.stringify(about)}`;
 }
 
@@ -88,9 +90,12 @@ interface Registry {
 interface CollectionFile {
   version: number;
   id: string;
-  kind: CollectionKind;
+  /** "workspace" in files from before brands: a sub-brand now. */
+  kind: CollectionKind | "workspace";
   name: string;
   parentId: string | null;
+  /** Missing in files from before brands. */
+  orgId?: string | null;
   icon: CollectionIcon;
   library: CollectionLibraryFolder[];
   musicOnlyFromHere: boolean;
@@ -142,7 +147,7 @@ function writeFile(file: string, text: string) {
 const writeJson = (file: string, value: unknown) => writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
 
 /**
- * Workspaces and series, listed in <root>/collections.json, each in <root>/collections/<slug>/ with its
+ * Brands, sub-brands and series, listed in <root>/collections.json, each in <root>/collections/<slug>/ with its
  * collection.json and SKILL.md. A file that can't be read is kept as it is, never overwritten.
  */
 export function fileCollectionStore(options: { root: string; onError?: (error: unknown) => void }): CollectionStore {
@@ -210,7 +215,7 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
     const file = path.join(dirOf(folder), COLLECTION_FILE);
     try {
       const saved = readJson<CollectionFile>(file);
-      if (!saved) throw new Error(`${file} is missing, so this workspace or series was left out.`);
+      if (!saved) throw new Error(`${file} is missing, so this brand, sub-brand or series was left out.`);
       if (saved.version !== VERSION || saved.id !== id) {
         throw new Error(`${file} is from another Linker-Edit version or another list, so it was left out and left as it is.`);
       }
@@ -219,9 +224,10 @@ export function fileCollectionStore(options: { root: string; onError?: (error: u
       const rules = skill === null ? (readText(path.join(dirOf(folder), OLD_RULES_FILE)) ?? "") : skillBody(skill);
       return {
         id,
-        kind: saved.kind,
+        kind: saved.kind === "workspace" ? "subbrand" : saved.kind,
         name: saved.name,
         parentId: saved.parentId ?? null,
+        orgId: typeof saved.orgId === "string" ? saved.orgId : null,
         icon: saved.icon,
         rules,
         library: Array.isArray(saved.library) ? saved.library : [],

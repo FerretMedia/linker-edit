@@ -4,7 +4,7 @@
   import Trash2 from "@lucide/svelte/icons/trash";
   import X from "@lucide/svelte/icons/x";
   import type { CollectionIcon as Icon, CollectionSummary } from "#shared/protocol.ts";
-  import { COLLECTION_LABEL } from "#lib/labels.ts";
+  import { childWords, collectionLabel, NOT_IN_A_BRAND } from "#lib/labels.ts";
   import CollectionIcon from "./CollectionIcon.svelte";
   import CollectionIconPicker from "./CollectionIconPicker.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
@@ -12,12 +12,12 @@
   import SkillsList from "./SkillsList.svelte";
   import Switch from "./Switch.svelte";
 
-  // One workspace or series: its name, icon, place and rules. Keyed by id where it's used, so drafts start fresh.
+  // One brand, sub-brand or series: its name, icon, place and rules. Keyed by id where it's used, so drafts start fresh.
   let {
     collection,
-    workspaces,
+    parents,
     projectNames,
-    seriesCount,
+    childCount,
     sharedSkills,
     onUpdate,
     onSetup,
@@ -28,9 +28,11 @@
     onDelete,
   }: {
     collection: CollectionSummary;
-    workspaces: CollectionSummary[];
+    /** Where it can go, as PARENT_KINDS allows. */
+    parents: { id: string; label: string; disabled: boolean }[];
     projectNames: string[];
-    seriesCount: number;
+    /** The sub-brands and series directly in it. */
+    childCount: number;
     /** The skills every project gets, which this one's can add to. */
     sharedSkills: { name: string; description: string }[];
     onUpdate: (changes: { name?: string; icon?: Icon; rules?: string; parentId?: string | null; autonomous?: boolean }) => void;
@@ -43,7 +45,10 @@
     onDelete: () => void;
   } = $props();
 
-  const label = $derived(COLLECTION_LABEL[collection.kind]);
+  const label = $derived(collectionLabel(collection.kind));
+  // A brand is a Linker org: its name and picture come from Linker, and it stays.
+  const brand = $derived(collection.kind === "brand");
+  const inside = $derived(childWords(collection.kind));
   const initial = untrack(() => collection);
   let name = $state(initial.name);
   let rules = $state(initial.rules);
@@ -61,7 +66,7 @@
   });
   let picking = $state(false);
   const rulesChanged = $derived(rules !== collection.rules);
-  const empty = $derived(seriesCount === 0 && projectNames.length === 0);
+  const empty = $derived(childCount === 0 && projectNames.length === 0);
 
   function saveName() {
     const next = name.replace(/\s+/g, " ").trim();
@@ -82,42 +87,49 @@
 </script>
 
 <SettingsGroup title={collection.name} description={label.one}>
-  <SettingsRow label="Name">
-    <input
-      class={field}
-      aria-label="{label.one} name"
-      maxlength="80"
-      bind:value={name}
-      onblur={saveName}
-      onkeydown={(event) => event.key === "Enter" && event.currentTarget.blur()}
-    />
-  </SettingsRow>
+  {#if brand}
+    <SettingsRow label="Linker org" description="Its name and picture come from Linker. Change them there.">
+      <CollectionIcon icon={collection.icon} name={collection.name} picture={collection.org?.imageUrl} size="lg" />
+    </SettingsRow>
+  {:else}
+    <SettingsRow label="Name">
+      <input
+        class={field}
+        aria-label="{label.one} name"
+        maxlength="80"
+        bind:value={name}
+        onblur={saveName}
+        onkeydown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+      />
+    </SettingsRow>
 
-  <SettingsRow label="Icon">
-    {#snippet detail()}
-      {#if picking}
-        <div class="mt-3">
-          <CollectionIconPicker icon={collection.icon} name={collection.name} onChange={(icon) => onUpdate({ icon })} />
-        </div>
-      {/if}
-    {/snippet}
-    <CollectionIcon icon={collection.icon} name={collection.name} size="lg" />
-    <button type="button" class={button} aria-expanded={picking} onclick={() => (picking = !picking)}>
-      {picking ? "Done" : "Change"}
-    </button>
-  </SettingsRow>
+    <SettingsRow label="Icon">
+      {#snippet detail()}
+        {#if picking}
+          <div class="mt-3">
+            <CollectionIconPicker icon={collection.icon} name={collection.name} onChange={(icon) => onUpdate({ icon })} />
+          </div>
+        {/if}
+      {/snippet}
+      <CollectionIcon icon={collection.icon} name={collection.name} size="lg" />
+      <button type="button" class={button} aria-expanded={picking} onclick={() => (picking = !picking)}>
+        {picking ? "Done" : "Change"}
+      </button>
+    </SettingsRow>
 
-  {#if collection.kind === "series"}
-    <SettingsRow label="In {COLLECTION_LABEL.workspace.lower}">
+    <!-- One from before brands is in none until it is moved. -->
+    <SettingsRow label={collection.parentId ? "In" : "Move to"}>
       <select
         class={field}
-        aria-label="In {COLLECTION_LABEL.workspace.lower}"
+        aria-label={collection.parentId ? "In" : `Move ${collection.name} to`}
         value={collection.parentId ?? ""}
-        onchange={(event) => onUpdate({ parentId: event.currentTarget.value || null })}
+        onchange={(event) => event.currentTarget.value && onUpdate({ parentId: event.currentTarget.value })}
       >
-        <option value="">None</option>
-        {#each workspaces as workspace (workspace.id)}
-          <option value={workspace.id}>{workspace.name}</option>
+        {#if !collection.parentId}
+          <option value="" disabled>{NOT_IN_A_BRAND}</option>
+        {/if}
+        {#each parents as parent (parent.id)}
+          <option value={parent.id} disabled={parent.disabled}>{parent.label}</option>
         {/each}
       </select>
     </SettingsRow>
@@ -125,9 +137,7 @@
 
   <SettingsRow
     label="Projects"
-    description={projectNames.length
-      ? projectNames.join(", ")
-      : `None yet. Put a project in it from the project's settings.`}
+    description={projectNames.length ? projectNames.join(", ") : "None yet. Put a project in it from Add project or the project's settings."}
   />
 
   <SettingsRow
@@ -150,7 +160,7 @@
   <div class="flex flex-col gap-2 p-4">
     <label for="collection-rules" class="text-sm">Rules for the agent</label>
     <p class="text-xs text-muted-foreground">
-      In plain words, for every project in this {label.lower}{collection.kind === "workspace" ? ` and its ${COLLECTION_LABEL.series.lowerMany}` : ""}.
+      In plain words, for every project in this {label.lower}{inside ? ` and its ${inside}` : ""}.
       More specific rules come after these and win where they disagree.
     </p>
     <textarea
@@ -243,15 +253,17 @@
     </div>
   {/if}
 
-  <SettingsRow
-    label="Delete {label.lower}"
-    description={empty
-      ? "Its rules, skills, lessons and notes are deleted too. Projects are never deleted."
-      : `Move its projects${collection.kind === "workspace" ? ` and ${COLLECTION_LABEL.series.lowerMany}` : ""} out first.`}
-  >
-    <button type="button" class="{button} flex items-center gap-1.5 text-destructive" disabled={!empty} onclick={remove}>
-      <Trash2 class="size-3.5" />
-      Delete
-    </button>
-  </SettingsRow>
+  {#if !brand}
+    <SettingsRow
+      label="Delete {label.lower}"
+      description={empty
+        ? "Its rules, skills, lessons and notes are deleted too. Projects are never deleted."
+        : `Move its projects${inside ? ` and ${inside}` : ""} out first.`}
+    >
+      <button type="button" class="{button} flex items-center gap-1.5 text-destructive" disabled={!empty} onclick={remove}>
+        <Trash2 class="size-3.5" />
+        Delete
+      </button>
+    </SettingsRow>
+  {/if}
 </SettingsGroup>

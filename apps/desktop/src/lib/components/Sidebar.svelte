@@ -73,6 +73,7 @@
     onAddProject,
     onProjectSettings,
     onSettings,
+    onBrands,
     onUsage,
     onSignOut = null,
   }: {
@@ -93,6 +94,7 @@
     onAddProject: () => void;
     onProjectSettings: (machineId: string, projectId: string) => void;
     onSettings: () => void;
+    onBrands: () => void;
     onUsage: () => void;
     /** On a web address: signs this browser out of Linker. */
     onSignOut?: (() => void) | null;
@@ -761,6 +763,7 @@
     machine={meta && multi ? (machineNames.get(meta.machineId) ?? null) : null}
     {asked}
     {onSettings}
+    {onBrands}
     {onUsage}
     {onSignOut}
     send={sendHere}

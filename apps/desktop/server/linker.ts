@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { LinkerAccount } from "../shared/protocol.ts";
+import type { LinkerAccount, LinkerOrg } from "../shared/protocol.ts";
 
 /**
- * Signing in with a Linker account (linker.cool), which is optional: nothing in Linker-Edit needs it yet.
+ * Signing in with a Linker account (linker.cool), which is optional: it brings the person's Linker orgs, each a
+ * brand in Linker-Edit.
  *
  * Linker's sign-in is Clerk's, and Clerk is an OAuth server, the same one Linker's AI connector uses. So this
  * is OAuth's authorization code flow with PKCE, for an app on the user's own computer (RFC 8252): the browser
@@ -68,6 +69,8 @@ interface Saved {
   /** A client Linker-Edit registered itself, kept after signing out so it isn't registered again. */
   registered?: Registered;
   session?: Session;
+  /** The session's orgs as Linker last listed them, so brands show offline. Goes with the session. */
+  orgs?: LinkerOrg[];
 }
 
 interface ServerMetadata {
@@ -98,6 +101,17 @@ class OAuthError extends Error {
 }
 
 const base64url = (bytes: Buffer) => bytes.toString("base64url");
+
+/** Linker's answer to GET /api/edit/orgs, as far as it makes sense; null when it isn't that answer at all. */
+export function parseOrgs(body: unknown): LinkerOrg[] | null {
+  const orgs = (body as { orgs?: unknown } | null)?.orgs;
+  if (!Array.isArray(orgs)) return null;
+  return orgs.flatMap((org: Record<string, unknown> | null) =>
+    typeof org?.id === "string" && org.id && typeof org.name === "string"
+      ? [{ id: org.id, name: org.name, imageUrl: typeof org.imageUrl === "string" && org.imageUrl ? org.imageUrl : null }]
+      : [],
+  );
+}
 
 export function pkce(): { verifier: string; challenge: string } {
   const verifier = base64url(randomBytes(32));
@@ -262,6 +276,7 @@ export function createLinker(options: LinkerOptions) {
 
   function signedOut(reason: string | null) {
     delete saved.session;
+    delete saved.orgs;
     write();
     problem = reason;
     changed();
@@ -293,6 +308,24 @@ export function createLinker(options: LinkerOptions) {
       if (error instanceof OAuthError && error.code === "invalid_grant") signedOut("Your Linker sign-in ran out. Sign in again.");
       throw error;
     }
+  }
+
+  /** Asks Linker which orgs the person is in and keeps the answer. Throws when it can't; the last answer stays. */
+  async function listOrgs(): Promise<void> {
+    const token = await accessToken();
+    const session = saved.session;
+    if (!token || !session) return;
+    const res = await call(`${appUrl}/api/edit/orgs`, { headers: { authorization: `Bearer ${token}`, accept: "application/json" } }).catch(() => {
+      throw new Error("Couldn't reach Linker, so your brands are as it last listed them.");
+    });
+    if (!res.ok) throw new Error(`Linker didn't list your orgs (${res.status}).`);
+    const orgs = parseOrgs(await res.json().catch(() => null));
+    if (!orgs) throw new Error("Linker's list of your orgs didn't make sense.");
+    // Signed out or in as someone else meanwhile: the answer is theirs no more.
+    if (saved.session !== session) return;
+    saved.orgs = orgs;
+    write();
+    changed();
   }
 
   return {
@@ -348,6 +381,7 @@ export function createLinker(options: LinkerOptions) {
           ...clientFields(started.client),
         });
         const who = await profile(meta, tokens.access_token!);
+        delete saved.orgs;
         saved.session = {
           authServer,
           client: started.client,
@@ -358,6 +392,8 @@ export function createLinker(options: LinkerOptions) {
         };
         write();
         problem = null;
+        // Best effort, like the plan: the brands follow at the next start or from the Brands page.
+        await listOrgs().catch(() => {});
         return who.name;
       } catch (error) {
         problem = error instanceof Error ? error.message : String(error);
@@ -393,6 +429,13 @@ export function createLinker(options: LinkerOptions) {
 
     accessToken,
 
+    /** The orgs of the person signed in, as Linker last listed them; null when signed out or never listed. */
+    orgs(): LinkerOrg[] | null {
+      return saved.session?.authServer === authServer ? (saved.orgs ?? null) : null;
+    },
+
+    listOrgs,
+
     /** Linker's id for the person signed in here; null when signed out or not known yet. */
     userId(): string | null {
       const session = saved.session;
@@ -422,7 +465,7 @@ export function createLinker(options: LinkerOptions) {
       return typeof sub === "string" && sub ? sub : null;
     },
 
-    /** Brings the name and plan up to date, at start. Offline keeps what was there. */
+    /** Brings the name, plan and orgs up to date, at start. Offline keeps what was there. */
     async refresh(): Promise<void> {
       try {
         const token = await accessToken();
@@ -431,6 +474,7 @@ export function createLinker(options: LinkerOptions) {
         Object.assign(session, await profile(await serverMetadata(), token));
         write();
         changed();
+        await listOrgs();
       } catch {
         // Offline or Linker is busy: still signed in, with what was known.
       }

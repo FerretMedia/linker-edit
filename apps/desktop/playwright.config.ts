@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { FAKE_LINKER_PORT, signedInAccount } from "./e2e/fake-linker.ts";
 
 // The e2e server gets its own port and workspace, and replays a recorded Claude turn: no tokens spent.
 const port = 4399;
@@ -24,8 +25,12 @@ if (!process.env.TEST_WORKER_INDEX) {
       transcriptsDir: path.join(dir, "transcripts"),
       toolsDir: path.join(dir, "tools"),
       resolveMcp: "",
+      // Signed in at a fake Linker, whose orgs are the brands.
+      linkerAuthServer: `http://127.0.0.1:${FAKE_LINKER_PORT}`,
+      linkerAppUrl: `http://127.0.0.1:${FAKE_LINKER_PORT}`,
     }),
   );
+  fs.writeFileSync(path.join(dir, "linker-account.json"), JSON.stringify(signedInAccount()));
   fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ resolveHere: false }));
   // A teammate's project folder to add through the folder picker.
   fs.mkdirSync(path.join(dir, "team", "Promo"), { recursive: true });
@@ -62,13 +67,16 @@ function toneWav(rate = 8000): Buffer {
 export default defineConfig({
   testDir: "e2e",
   use: { baseURL: `http://127.0.0.1:${port}` },
-  webServer: {
-    command: "npm run build && node server/index.ts",
-    url: `http://127.0.0.1:${port}`,
-    reuseExistingServer: false,
-    env: {
-      LINKER_EDIT_CONFIG: configFile,
-      LINKER_EDIT_REPLAY: path.join("server", "providers", "fixtures", "claude-turn.jsonl"),
+  webServer: [
+    { command: `node e2e/fake-linker.ts ${FAKE_LINKER_PORT}`, url: `http://127.0.0.1:${FAKE_LINKER_PORT}/health`, reuseExistingServer: false },
+    {
+      command: "npm run build && node server/index.ts",
+      url: `http://127.0.0.1:${port}`,
+      reuseExistingServer: false,
+      env: {
+        LINKER_EDIT_CONFIG: configFile,
+        LINKER_EDIT_REPLAY: path.join("server", "providers", "fixtures", "claude-turn.jsonl"),
+      },
     },
-  },
+  ],
 });
