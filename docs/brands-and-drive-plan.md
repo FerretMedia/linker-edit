@@ -87,7 +87,7 @@ Linker contract, served by PR L:
 // Authorization: Bearer <Linker-Edit's Linker access token>
 // 200
 interface EditOrgs {
-	orgs: { id: string; name: string; imageUrl: string | null; role: "admin" | "member" }[];
+	orgs: { id: string; name: string; imageUrl: string | null; role: "admin" | "editor" | "viewer" }[];
 }
 ```
 
