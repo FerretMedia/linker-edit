@@ -28,6 +28,7 @@ export function memoryProjectStore(initial: { project: SavedProject; threads?: S
     saveProject(project) {
       projects.set(project.id, structuredClone(project));
     },
+    reload: (project) => structuredClone(projects.get(project.id) ?? project),
     removeProject(id) {
       projects.delete(id);
     },

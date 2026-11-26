@@ -103,6 +103,22 @@ describe("fileProjectStore", () => {
     expect(JSON.parse(fs.readFileSync(path.join(old, "linker-edit.json"), "utf8"))).toEqual({ version: 1, name: "Old", resolve: null });
   });
 
+  it("keeps a project's Drive folder in linker-edit.json and whether this computer mirrors it in local.json", () => {
+    const { open } = setup();
+    const store = open();
+    const drive = { folderId: "f1", accountId: "a1" };
+    const project = store.create({ name: "Launch", link: null, local: { folder: ["Clients"] } });
+    store.saveProject({ ...project, drive, mirrored: true });
+
+    expect(JSON.parse(fs.readFileSync(path.join(project.dir, "linker-edit.json"), "utf8"))).toMatchObject({ drive });
+    expect(JSON.parse(fs.readFileSync(path.join(project.dir, ".linker-edit", "local.json"), "utf8"))).toEqual({ folder: ["Clients"], mirror: { state: "mirrored" } });
+    expect(open().load()[1]?.project).toMatchObject({ drive, mirrored: true, local: { folder: ["Clients"] } });
+
+    // Another computer's linker-edit.json, synced down, is what reload reads.
+    fs.writeFileSync(path.join(project.dir, "linker-edit.json"), JSON.stringify({ version: 1, name: "Launch v2", resolve: null, drive }));
+    expect(store.reload(project)).toMatchObject({ name: "Launch v2", drive, mirrored: true });
+  });
+
   it("rebuilds a damaged project list from the project folders, keeping the damaged file", () => {
     const { home, root, open, errors } = setup();
     const store = open();

@@ -38,6 +38,17 @@ export interface SavedProject {
   setup?: boolean;
   /** Whether its agent makes the first cut without asking; missing follows its series or workspace. */
   autonomous?: boolean;
+  /** Its folder on Google Drive; missing for a project that isn't on Drive. */
+  drive?: DriveLink;
+  /** This computer keeps a copy of the project on Drive and syncs it both ways. */
+  mirrored?: boolean;
+}
+
+/** In linker-edit.json, so every computer syncs the same Drive folder. */
+export interface DriveLink {
+  folderId: string;
+  /** Drive's id for the Google account, so a computer signed in to another account leaves it alone. */
+  accountId: string;
 }
 
 /** The sidebar fields of a thread that has none yet. */
@@ -77,6 +88,8 @@ export interface ProjectStore {
   /** Registers a folder that already has a linker-edit.json, with the threads it has. */
   adopt(dir: string): { project: SavedProject; threads: SavedThread[] };
   saveProject(project: SavedProject): void;
+  /** The project as its files say now, after another computer's linker-edit.json came down from Drive. */
+  reload(project: SavedProject): SavedProject;
   /** Only forgets the project; its folder stays. */
   removeProject(id: string): void;
   saveThread(project: SavedProject, thread: SavedThread): void;
@@ -99,7 +112,11 @@ interface ProjectFile {
   collection?: ProjectCollection;
   setup?: boolean;
   autonomous?: boolean;
+  drive?: DriveLink;
 }
+
+/** This computer's side of a project: its link's local half, and the plan's Mirror for a project on Drive. */
+type LocalJson = LocalLink & { mirror?: { state: "mirrored" } };
 
 interface RegistryEntry {
   id: string;
@@ -226,16 +243,18 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
 
   function readProject({ id, dir, pinned, archived }: RegistryEntry): SavedProject {
     let file: ProjectFile | null = null;
-    let local: LocalLink = {};
+    let saved: LocalJson = {};
     try {
       file = readJson<ProjectFile>(path.join(dir, PROJECT_FILE));
       if (file && file.version !== VERSION) file = null;
-      local = readJson<LocalLink>(path.join(stateDir(dir), "local.json")) ?? {};
+      saved = readJson<LocalJson>(path.join(stateDir(dir), "local.json")) ?? {};
     } catch (error) {
       onError(error);
     }
+    const { mirror, ...local } = saved;
     // Files from before workspaces have none.
     const collection = file?.collection;
+    const drive = file?.drive;
     return {
       id,
       dir,
@@ -248,6 +267,8 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       ...(collection && typeof collection.id === "string" ? { collection: { id: collection.id, name: String(collection.name ?? "") } } : {}),
       ...(file?.setup === true ? { setup: true } : {}),
       ...(typeof file?.autonomous === "boolean" ? { autonomous: file.autonomous } : {}),
+      ...(typeof drive?.folderId === "string" && typeof drive.accountId === "string" ? { drive: { folderId: drive.folderId, accountId: drive.accountId } } : {}),
+      ...(mirror?.state === "mirrored" ? { mirrored: true } : {}),
     };
   }
 
@@ -311,9 +332,11 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
         ...(project.collection ? { collection: { id: project.collection.id, name: project.collection.name } } : {}),
         ...(project.setup ? { setup: true } : {}),
         ...(project.autonomous === undefined ? {} : { autonomous: project.autonomous }),
+        ...(project.drive ? { drive: project.drive } : {}),
       };
       writeJson(path.join(project.dir, PROJECT_FILE), file);
-      writeJson(path.join(stateDir(project.dir), "local.json"), project.local);
+      const local: LocalJson = { ...project.local, ...(project.mirrored ? { mirror: { state: "mirrored" } } : {}) };
+      writeJson(path.join(stateDir(project.dir), "local.json"), local);
       const entry = registry.projects.find((candidate) => candidate.id === project.id);
       if (entry && (entry.pinned === true) !== project.pinned) entry.pinned = project.pinned;
       if (entry && (entry.archived === true) !== project.archived) entry.archived = project.archived;
@@ -363,6 +386,7 @@ export function fileProjectStore(options: { root: string; legacyDir: string; onE
       return { project: readProject({ id, dir: resolved }), threads: readThreads(resolved) };
     },
     saveProject,
+    reload: ({ id, dir, pinned, archived }) => readProject({ id, dir, pinned, archived }),
     removeProject(id) {
       registry = { ...registry, projects: registry.projects.filter((entry) => entry.id !== id) };
       saveRegistry();
