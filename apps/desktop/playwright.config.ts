@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { FAKE_GOOGLE_CLIENT, FAKE_GOOGLE_PORT } from "./e2e/fake-google.ts";
 import { FAKE_LINKER_PORT, signedInAccount } from "./e2e/fake-linker.ts";
 
 // The e2e server gets its own port and workspace, and replays a recorded Claude turn: no tokens spent.
@@ -28,6 +29,8 @@ if (!process.env.TEST_WORKER_INDEX) {
       // Signed in at a fake Linker, whose orgs are the brands.
       linkerAuthServer: `http://127.0.0.1:${FAKE_LINKER_PORT}`,
       linkerAppUrl: `http://127.0.0.1:${FAKE_LINKER_PORT}`,
+      // Google Drive's sign-in goes to a fake Google.
+      googleUrl: `http://127.0.0.1:${FAKE_GOOGLE_PORT}`,
     }),
   );
   fs.writeFileSync(path.join(dir, "linker-account.json"), JSON.stringify(signedInAccount()));
@@ -69,6 +72,7 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${port}` },
   webServer: [
     { command: `node e2e/fake-linker.ts ${FAKE_LINKER_PORT}`, url: `http://127.0.0.1:${FAKE_LINKER_PORT}/health`, reuseExistingServer: false },
+    { command: `node e2e/fake-google.ts ${FAKE_GOOGLE_PORT}`, url: `http://127.0.0.1:${FAKE_GOOGLE_PORT}/health`, reuseExistingServer: false },
     {
       command: "npm run build && node server/index.ts",
       url: `http://127.0.0.1:${port}`,
@@ -76,6 +80,8 @@ export default defineConfig({
       env: {
         LINKER_EDIT_CONFIG: configFile,
         LINKER_EDIT_REPLAY: path.join("server", "providers", "fixtures", "claude-turn.jsonl"),
+        LINKER_EDIT_GOOGLE_CLIENT_ID: FAKE_GOOGLE_CLIENT.id,
+        LINKER_EDIT_GOOGLE_CLIENT_SECRET: FAKE_GOOGLE_CLIENT.secret,
       },
     },
   ],

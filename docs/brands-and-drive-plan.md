@@ -191,7 +191,7 @@ The user has 5 TB already on Drive. "Add existing projects from Drive" only work
 ## PR C: Google Drive sign-in
 
 - [ ] Depends on: the scope that spike 0 picked.
-- [ ] Builds: OAuth for a desktop app with PKCE and a loopback redirect on `127.0.0.1`. The refresh token is stored encrypted with Electron `safeStorage`. A thin client (`drive/client.ts`) covers list, get, create folder, resumable upload, ranged download and `changes.list`. Settings gets a **Google Drive** row with the account and **Sign out**.
+- [ ] Builds: OAuth for a desktop app with PKCE and a loopback redirect on `127.0.0.1`. The refresh token is kept in `google-account.json` next to the config, readable only by the user, the way Linker's sign-in is kept: the server is a plain Node process, so Electron's `safeStorage` isn't there. A thin client (`drive/client.ts`) covers list, get, create folder, resumable upload, ranged download and `changes.list`. Settings gets a **Google Drive** row with the account and **Sign out**.
 - [ ] Unit: the client against a recorded fake Drive server. A 401 refreshes the token once. A 403 rate limit backs off.
 - [ ] Live: sign in, restart the app, list My Drive's root. Pass when no second sign-in is asked.
 - [ ] Perf: none, nothing hot.

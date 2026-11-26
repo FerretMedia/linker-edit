@@ -5,6 +5,7 @@ import { createApp } from "./app.ts";
 import { createAppUpdates } from "./appUpdate.ts";
 import { fileCollectionStore } from "./collections/store.ts";
 import { APP_ROOT, loadConfigOrExit } from "./config.ts";
+import { createGoogleAuth } from "./drive/auth.ts";
 import { createHistory, readResolveSnapshot } from "./history/history.ts";
 import { createServer } from "./http.ts";
 import { fileLibraryStore } from "./library/folders.ts";
@@ -47,6 +48,8 @@ process.on("exit", () => resolve.close());
 const remote = createRemoteAccess({ port: config.port, servePort: config.tailscalePort });
 // The browser comes back to this server after signing in at Linker.
 const linker = createLinker({ ...config.linker, redirectUri: `http://127.0.0.1:${config.port}/api/linker/callback` });
+// Google Drive, where the Drive sync keeps projects; only in a build with Linker-Edit's Google client.
+const google = config.google.client ? createGoogleAuth({ ...config.google, client: config.google.client }) : undefined;
 // Linker Connect: up to 3 of your edit computers at their own addresses at Linker, through Cloudflare Tunnels.
 const connectSessions = createSessions({ file: config.connect.sessionsFile });
 const connect = createConnect({
@@ -116,6 +119,7 @@ const app = createApp({
   }),
   remote,
   linker,
+  google,
   connect,
   settings: fileSettings(config.settingsFile),
   setup: {
@@ -133,7 +137,7 @@ export const server = createServer(app, path.join(APP_ROOT, "build"), config.api
   ...connect,
   sessions: connectSessions,
   webOrigins,
-});
+}, google);
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {

@@ -309,6 +309,16 @@ export type LinkerAccount =
       appUrl: string;
     };
 
+/** The Google account whose Drive keeps the projects, signed in on this computer. */
+export type GoogleDrive =
+  /** This build has no Google OAuth client, so it can't sign in to Google. */
+  | { state: "not_set_up" }
+  /** problem is why the last sign-in failed or ended, worded for the user. */
+  | { state: "signed_out"; problem: string | null }
+  /** Waiting for the browser to come back from Google. */
+  | { state: "signing_in" }
+  | { state: "signed_in"; email: string; name: string | null };
+
 /**
  * What GET /api/hello answers, which is how a page or another computer recognizes Linker-Edit. protocol is raised
  * only for a change that breaks a page of another version talking to this server (your own web address).
@@ -532,6 +542,8 @@ export interface AppMeta {
   /** Null in tests and builds that don't say. */
   setup: ComputerSetup | null;
   linker: LinkerAccount;
+  /** Missing from older servers. */
+  googleDrive?: GoogleDrive;
   /** Every brand, sub-brand and series, brands first, each in the order it was made. */
   collections: CollectionSummary[];
   /** The skills every project gets: Linker-Edit's and your own. Missing from older servers. */
@@ -605,6 +617,9 @@ export type ClientMessage =
   | { type: "linker_sign_out" }
   /** Asks Linker again which orgs, so which brands, the person is in. */
   | { type: "refresh_brands" }
+  /** Stops waiting for a Google sign-in started in the browser (GET /api/google/sign-in starts one). */
+  | { type: "google_cancel_sign_in" }
+  | { type: "google_sign_out" }
   /** Downloads the speech engine now, or stops that download. */
   | { type: "transcription_setup" }
   | { type: "transcription_cancel" }

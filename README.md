@@ -79,7 +79,7 @@ Linker-Edit opens in its own window. Closing the window stops it; `npx linker-ed
 
 ## Configuration
 
-**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, how the sidebar groups and settles threads, Resolve on this computer, the speech engine, remote access, your Linker account and updates. It also shows where Linker-Edit keeps its files. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
+**Settings** (the gear at the bottom of the sidebar, or Ctrl+, / ⌘,) has what you change day to day: approvals, the agent new threads start with, the theme, how the sidebar groups and settles threads, Resolve on this computer, the speech engine, remote access, your Linker and Google Drive accounts, and updates. It also shows where Linker-Edit keeps its files. Each computer has its own settings: with more than one, choose the computer at the top of the settings list. It starts on the computer of the thread you have open.
 
 The defaults work for a standard install. To change where things go, create `~/LinkerEdit/linker-edit.config.json` (see `linker-edit.config.example.json`):
 
@@ -387,6 +387,14 @@ Optional. Press **Sign in with Linker** at the bottom of the sidebar and sign in
 
 - **Sign in on the edit machine itself.** Linker sends your browser back to Linker-Edit on `127.0.0.1`, so it works on the computer Linker-Edit runs on, on the default port 4317.
 - **Linker-Edit asks for your name and email,** and to stay signed in. It keeps the sign-in in `~/LinkerEdit/linker-account.json`, readable only by you. **Sign out** in the account's menu removes it and tells Linker to forget it.
+
+## Google Drive
+
+Linker-Edit is getting a Google Drive sync of its own, so each of your computers keeps only the projects it works on (see [docs/brands-and-drive-plan.md](docs/brands-and-drive-plan.md)). Signing in comes first: **Settings > Accounts > Google Drive > Sign in**. A build without Linker-Edit's Google sign-in says it isn't set up yet.
+
+- **Linker-Edit sees only its own files on your Drive:** the ones it makes and the ones you pick. That's the one permission it asks for; your name and email come from Drive.
+- **Sign in on the edit machine itself.** Google sends your browser back to Linker-Edit on `127.0.0.1`.
+- **It keeps the sign-in in `~/LinkerEdit/google-account.json`,** readable only by you. **Sign out** removes it and tells Google to forget it.
 
 ## Testing
 
