@@ -801,7 +801,6 @@ export interface LinkerOrg {
   id: string;
   name: string;
   imageUrl: string | null;
-  role: "admin" | "member";
 }
 
 export type IconColor = "gray" | "red" | "orange" | "amber" | "green" | "teal" | "blue" | "violet" | "pink";

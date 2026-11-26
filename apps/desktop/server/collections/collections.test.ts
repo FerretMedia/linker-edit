@@ -13,7 +13,7 @@ import { collectionChain, createCollections, parentRefusal } from "./collections
 import type { SavedCollection } from "./store.ts";
 import { linkerWithOrgs, memoryCollectionStore } from "./testing.ts";
 
-const org = (id: string, name: string): LinkerOrg => ({ id, name, imageUrl: `https://img.example/${id}.png`, role: "member" });
+const org = (id: string, name: string): LinkerOrg => ({ id, name, imageUrl: `https://img.example/${id}.png` });
 const FERRET = org("org_ferret", "Ferret Media");
 
 function setup(projects: SavedProject[] = [], skills: SkillRoot[] = [], initial: SavedCollection[] = []) {

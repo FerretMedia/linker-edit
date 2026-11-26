@@ -28,7 +28,7 @@ function setup(...scripts: Script[]) {
     version: "0.0.0",
     store: projects,
     collections,
-    linker: linkerWithOrgs([{ id: "org_ferret", name: "Ferret Media", imageUrl: null, role: "admin" }]),
+    linker: linkerWithOrgs([{ id: "org_ferret", name: "Ferret Media", imageUrl: null }]),
     skills: [{ label: "Linker-Edit", dir: skills }],
     createSession: (_provider, _mode, _dir, _resumeId, projectRules) => ({
       send: async (text) => {

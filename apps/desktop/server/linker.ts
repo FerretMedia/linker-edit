@@ -108,7 +108,7 @@ export function parseOrgs(body: unknown): LinkerOrg[] | null {
   if (!Array.isArray(orgs)) return null;
   return orgs.flatMap((org: Record<string, unknown> | null) =>
     typeof org?.id === "string" && org.id && typeof org.name === "string"
-      ? [{ id: org.id, name: org.name, imageUrl: typeof org.imageUrl === "string" && org.imageUrl ? org.imageUrl : null, role: org.role === "admin" ? "admin" : "member" } as const]
+      ? [{ id: org.id, name: org.name, imageUrl: typeof org.imageUrl === "string" && org.imageUrl ? org.imageUrl : null }]
       : [],
   );
 }

@@ -26,8 +26,8 @@ export const signedInAccount = (port = FAKE_LINKER_PORT) => ({
 });
 
 export const FAKE_ORGS: LinkerOrg[] = [
-  { id: "org_ferret", name: "Ferret Media", imageUrl: null, role: "admin" },
-  { id: "org_north", name: "Studio North", imageUrl: null, role: "member" },
+  { id: "org_ferret", name: "Ferret Media", imageUrl: null },
+  { id: "org_north", name: "Studio North", imageUrl: null },
 ];
 
 function serve(port: number) {

@@ -312,14 +312,14 @@ describe("staying signed in", () => {
 });
 
 describe("the person's Linker orgs, which are their brands", () => {
-  const FERRET = { id: "org_ferret", name: "Ferret Media", imageUrl: "https://img.example/ferret.png", role: "admin" };
+  const FERRET = { id: "org_ferret", name: "Ferret Media", imageUrl: "https://img.example/ferret.png" };
 
   it("lists them at sign-in with the account's token, and keeps them for when Linker can't be reached", async () => {
-    const fake = fakeLinker({ orgs: [FERRET, { id: "org_north", name: "Studio North" }] });
+    const fake = fakeLinker({ orgs: [{ ...FERRET, role: "admin" }, { id: "org_north", name: "Studio North", role: "editor" }] });
     const linker = linkerWith(fake);
     expect(linker.orgs()).toBeNull();
     await signIn(linker, fake);
-    expect(linker.orgs()).toEqual([FERRET, { id: "org_north", name: "Studio North", imageUrl: null, role: "member" }]);
+    expect(linker.orgs()).toEqual([FERRET, { id: "org_north", name: "Studio North", imageUrl: null }]);
 
     // Offline after a restart: the last answer stands.
     const offline = linkerWith({ ...fake, fetchFn: (async () => Promise.reject(new TypeError("fetch failed"))) as typeof fetch });
@@ -357,7 +357,7 @@ describe("the person's Linker orgs, which are their brands", () => {
 
   it("reads only what makes sense of Linker's answer", () => {
     expect(parseOrgs({ orgs: [{ id: "a", name: "A", imageUrl: "", role: "owner" }, { id: "", name: "B" }, { name: "C" }, null, { id: "d", name: 4 }] })).toEqual([
-      { id: "a", name: "A", imageUrl: null, role: "member" },
+      { id: "a", name: "A", imageUrl: null },
     ]);
     expect(parseOrgs({ error: "nope" })).toBeNull();
     expect(parseOrgs(null)).toBeNull();
