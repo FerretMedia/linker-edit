@@ -1,6 +1,7 @@
 <script lang="ts">
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import AudioLines from "@lucide/svelte/icons/audio-lines";
+  import BookOpen from "@lucide/svelte/icons/book-open";
   import Check from "@lucide/svelte/icons/check";
   import Clapperboard from "@lucide/svelte/icons/clapperboard";
   import Copy from "@lucide/svelte/icons/copy";
@@ -14,7 +15,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import UserRound from "@lucide/svelte/icons/user-round";
-  import { AUTO_SETTLE_DAYS, type AppMeta, type ClientMessage } from "#shared/protocol.ts";
+  import { AUTO_SETTLE_DAYS, type AppMeta, type ClientMessage, type SkillImportResult } from "#shared/protocol.ts";
   import { RELEASES_URL, releaseName } from "#shared/release-name.ts";
   import type { Host } from "#lib/host.ts";
   import { provideHost } from "#lib/hostContext.ts";
@@ -27,6 +28,7 @@
   import Segmented from "./Segmented.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import SkillsList from "./SkillsList.svelte";
   import Switch from "./Switch.svelte";
 
   let {
@@ -40,6 +42,7 @@
     onLibrary,
     onSignOut = null,
     send,
+    importSkills,
     onClose,
   }: {
     /** The settings of this machine: each of the user's computers has its own. */
@@ -57,10 +60,12 @@
     onSignOut?: (() => void) | null;
     /** To this machine. */
     send: (message: ClientMessage) => void;
+    /** Into your own skills (null), or a brand's, sub-brand's or series'. */
+    importSkills: (id: string | null, files: { path: string; base64: string }[]) => Promise<SkillImportResult | { error: string }>;
     onClose: () => void;
   } = $props();
 
-  const ICONS = { general: Settings2, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
+  const ICONS = { general: Settings2, skills: BookOpen, resolve: Clapperboard, transcription: AudioLines, remote: Globe, account: UserRound, about: Info };
   const title = $derived(SETTINGS_SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings");
 
   // Its remote access and Linker account settings below talk to it too.
@@ -352,6 +357,20 @@
                   />
                 </SettingsRow>
               {/if}
+            {/if}
+          </SettingsGroup>
+        {:else if section === "skills"}
+          <SettingsGroup title="Your own skills" description="For every project, with or without a brand. A brand, sub-brand or series has skills of its own on the Brands page.">
+            {#if app.ownSkills}
+              <SkillsList
+                skills={app.ownSkills}
+                shared={app.skills ?? []}
+                about="How one kind of work is done, such as color grading. The agent sees the list and reads a skill only when the work needs it."
+                onImport={(files) => importSkills(null, files)}
+                onRemove={(name) => send({ type: "remove_skill", id: null, name })}
+              />
+            {:else}
+              <SettingsRow label="Update Linker-Edit on {app.computer}" description="Its version can't import skills yet." />
             {/if}
           </SettingsGroup>
         {:else if section === "resolve"}

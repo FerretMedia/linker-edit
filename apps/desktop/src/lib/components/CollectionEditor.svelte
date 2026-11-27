@@ -3,7 +3,7 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Trash2 from "@lucide/svelte/icons/trash";
   import X from "@lucide/svelte/icons/x";
-  import type { CollectionIcon as Icon, CollectionSummary } from "#shared/protocol.ts";
+  import type { CollectionIcon as Icon, CollectionSummary, SkillImportResult } from "#shared/protocol.ts";
   import { childWords, collectionLabel, NOT_IN_A_BRAND } from "#lib/labels.ts";
   import CollectionIcon from "./CollectionIcon.svelte";
   import CollectionIconPicker from "./CollectionIconPicker.svelte";
@@ -23,7 +23,7 @@
     onSetup,
     onRemoveLesson,
     onRemoveExample,
-    onSaveSkill,
+    onImportSkills,
     onRemoveSkill,
     onDelete,
   }: {
@@ -34,13 +34,13 @@
     /** The sub-brands and series directly in it. */
     childCount: number;
     /** The skills every project gets, which this one's can add to. */
-    sharedSkills: { name: string; description: string }[];
+    sharedSkills: { name: string }[];
     onUpdate: (changes: { name?: string; icon?: Icon; rules?: string; parentId?: string | null; autonomous?: boolean }) => void;
     /** Opens its setup thread, where the agent studies example videos and proposes the rules. */
     onSetup: () => void;
     onRemoveLesson: (lessonId: string) => void;
     onRemoveExample: (name: string) => void;
-    onSaveSkill: (skill: { name: string; description: string; text: string; isNew?: boolean }) => void;
+    onImportSkills: (files: { path: string; base64: string }[]) => Promise<SkillImportResult | { error: string }>;
     onRemoveSkill: (name: string) => void;
     onDelete: () => void;
   } = $props();
@@ -191,7 +191,13 @@
     </div>
   </div>
 
-  <SkillsList skills={collection.skills ?? []} shared={sharedSkills} of={label.lower} onSave={onSaveSkill} onRemove={onRemoveSkill} />
+  <SkillsList
+    skills={collection.skills ?? []}
+    shared={sharedSkills}
+    about="How one kind of work is done in this {label.lower}, such as color grading. The agent reads a skill only when the work needs it; the rules above it reads always."
+    onImport={onImportSkills}
+    onRemove={onRemoveSkill}
+  />
 
   <div class="flex flex-col gap-2 p-4">
     <p class="text-sm">Lessons from your feedback</p>

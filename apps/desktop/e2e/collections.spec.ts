@@ -29,27 +29,6 @@ test("a project goes in a series inside a sub-brand of a brand, and gets the bra
   await page.getByRole("button", { name: "Save rules" }).click();
   await expect(page.getByRole("button", { name: "Saved" })).toBeDisabled();
 
-  // A skill of its own, which adds to the one every project gets.
-  await page.getByRole("button", { name: "Add skill" }).click();
-  await page.getByRole("combobox", { name: "Skill name" }).fill("color-grading");
-  await expect(page.getByText("Adds to the color-grading skill every project gets")).toBeVisible();
-  await page.getByRole("textbox", { name: "Skill text" }).fill("Warm highlights.");
-  await page.getByRole("button", { name: "Save skill" }).click();
-  await expect(page.getByRole("textbox", { name: "Skill text" })).toHaveCount(0);
-  expect(fs.readFileSync(path.join(dir, "collections", "ferret-media", "skills", "color-grading", "SKILL.md"), "utf8")).toContain("Warm highlights.");
-  await page.getByRole("button", { name: "Add skill" }).click();
-  await page.getByRole("combobox", { name: "Skill name" }).fill("podcast");
-  await page.getByRole("textbox", { name: "Skill text" }).fill("One idea.");
-  await page.getByRole("button", { name: "Save skill" }).click();
-  // Refused without a description, and the text stays.
-  await expect(page.getByText("Say what work the skill is for")).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Skill text" })).toHaveValue("One idea.");
-  await page.getByRole("button", { name: "Cancel" }).click();
-  page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", { name: "Remove the skill color-grading" }).click();
-  await expect(page.getByRole("button", { name: "Remove the skill color-grading" })).toHaveCount(0);
-  expect(fs.existsSync(path.join(dir, "collections", "ferret-media", "skills", "color-grading"))).toBe(false);
-
   // A sub-brand in the brand, and a series in the sub-brand picked.
   await page.getByRole("button", { name: "New sub-brand" }).click();
   await expect(page.getByRole("combobox", { name: "New sub-brand in" })).toHaveValue(/.+/);

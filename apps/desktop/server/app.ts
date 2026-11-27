@@ -84,8 +84,10 @@ export interface AppOptions {
   prepareFolder?: (dir: string, rules: string) => void;
   /** Brands, sub-brands and series; kept in memory only without it. */
   collections?: CollectionStore;
-  /** Skills every project gets, most general first. */
+  /** Linker-Edit's skills, which every project gets. */
   skills?: SkillRoot[];
+  /** The folder of your own skills, which every project gets too. */
+  ownSkills?: string;
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
   resolveTools?: (
     tool: string,
@@ -218,6 +220,7 @@ export function createApp(options: AppOptions) {
   const collections = createCollections({
     store: options.collections ?? memoryCollectionStore(),
     skills: options.skills ?? [],
+    ownSkills: options.ownSkills,
     projects: () => [...projects.values()].map((project) => project.saved),
     orgs: () => options.linker?.orgs() ?? null,
     setCollection(projectId, collection, commitMessage) {
@@ -644,6 +647,7 @@ export function createApp(options: AppOptions) {
       linker: options.linker?.status() ?? { state: "signed_out", problem: null },
       collections: collections.summaries(),
       skills: collections.sharedSkills(),
+      ownSkills: collections.ownSkills(),
     } satisfies Partial<AppMeta>;
   }
 
@@ -681,6 +685,7 @@ export function createApp(options: AppOptions) {
       linker: shared.linker,
       collections: shared.collections,
       skills: shared.skills,
+      ownSkills: shared.ownSkills,
     };
   }
 
@@ -1547,6 +1552,9 @@ export function createApp(options: AppOptions) {
         break;
       case "browse_folders":
         if (typeof message.path === "string") void sendFolders(client, message.requestId, message.path);
+        break;
+      case "import_skills":
+        send(client, { type: "skills_imported", requestId: message.requestId, result: collections.importSkills(message.id ?? null, message.files) });
         break;
       case "refresh_remote_access":
         void options.remote?.refresh();

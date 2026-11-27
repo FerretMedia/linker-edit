@@ -534,8 +534,10 @@ export interface AppMeta {
   linker: LinkerAccount;
   /** Every brand, sub-brand and series, brands first, each in the order it was made. */
   collections: CollectionSummary[];
-  /** The skills every project gets: Linker-Edit's and your own. Missing from older servers. */
+  /** Linker-Edit's skills, which every project gets. Older servers listed your own here too. */
   skills?: { name: string; description: string }[];
+  /** Your own skills, which every project gets too, in ~/LinkerEdit/skills. Missing from older servers. */
+  ownSkills?: SavedSkill[];
 }
 
 export interface AppState extends AppMeta {
@@ -640,6 +642,7 @@ export type ServerMessage =
   | { type: "project_file"; projectId: string; file: string; text: string }
   | { type: "library"; library: ResolveLibrary | { error: string } }
   | { type: "folders"; requestId: number; listing: FolderListing | { error: string } }
+  | { type: "skills_imported"; requestId: number; result: SkillImportResult | { error: string } }
   /** The message wasn't sent; it goes back in the composer. */
   | { type: "refused"; threadId: string; text: string }
   | { type: "toast"; text: string; tone: "info" | "error" };
@@ -849,13 +852,12 @@ export interface CollectionSummary {
   edits: ApprovedEdit[];
 }
 
-/** One skill of a brand, sub-brand or series: how a kind of work is done there. */
+/** One skill of a brand, sub-brand or series, or one of your own: how a kind of work is done there. */
 export interface SavedSkill {
   name: string;
   /** What work it is for, as the agent's list says it. */
   description: string;
-  /** Its SKILL.md without the front matter. */
-  text: string;
+  /** Its SKILL.md. */
   file: string;
 }
 
@@ -900,10 +902,14 @@ export type CollectionMessage =
   /** Forgets a lesson or the notes on an example. */
   | { type: "remove_lesson"; id: string; lessonId: string }
   | { type: "remove_example"; id: string; name: string }
-  /** isNew never replaces a skill that's there. */
-  | { type: "save_skill"; id: string; name: string; description: string; text: string; isNew?: boolean }
-  /** Deletes the skill's folder. */
-  | { type: "remove_skill"; id: string; name: string }
+  /**
+   * Skills from dropped files: SKILL.md files, folders, zips and .skill exports, each file by its path in what was
+   * dropped. id is a brand's, sub-brand's or series'; null is your own, for every project. A skill replaces one of
+   * its name whole. The answer is a skills_imported with the same requestId.
+   */
+  | { type: "import_skills"; requestId: number; id: string | null; files: { path: string; base64: string }[] }
+  /** Deletes the skill's folder; id as in import_skills. */
+  | { type: "remove_skill"; id: string | null; name: string }
   /** Opens its setup thread, where the agent studies example videos and writes the brief; made on first use. */
   | { type: "setup_collection"; id: string }
   /** Refused for a brand, and while projects, sub-brands or series are in it. */

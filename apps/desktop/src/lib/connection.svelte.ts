@@ -1,4 +1,4 @@
-import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibrarySort, LibraryView, ResolveLibrary, ServerMessage } from "#shared/protocol.ts";
+import type { AppState, ClientMessage, FolderListing, HistoryEntry, LibrarySort, LibraryView, ResolveLibrary, ServerMessage, SkillImportResult } from "#shared/protocol.ts";
 import { applyServerMessage } from "./appState.ts";
 import type { Host } from "./host.ts";
 
@@ -41,6 +41,7 @@ export class ServerConnection {
   #folderRequest = 0;
   #folderReplies = new Map<number, (listing: FolderListing | { error: string }) => void>();
   #sortReplies = new Map<number, (sort: LibrarySort | { error: string }) => void>();
+  #importReplies = new Map<number, (result: SkillImportResult | { error: string }) => void>();
 
   constructor(host: Host, options: { reloads?: boolean } = {}) {
     this.host = host;
@@ -79,6 +80,9 @@ export class ServerConnection {
       } else if (message.type === "library_sorted") {
         this.#sortReplies.get(message.requestId)?.(message.sort);
         this.#sortReplies.delete(message.requestId);
+      } else if (message.type === "skills_imported") {
+        this.#importReplies.get(message.requestId)?.(message.result);
+        this.#importReplies.delete(message.requestId);
       }
       else if (message.type === "refused") this.onRefused?.(message.threadId, message.text);
       else if (message.type === "toast") this.toast(message.text, message.tone);
@@ -140,6 +144,16 @@ export class ServerConnection {
     });
   }
 
+  /** Imports skills from dropped files into a brand's, sub-brand's or series' (id), or your own (null). */
+  importSkills(id: string | null, files: { path: string; base64: string }[]): Promise<SkillImportResult | { error: string }> {
+    if (this.#socket?.readyState !== WebSocket.OPEN) return Promise.resolve({ error: "Not connected to the Linker-Edit server." });
+    const requestId = ++this.#folderRequest;
+    return new Promise((resolve) => {
+      this.#importReplies.set(requestId, resolve);
+      this.send({ type: "import_skills", requestId, id, files });
+    });
+  }
+
   toast(text: string, tone: "info" | "error") {
     const id = ++this.#toastId;
     this.toasts = [...this.toasts.filter((toast) => toast.text !== text), { id, text, tone }];
@@ -156,5 +170,7 @@ export class ServerConnection {
     this.#folderReplies.clear();
     for (const reply of this.#sortReplies.values()) reply({ error: LOST });
     this.#sortReplies.clear();
+    for (const reply of this.#importReplies.values()) reply({ error: LOST });
+    this.#importReplies.clear();
   }
 }

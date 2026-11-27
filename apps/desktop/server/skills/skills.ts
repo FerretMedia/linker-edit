@@ -1,9 +1,11 @@
 // Skills say how a kind of work is done. Agents get a list of them in their rules, and read one with read_skill
 // when the work needs it.
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { SavedSkill } from "../../shared/protocol.ts";
-import { collectionSlug, FRONT_MATTER, skillBody } from "../collections/store.ts";
+import type { SavedSkill, SkillImportResult } from "../../shared/protocol.ts";
+import { FRONT_MATTER, skillBody } from "../collections/store.ts";
+import type { ImportedSkill } from "./import.ts";
 
 /** A folder of skills, and whose they are. */
 export interface SkillRoot {
@@ -87,39 +89,58 @@ export function listSkills(roots: SkillRoot[]): Skill[] {
   return [...skills.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** The skills in one folder, as Settings shows them. */
+/** The skills in one folder, as the app lists them. */
 export function savedSkills(dir: string): SavedSkill[] {
-  return listSkills([{ label: "", dir }]).flatMap(({ name, description: about, sources }) => {
-    const { file } = sources[0]!;
-    const text = readText(file);
-    return text === null ? [] : [{ name, description: about, text: skillBody(text), file }];
-  });
+  return listSkills([{ label: "", dir }]).map(({ name, description: about, sources }) => ({ name, description: about, file: sources[0]!.file }));
 }
 
-/** Writes a skill from Settings; `known` are the skills it can add to. Returns why it wasn't saved, or null. */
-export function saveSkill(dir: string, skill: { name: unknown; description: unknown; text: unknown; isNew?: unknown }, known: Skill[]): string | null {
-  const name = typeof skill.name === "string" && /[a-z0-9]/i.test(skill.name) ? collectionSlug(skill.name) : "";
-  if (!SKILL_NAME.test(name)) return "Give the skill a name of up to 40 letters and numbers, such as color-grading.";
-  const about = typeof skill.description === "string" ? skill.description.replace(/\s+/g, " ").trim() : "";
-  const text = typeof skill.text === "string" ? skill.text.replaceAll("\r\n", "\n").trim() : "";
-  if (!text) return "Write what the skill says first.";
-  if (text.length > MAX_TEXT) return `A skill can be up to ${MAX_TEXT.toLocaleString("en-US")} characters.`;
-  if (about.length > MAX_DESCRIPTION) return `The description can be up to ${MAX_DESCRIPTION} characters.`;
-  if (!about && !known.some((other) => other.name === name)) return "Say what work the skill is for, so the agent knows when to read it.";
-  const file = path.join(dir, name, SKILL_FILE);
-  const before = readText(file)?.replaceAll("\r\n", "\n") ?? null;
-  if (skill.isNew === true && before !== null) return `There already is a skill "${name}" here.`;
-  // Front matter someone wrote by hand keeps its other fields.
-  const others = (FRONT_MATTER.exec(before ?? "")?.[1] ?? `name: ${name}`).replace(frontMatterField("description"), "").replace(/\n{2,}/g, "\n").trim();
-  const front = [others, ...(about ? [`description: '${about.replaceAll("'", "''")}'`] : [])].filter(Boolean).join("\n");
+// A skill being written, or one being replaced, while an import runs. Hidden, so never listed as a skill.
+const IMPORTING = ".importing-";
+
+/**
+ * Writes imported skills into dir. Each replaces the folder of a skill of its name whole: it is written next to it
+ * first and renamed into place, so a failed import leaves the skill as it was.
+ */
+export function writeSkills(dir: string, skills: ImportedSkill[]): SkillImportResult {
+  const result: SkillImportResult = { imported: [], replaced: [], skipped: [] };
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `---\n${front || `name: ${name}`}\n---\n\n${text}\n`);
+    fs.mkdirSync(dir, { recursive: true });
+    // What an import that stopped half way left behind.
+    for (const entry of fs.readdirSync(dir)) if (entry.startsWith(IMPORTING)) fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
   } catch (error) {
-    return `Couldn't save the skill: ${error instanceof Error ? error.message : String(error)}`;
+    result.skipped = skills.map((skill) => ({ path: skill.name, reason: `Couldn't write it: ${errorText(error)}` }));
+    return result;
   }
-  return null;
+  for (const skill of skills) {
+    const target = path.join(dir, skill.name);
+    const temp = path.join(dir, `${IMPORTING}${randomUUID()}`);
+    const old = `${temp}-old`;
+    try {
+      for (const [file, text] of skill.files) {
+        const full = path.join(temp, ...file.split("/"));
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, text);
+      }
+      const replacing = fs.existsSync(target);
+      if (replacing) fs.renameSync(target, old);
+      try {
+        fs.renameSync(temp, target);
+      } catch (error) {
+        if (replacing) fs.renameSync(old, target);
+        throw error;
+      }
+      fs.rmSync(old, { recursive: true, force: true });
+      result.imported.push(skill.name);
+      if (replacing) result.replaced.push(skill.name);
+    } catch (error) {
+      fs.rmSync(temp, { recursive: true, force: true });
+      result.skipped.push({ path: skill.name, reason: `Couldn't write it: ${errorText(error)}` });
+    }
+  }
+  return result;
 }
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Deletes a skill's folder, its other files included. Returns why it couldn't, or null. */
 export function removeSkill(dir: string, name: unknown): string | null {
@@ -127,7 +148,7 @@ export function removeSkill(dir: string, name: unknown): string | null {
   try {
     fs.rmSync(path.join(dir, name), { recursive: true, force: true });
   } catch (error) {
-    return `Couldn't remove the skill: ${error instanceof Error ? error.message : String(error)}`;
+    return `Couldn't remove the skill: ${errorText(error)}`;
   }
   return null;
 }

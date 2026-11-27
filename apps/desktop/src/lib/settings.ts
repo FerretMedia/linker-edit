@@ -2,6 +2,7 @@ import type { ResolveStatus } from "#shared/protocol.ts";
 
 export const SETTINGS_SECTIONS = [
   { id: "general", label: "General" },
+  { id: "skills", label: "Skills" },
   { id: "resolve", label: "Resolve" },
   { id: "transcription", label: "Transcription" },
   { id: "remote", label: "Remote access" },

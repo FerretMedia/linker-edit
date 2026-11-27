@@ -7,20 +7,25 @@ import {
   type CollectionSummary,
   type IconColor,
   type LinkerOrg,
+  type SkillImportResult,
 } from "../../shared/protocol.ts";
 import { COLLECTION_LABEL, parentWords } from "../../src/lib/labels.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJECT_RULES, readProjectNotes, setupRules, type RuleSource } from "../rules.ts";
-import { listSkills, removeSkill, savedSkills, saveSkill, skillsSection, type SkillRoot } from "../skills/skills.ts";
+import { formatBytes, SKILL_IMPORT_LIMITS } from "../../shared/skillImport.ts";
+import { parseSkillImport } from "../skills/import.ts";
+import { listSkills, removeSkill, savedSkills, skillsSection, writeSkills, type SkillRoot } from "../skills/skills.ts";
 import { exampleName, RULES_FILE, skillBody, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the brands, sub-brands and series need from the app around them. */
 export interface CollectionsHost {
   store: CollectionStore;
-  /** Skills every project gets, most general first. */
+  /** Linker-Edit's skills, which every project gets. */
   skills: SkillRoot[];
+  /** Where your own skills are, which every project gets too. */
+  ownSkills?: string;
   projects(): SavedProject[];
   /** The Linker orgs of the person signed in, as Linker last listed them; null when nobody is signed in. */
   orgs(): LinkerOrg[] | null;
@@ -57,7 +62,7 @@ const MAX_NAME = 80;
 const MAX_RULES = 20_000;
 
 const isMessage = (message: ClientMessage): message is CollectionMessage =>
-  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example", "save_skill", "remove_skill"].includes(message.type);
+  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example", "remove_skill"].includes(message.type);
 
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
@@ -155,8 +160,14 @@ export function createCollections(host: CollectionsHost) {
       return dir ? [{ label: label(part), dir }] : [];
     });
 
+  /** The skills every project gets: Linker-Edit's, then your own. */
+  const sharedRoots: SkillRoot[] = [...host.skills, ...(host.ownSkills ? [{ label: "Your own", dir: host.ownSkills }] : [])];
+
   /** Where this project's skills are, most general first. */
-  const skillRoots = (project: SavedProject): SkillRoot[] => [...host.skills, ...skillRootsOf(collectionChain(collections, project))];
+  const skillRoots = (project: SavedProject): SkillRoot[] => [...sharedRoots, ...skillRootsOf(collectionChain(collections, project))];
+
+  /** Your own skills' folder for null, else the collection's; null when it's gone. */
+  const skillsOf = (id: string | null): string | null => (id === null ? (host.ownSkills ?? null) : collections.has(id) ? skillsDir(id) : null);
 
   /** Why nothing new can go in this collection's brand: the person isn't in its Linker org, or isn't signed in. */
   function closedRefusal(collection: SavedCollection): string | null {
@@ -363,8 +374,27 @@ export function createCollections(host: CollectionsHost) {
         }));
     },
 
-    /** The skills every project gets. */
+    /** Linker-Edit's skills. */
     sharedSkills: () => listSkills(host.skills).map(({ name, description }) => ({ name, description })),
+
+    ownSkills: () => (host.ownSkills ? savedSkills(host.ownSkills) : []),
+
+    /** import_skills: the skills in dropped files, written to your own (id null) or a collection's. */
+    importSkills(id: string | null, dropped: { path: string; base64: string }[]): SkillImportResult | { error: string } {
+      const dir = skillsOf(id);
+      if (!dir) return { error: id === null ? "This Linker-Edit keeps no skills of your own." : GONE };
+      const files = Array.isArray(dropped)
+        ? dropped.flatMap((file) => (typeof file?.path === "string" && typeof file.base64 === "string" ? [{ path: file.path, bytes: Buffer.from(file.base64, "base64") }] : []))
+        : [];
+      const size = files.reduce((sum, file) => sum + file.bytes.byteLength, 0);
+      if (size > SKILL_IMPORT_LIMITS.dropBytes) return { error: `That's ${formatBytes(size)}. Drop up to ${formatBytes(SKILL_IMPORT_LIMITS.dropBytes)} at a time.` };
+      // A skill of the same name as one above it adds to that one, so it needs no description.
+      const above = id === null ? host.skills : [...sharedRoots, ...skillRootsOf(lineage(collections, collections.get(id)).slice(0, -1))];
+      const { skills, skipped } = parseSkillImport(files, new Set(listSkills(above).map((skill) => skill.name)));
+      const written = writeSkills(dir, skills);
+      if (written.imported.length) host.changed();
+      return { ...written, skipped: [...skipped, ...written.skipped] };
+    },
 
     get: (id: string): SavedCollection | undefined => collections.get(id),
 
@@ -505,15 +535,8 @@ export function createCollections(host: CollectionsHost) {
         case "remove_example":
           if (typeof message.name === "string") store.removeExample(message.id, message.name);
           break;
-        case "save_skill": {
-          const own = collections.get(message.id);
-          const dir = own && skillsDir(own.id);
-          // A skill of the same name as one above it adds to that one.
-          if (dir) refusal = saveSkill(dir, message, listSkills([...host.skills, ...skillRootsOf(lineage(collections, own).slice(0, -1))]));
-          break;
-        }
         case "remove_skill": {
-          const dir = collections.has(message.id) && skillsDir(message.id);
+          const dir = skillsOf(message.id ?? null);
           if (dir) refusal = removeSkill(dir, message.name);
           break;
         }

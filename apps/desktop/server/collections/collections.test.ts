@@ -10,7 +10,7 @@ import { memoryProjectStore } from "../projects/testing.ts";
 import { EDITING_RULES, PROJECT_RULES } from "../rules.ts";
 import type { SkillRoot } from "../skills/skills.ts";
 import { collectionChain, createCollections, parentRefusal } from "./collections.ts";
-import type { SavedCollection } from "./store.ts";
+import { fileCollectionStore, type SavedCollection } from "./store.ts";
 import { linkerWithOrgs, memoryCollectionStore } from "./testing.ts";
 
 const org = (id: string, name: string): LinkerOrg => ({ id, name, imageUrl: `https://img.example/${id}.png` });
@@ -354,17 +354,71 @@ describe("brands in the app", () => {
   });
 });
 
+describe("skills imported in the app", () => {
+  it("go to your own skills or a brand's, add to a skill of their name above, and are removed again", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-import-"));
+    const shipped = path.join(root, "shipped");
+    fs.mkdirSync(path.join(shipped, "sound"), { recursive: true });
+    fs.writeFileSync(path.join(shipped, "sound", "SKILL.md"), "---\ndescription: Music and levels.\n---\n\nUnder speech.");
+    const own = path.join(root, "skills");
+    const app = createApp({
+      version: "0.0.0",
+      store: memoryProjectStore([]),
+      collections: fileCollectionStore({ root }),
+      linker: linkerWithOrgs([FERRET]),
+      skills: [{ label: "Linker-Edit", dir: shipped }],
+      ownSkills: own,
+      createSession: () => ({ send: async () => {}, resumeId: () => null }),
+      checkResolve: async () => ({ state: "not_running" }),
+    });
+    const viewer = client();
+    app.connect(viewer);
+    const brand = viewer.state.collections[0]!;
+    const file = (filePath: string, text: string) => ({ path: filePath, base64: Buffer.from(text).toString("base64") });
+    const importSkills = (id: string | null, files: { path: string; base64: string }[]) => {
+      app.handleMessage(viewer, { type: "import_skills", requestId: viewer.imports.length + 1, id, files });
+      return viewer.imports.at(-1);
+    };
+
+    expect(importSkills(null, [file("hooks.md", "---\ndescription: First seconds.\n---\n\nSell it."), file("pace/SKILL.md", "# Faster")])).toEqual({
+      requestId: 1,
+      result: { imported: ["hooks"], replaced: [], skipped: [{ path: "pace", reason: "It doesn't say what work it's for. Add a description to its front matter." }] },
+    });
+    expect(viewer.state.ownSkills).toEqual([{ name: "hooks", description: "First seconds.", file: path.join(own, "hooks", "SKILL.md") }]);
+    expect(viewer.state.skills).toEqual([{ name: "sound", description: "Music and levels." }]);
+
+    // In a brand, sound adds to Linker-Edit's and hooks to your own, so neither needs a description.
+    expect(importSkills(brand.id, [file("sound/SKILL.md", "# Louder"), file("hooks/SKILL.md", "Faster.")])).toMatchObject({
+      result: { imported: ["hooks", "sound"], replaced: [], skipped: [] },
+    });
+    expect(viewer.state.collections[0]!.skills!.map((skill) => skill.name)).toEqual(["hooks", "sound"]);
+    expect(importSkills(brand.id, [file("sound/SKILL.md", "# Even louder")])).toMatchObject({ result: { replaced: ["sound"] } });
+
+    expect(importSkills(null, [{ path: "big.zip", base64: Buffer.alloc(9 * 1024 * 1024).toString("base64") }])).toMatchObject({
+      result: { error: "That's 9 MB. Drop up to 8 MB at a time." },
+    });
+    expect(importSkills("gone", [file("a.md", "A.")])).toMatchObject({ result: { error: expect.stringMatching(/is gone/) } });
+
+    app.handleMessage(viewer, { type: "remove_skill", id: null, name: "hooks" });
+    expect(viewer.state.ownSkills).toEqual([]);
+    expect(viewer.state.collections[0]!.skills!.map((skill) => skill.name)).toEqual(["hooks", "sound"]);
+  });
+});
+
 function client() {
   let state: AppState | null = null;
   const toasts: string[] = [];
   const files: { projectId: string; file: string; text: string }[] = [];
+  const imports: Omit<Extract<ServerMessage, { type: "skills_imported" }>, "type">[] = [];
   return {
     toasts,
     files,
+    imports,
     send(data: string) {
       const message = JSON.parse(data) as ServerMessage;
       if (message.type === "toast") toasts.push(message.text);
       if (message.type === "project_file") files.push({ projectId: message.projectId, file: message.file, text: message.text });
+      if (message.type === "skills_imported") imports.push({ requestId: message.requestId, result: message.result });
       state = applyServerMessage(state, message);
     },
     get state(): AppState {

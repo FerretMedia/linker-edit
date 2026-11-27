@@ -6,7 +6,7 @@
   import Monitor from "@lucide/svelte/icons/monitor";
   import Plus from "@lucide/svelte/icons/plus";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
-  import type { AppMeta, ClientMessage, CollectionKind, CollectionSummary } from "#shared/protocol.ts";
+  import type { AppMeta, ClientMessage, CollectionKind, CollectionSummary, SkillImportResult } from "#shared/protocol.ts";
   import { parentOptions, roots, subtree } from "#lib/brands.ts";
   import type { Host } from "#lib/host.ts";
   import { provideHost } from "#lib/hostContext.ts";
@@ -24,6 +24,7 @@
     machineId,
     onMachine,
     send,
+    importSkills,
     onClose,
   }: {
     /** The computer whose sub-brands and series these are: each keeps its own. */
@@ -33,6 +34,8 @@
     machineId: string;
     onMachine: (machineId: string) => void;
     send: (message: ClientMessage) => void;
+    /** Into a brand's, sub-brand's or series' skills (id), or your own (null). */
+    importSkills: (id: string | null, files: { path: string; base64: string }[]) => Promise<SkillImportResult | { error: string }>;
     onClose: () => void;
   } = $props();
 
@@ -348,12 +351,14 @@
               parents={parentOptions(app.collections, selected.kind)}
               projectNames={projectNames(selected)}
               childCount={app.collections.filter((collection) => collection.parentId === selected.id).length}
-              sharedSkills={app.skills ?? []}
+              sharedSkills={[...(app.skills ?? []), ...(app.ownSkills ?? [])]}
               onUpdate={(changes) => send({ type: "update_collection", id: selected.id, ...changes })}
               onSetup={() => send({ type: "setup_collection", id: selected.id })}
               onRemoveLesson={(lessonId) => send({ type: "remove_lesson", id: selected.id, lessonId })}
               onRemoveExample={(name) => send({ type: "remove_example", id: selected.id, name })}
-              onSaveSkill={(skill) => send({ type: "save_skill", id: selected.id, ...skill })}
+              onImportSkills={(files) =>
+                // Older servers don't answer an import.
+                app.ownSkills ? importSkills(selected.id, files) : Promise.resolve({ error: `Update Linker-Edit on ${app.computer} to import skills.` })}
               onRemoveSkill={(name) => send({ type: "remove_skill", id: selected.id, name })}
               onDelete={() => {
                 send({ type: "delete_collection", id: selected.id });
