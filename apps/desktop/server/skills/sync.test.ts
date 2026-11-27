@@ -91,14 +91,17 @@ describe("a pass", () => {
     one.write("spaced", { "SKILL.md": "Fine.", "my notes.md": "A space." });
     one.write("binary", { "SKILL.md": "Fine." });
     fs.writeFileSync(path.join(one.dir, "binary", "logo.png"), Buffer.from([0x89, 0x50, 0xff, 0xfe]));
+    // Only Linker says so.
+    one.write("control", { "SKILL.md": "Bell \u0007." });
     await one.sync.sync();
     expect(one.sync.status(one.dir)).toEqual({
       state: "synced",
-      text: "Synced with Linker, except 3 skills",
+      text: "Synced with Linker, except 4 skills",
       skipped: [
         { name: "big", reason: "It's over 512 KB, more than Linker keeps." },
         { name: "binary", reason: "logo.png isn't a text file, so Linker can't keep it." },
-        { name: "spaced", reason: "my notes.md isn’t a safe relative path." },
+        { name: "control", reason: "SKILL.md isn’t text." },
+        { name: "spaced", reason: '"my notes.md" has a character Linker doesn\'t take: name files with letters, digits, dots, dashes and underscores.' },
       ],
     });
     // Not sent again until it changes.

@@ -1,10 +1,8 @@
 // Linker's skills API, /api/edit/skills, with the Linker sign-in's token: the person's own skills and their orgs'.
 import { SKILL_NAME } from "./skills.ts";
-import { SkillsRefusal, type RemoteSkill, type SkillFiles, type SkillsApi } from "./sync.ts";
+import { isLinkerPathPart, SkillsRefusal, type RemoteSkill, type SkillFiles, type SkillsApi } from "./sync.ts";
 
 const NETWORK_TIMEOUT = 15_000;
-// A path as Linker keeps one: parts of letters, digits, dots, dashes and underscores, never "." or "..".
-const PATH_PART = /^[A-Za-z0-9._-]+$/;
 
 /** A skill in Linker's answer, if it is one that can be written here. */
 export function parseSkill(value: unknown): RemoteSkill | null {
@@ -13,8 +11,7 @@ export function parseSkill(value: unknown): RemoteSkill | null {
   if (typeof skill.revision !== "number" || !skill.files || typeof skill.files !== "object") return null;
   const files: SkillFiles = {};
   for (const [file, text] of Object.entries(skill.files)) {
-    const safe = file.split("/").every((part) => PATH_PART.test(part) && part !== "." && part !== "..");
-    if (!safe || typeof text !== "string") return null;
+    if (!file.split("/").every(isLinkerPathPart) || typeof text !== "string") return null;
     files[file] = text;
   }
   return "SKILL.md" in files ? { owner: skill.owner, name: skill.name, files, revision: skill.revision } : null;

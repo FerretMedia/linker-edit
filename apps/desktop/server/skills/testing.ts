@@ -70,7 +70,8 @@ export function fakeLinkerSkills(roles: Record<string, Record<string, Role>> = {
       if (!file.split("/").every((part) => /^[A-Za-z0-9._-]+$/.test(part) && part !== "." && part !== "..")) {
         return { status: 400, body: { error: "invalid_skill", message: `${file} isn’t a safe relative path.` } };
       }
-      if (typeof text !== "string") return { status: 400, body: { error: "invalid_skill", message: `${file} isn’t text.` } };
+      // Control characters other than tab, newline, form feed and return aren't text.
+      if (typeof text !== "string" || /[\u0000-\u0008\u000B\u000E-\u001F]/.test(text)) return { status: 400, body: { error: "invalid_skill", message: `${file} isn’t text.` } };
     }
     if (!("SKILL.md" in files)) return { status: 400, body: { error: "invalid_skill", message: "A skill needs a SKILL.md." } };
     const bytes = entries.reduce((sum, [, text]) => sum + Buffer.byteLength(text as string), 0);

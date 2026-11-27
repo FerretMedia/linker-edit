@@ -178,8 +178,13 @@ function problemText(error: unknown, folder: SyncFolder, doing = "change"): stri
 
 const SYNCING: SkillSync = { state: "local", text: "Syncing with Linker…", skipped: [] };
 
-/** Over Linker's limits, said before sending it. */
-function overLimits(files: SkillFiles): SkillsRefusal | null {
+/** A part of a file's path as Linker keeps it: letters, digits, dots, dashes and underscores, never "." or "..". */
+export const isLinkerPathPart = (part: string) => /^[A-Za-z0-9._-]+$/.test(part) && part !== "." && part !== "..";
+
+/** What Linker would refuse, said before sending it. */
+function linkerRefusal(files: SkillFiles): SkillsRefusal | null {
+  const named = Object.keys(files).find((file) => !file.split("/").every(isLinkerPathPart));
+  if (named) return new SkillsRefusal("invalid_skill", `"${named}" has a character Linker doesn't take: name files with letters, digits, dots, dashes and underscores.`);
   if (Object.keys(files).length > SKILL_IMPORT_LIMITS.skillFiles) return new SkillsRefusal("too_large", undefined, "files");
   const bytes = Object.values(files).reduce((sum, text) => sum + Buffer.byteLength(text), 0);
   return bytes > SKILL_IMPORT_LIMITS.skillBytes ? new SkillsRefusal("too_large", undefined, "bytes") : null;
@@ -294,8 +299,8 @@ export function createSkillSync(options: SkillSyncOptions) {
           }
           case "push": {
             const files = (local as { files: SkillFiles; hash: string }).files;
-            const tooLarge = overLimits(files);
-            if (tooLarge) throw tooLarge;
+            const refusal = linkerRefusal(files);
+            if (refusal) throw refusal;
             const kept = await api.put(folder.owner, name, files, skill?.revision ?? 0);
             agree(name, { revision: kept.revision, hash: local!.hash });
             break;
