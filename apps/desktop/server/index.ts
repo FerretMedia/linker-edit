@@ -11,6 +11,7 @@ import { fileLibraryStore } from "./library/folders.ts";
 import { createLibrary } from "./library/library.ts";
 import { ffmpegProbe } from "./library/scan.ts";
 import { createLinker } from "./linker.ts";
+import { createLinkerSkills } from "./skills/linkerSkills.ts";
 import { prepareCloudflared } from "./connect/cloudflared.ts";
 import { createConnect } from "./connect/connect.ts";
 import { createSessions } from "./connect/sessions.ts";
@@ -86,6 +87,10 @@ const app = createApp({
   collections: fileCollectionStore({ root: path.dirname(config.configFile) }),
   skills: [{ label: "Linker-Edit", dir: path.join(APP_ROOT, "skills") }],
   ownSkills: path.join(path.dirname(config.configFile), "skills"),
+  linkerSkills: {
+    api: createLinkerSkills({ appUrl: config.linker.appUrl, accessToken: linker.accessToken }),
+    bin: path.join(path.dirname(config.configFile), "skills-bin"),
+  },
   // Codex reads the project's rules from AGENTS.md, written before each turn (prepareFolder).
   createSession: (provider, approvalMode, dir, resumeId, rules) => {
     const projectConfig = { ...config, workspaceDir: dir };

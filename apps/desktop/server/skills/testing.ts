@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import * as http from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { crc32, deflateRawSync } from "node:zlib";
 
 /** A zip as zip tools write one; `stored` leaves the files uncompressed. */
@@ -118,4 +120,15 @@ export function fakeLinkerSkills(roles: Record<string, Record<string, Role>> = {
   }
 
   return { state, handle };
+}
+
+/** fakeLinkerSkills on a port of its own, where a token is the person's id. */
+export async function serveFakeLinkerSkills(roles: Record<string, Record<string, Role>> = {}) {
+  const fake = fakeLinkerSkills(roles);
+  const server = http.createServer((req, res) => {
+    const person = req.headers.authorization?.replace(/^Bearer /, "") || null;
+    void fake.handle(req, res, person).then((handled) => handled || res.writeHead(404).end());
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { ...fake, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => server.close() };
 }

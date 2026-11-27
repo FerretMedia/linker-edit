@@ -8,6 +8,7 @@ import {
   type IconColor,
   type LinkerOrg,
   type SkillImportResult,
+  type SkillSync,
 } from "../../shared/protocol.ts";
 import { COLLECTION_LABEL, parentWords } from "../../src/lib/labels.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
@@ -17,6 +18,7 @@ import { agentRules, AUTONOMOUS_RULES, LEARNING_RULES, PROJECT_NOTES_FILE, PROJE
 import { formatBytes, SKILL_IMPORT_LIMITS } from "../../shared/skillImport.ts";
 import { parseSkillImport } from "../skills/import.ts";
 import { listSkills, removeSkill, savedSkills, skillsSection, writeSkills, type SkillRoot } from "../skills/skills.ts";
+import { createSkillSync, type SkillsApi, type SyncFolder } from "../skills/sync.ts";
 import { exampleName, RULES_FILE, skillBody, type CollectionStore, type SavedCollection } from "./store.ts";
 
 /** What the brands, sub-brands and series need from the app around them. */
@@ -29,6 +31,14 @@ export interface CollectionsHost {
   projects(): SavedProject[];
   /** The Linker orgs of the person signed in, as Linker last listed them; null when nobody is signed in. */
   orgs(): LinkerOrg[] | null;
+  /** Linker's copy of your own skills and each brand's; without it they stay on this computer. */
+  linkerSkills?: {
+    api: SkillsApi;
+    /** Linker's id for the person signed in; null when nobody is. */
+    account(): string | null;
+    /** Where a skill changed both here and on Linker keeps this computer's copy. */
+    bin: string;
+  };
   /** Saves the project in its new brand, sub-brand or series, or in none; commitMessage is for its edit history. */
   setCollection(projectId: string, collection: ProjectCollection | null, commitMessage: string): void;
   /** Takes a deleted collection's setup threads out of the app. */
@@ -62,7 +72,7 @@ const MAX_NAME = 80;
 const MAX_RULES = 20_000;
 
 const isMessage = (message: ClientMessage): message is CollectionMessage =>
-  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example", "remove_skill"].includes(message.type);
+  ["create_collection", "update_collection", "delete_collection", "move_project", "remove_lesson", "remove_example"].includes(message.type);
 
 const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
@@ -177,6 +187,33 @@ export function createCollections(host: CollectionsHost) {
     return orgs
       ? `You're not in "${root.name}" on Linker any more, so it takes nothing new.`
       : `Sign in to Linker to put things in the ${COLLECTION_LABEL.brand.lower} "${root.name}".`;
+  }
+
+  /** The folders of skills that sync with Linker: your own, and each brand's whose org the person is in. */
+  function syncFolders(): SyncFolder[] {
+    const orgs = host.orgs() ?? [];
+    return [
+      ...(host.ownSkills ? [{ dir: host.ownSkills, owner: "me", name: "your own skills" }] : []),
+      ...[...collections.values()].flatMap((collection) => {
+        const dir = skillsDir(collection.id);
+        const { orgId } = collection;
+        return collection.kind === "brand" && orgId && dir && orgs.some((org) => org.id === orgId) ? [{ dir, owner: orgId, name: collection.name }] : [];
+      }),
+    ];
+  }
+
+  const linkerSkills = host.linkerSkills;
+  const sync = linkerSkills && createSkillSync({ ...linkerSkills, folders: syncFolders, changed: () => host.changed() });
+
+  /** How a collection's skills stand with Linker, or your own for null. */
+  function skillSync(collection: SavedCollection | null): SkillSync {
+    const dir = collection ? skillsDir(collection.id) : host.ownSkills;
+    const status = dir && sync?.status(dir);
+    if (status) return status;
+    const local = (text: string): SkillSync => ({ state: "local", text, skipped: [] });
+    if (collection && collection.kind !== "brand") return local(`On this computer only, like the ${COLLECTION_LABEL[collection.kind].lower} itself`);
+    if (!linkerSkills?.account()) return local("On this computer only. Sign in to Linker to sync them");
+    return local(collection ? `On this computer only. You're not in ${collection.name} on Linker` : "On this computer only");
   }
 
   /** Why a collection of this kind can't go in parentId; null when it can. */
@@ -369,6 +406,7 @@ export function createCollections(host: CollectionsHost) {
           lessons: collection.lessons,
           examples: store.examples(collection.id),
           skills: savedSkills(skillsDir(collection.id) ?? ""),
+          skillsSync: skillSync(collection),
           setupProjectId: projects.find((project) => project.setup && project.collection?.id === collection.id)?.id ?? null,
           edits: collection.edits,
         }));
@@ -379,8 +417,16 @@ export function createCollections(host: CollectionsHost) {
 
     ownSkills: () => (host.ownSkills ? savedSkills(host.ownSkills) : []),
 
-    /** import_skills: the skills in dropped files, written to your own (id null) or a collection's. */
-    importSkills(id: string | null, dropped: { path: string; base64: string }[]): SkillImportResult | { error: string } {
+    ownSkillsSync: () => skillSync(null),
+
+    /** Brings your own skills and your brands' together with Linker's; on start, on signing in, and every minute. */
+    syncSkills: async () => sync?.sync(),
+
+    /**
+     * import_skills: the skills in dropped files, written to your own (id null) or a collection's. Into a folder that
+     * syncs, Linker takes them first.
+     */
+    async importSkills(id: string | null, dropped: { path: string; base64: string }[]): Promise<SkillImportResult | { error: string }> {
       const dir = skillsOf(id);
       if (!dir) return { error: id === null ? "This Linker-Edit keeps no skills of your own." : GONE };
       const files = Array.isArray(dropped)
@@ -391,9 +437,19 @@ export function createCollections(host: CollectionsHost) {
       // A skill of the same name as one above it adds to that one, so it needs no description.
       const above = id === null ? host.skills : [...sharedRoots, ...skillRootsOf(lineage(collections, collections.get(id)).slice(0, -1))];
       const { skills, skipped } = parseSkillImport(files, new Set(listSkills(above).map((skill) => skill.name)));
-      const written = writeSkills(dir, skills);
+      const written = await (sync ? sync.write(dir, skills) : writeSkills(dir, skills));
+      if ("error" in written) return written;
       if (written.imported.length) host.changed();
       return { ...written, skipped: [...skipped, ...written.skipped] };
+    },
+
+    /** remove_skill: deletes the skill's folder, and Linker's copy when the folder syncs. Returns why it couldn't, or null. */
+    async removeSkill(id: string | null, name: string): Promise<string | null> {
+      const dir = skillsOf(id);
+      if (!dir || typeof name !== "string") return null;
+      const refusal = await (sync ? sync.remove(dir, name) : removeSkill(dir, name));
+      if (!refusal) host.changed();
+      return refusal;
     },
 
     get: (id: string): SavedCollection | undefined => collections.get(id),
@@ -535,11 +591,6 @@ export function createCollections(host: CollectionsHost) {
         case "remove_example":
           if (typeof message.name === "string") store.removeExample(message.id, message.name);
           break;
-        case "remove_skill": {
-          const dir = skillsOf(message.id ?? null);
-          if (dir) refusal = removeSkill(dir, message.name);
-          break;
-        }
       }
       if (!refusal) host.changed();
       return refusal;

@@ -1,12 +1,10 @@
 import * as fs from "node:fs";
-import * as http from "node:http";
-import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLinkerSkills } from "./linkerSkills.ts";
 import { createSkillSync, decide, hashFiles, type Action, type Agreed } from "./sync.ts";
-import { fakeLinkerSkills } from "./testing.ts";
+import { serveFakeLinkerSkills } from "./testing.ts";
 
 const A = hashFiles({ "SKILL.md": "A" });
 const B = hashFiles({ "SKILL.md": "B" });
@@ -38,21 +36,15 @@ describe("what a pass does about one skill", () => {
   });
 });
 
-const servers: http.Server[] = [];
+const closing: (() => void)[] = [];
 afterEach(() => {
-  for (const server of servers.splice(0)) server.close();
+  for (const close of closing.splice(0)) close();
 });
 
-/** Linker's skills API on a port of its own; a token is the person's id. */
-async function linker(roles: Parameters<typeof fakeLinkerSkills>[0] = {}) {
-  const fake = fakeLinkerSkills(roles);
-  const server = http.createServer((req, res) => {
-    const person = req.headers.authorization?.replace(/^Bearer /, "") || null;
-    void fake.handle(req, res, person).then((handled) => handled || res.writeHead(404).end());
-  });
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { ...fake, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+async function linker() {
+  const fake = await serveFakeLinkerSkills();
+  closing.push(fake.close);
+  return fake;
 }
 
 /** A computer signed in as person, whose own skills are in <root>/skills. */

@@ -1,17 +1,21 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PARENT_KINDS, type AppState, type ClientMessage, type CollectionKind, type LinkerOrg, type ServerMessage } from "../../shared/protocol.ts";
 import { applyServerMessage } from "../../src/lib/appState.ts";
 import { createApp } from "../app.ts";
 import type { ProjectCollection, SavedProject } from "../projects/store.ts";
 import { memoryProjectStore } from "../projects/testing.ts";
 import { EDITING_RULES, PROJECT_RULES } from "../rules.ts";
+import { createLinkerSkills } from "../skills/linkerSkills.ts";
 import type { SkillRoot } from "../skills/skills.ts";
+import { serveFakeLinkerSkills } from "../skills/testing.ts";
 import { collectionChain, createCollections, parentRefusal } from "./collections.ts";
 import { fileCollectionStore, type SavedCollection } from "./store.ts";
 import { linkerWithOrgs, memoryCollectionStore } from "./testing.ts";
+
+type App = ReturnType<typeof createApp>;
 
 const org = (id: string, name: string): LinkerOrg => ({ id, name, imageUrl: `https://img.example/${id}.png` });
 const FERRET = org("org_ferret", "Ferret Media");
@@ -355,7 +359,7 @@ describe("brands in the app", () => {
 });
 
 describe("skills imported in the app", () => {
-  it("go to your own skills or a brand's, add to a skill of their name above, and are removed again", () => {
+  it("go to your own skills or a brand's, add to a skill of their name above, and are removed again", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-import-"));
     const shipped = path.join(root, "shipped");
     fs.mkdirSync(path.join(shipped, "sound"), { recursive: true });
@@ -375,12 +379,9 @@ describe("skills imported in the app", () => {
     app.connect(viewer);
     const brand = viewer.state.collections[0]!;
     const file = (filePath: string, text: string) => ({ path: filePath, base64: Buffer.from(text).toString("base64") });
-    const importSkills = (id: string | null, files: { path: string; base64: string }[]) => {
-      app.handleMessage(viewer, { type: "import_skills", requestId: viewer.imports.length + 1, id, files });
-      return viewer.imports.at(-1);
-    };
+    const importSkills = (id: string | null, files: { path: string; base64: string }[]) => viewer.importSkills(app, id, files);
 
-    expect(importSkills(null, [file("hooks.md", "---\ndescription: First seconds.\n---\n\nSell it."), file("pace/SKILL.md", "# Faster")])).toEqual({
+    expect(await importSkills(null, [file("hooks.md", "---\ndescription: First seconds.\n---\n\nSell it."), file("pace/SKILL.md", "# Faster")])).toEqual({
       requestId: 1,
       result: { imported: ["hooks"], replaced: [], skipped: [{ path: "pace", reason: "It doesn't say what work it's for. Add a description to its front matter." }] },
     });
@@ -388,20 +389,133 @@ describe("skills imported in the app", () => {
     expect(viewer.state.skills).toEqual([{ name: "sound", description: "Music and levels." }]);
 
     // In a brand, sound adds to Linker-Edit's and hooks to your own, so neither needs a description.
-    expect(importSkills(brand.id, [file("sound/SKILL.md", "# Louder"), file("hooks/SKILL.md", "Faster.")])).toMatchObject({
+    expect(await importSkills(brand.id, [file("sound/SKILL.md", "# Louder"), file("hooks/SKILL.md", "Faster.")])).toMatchObject({
       result: { imported: ["hooks", "sound"], replaced: [], skipped: [] },
     });
     expect(viewer.state.collections[0]!.skills!.map((skill) => skill.name)).toEqual(["hooks", "sound"]);
-    expect(importSkills(brand.id, [file("sound/SKILL.md", "# Even louder")])).toMatchObject({ result: { replaced: ["sound"] } });
+    expect(await importSkills(brand.id, [file("sound/SKILL.md", "# Even louder")])).toMatchObject({ result: { replaced: ["sound"] } });
 
-    expect(importSkills(null, [{ path: "big.zip", base64: Buffer.alloc(9 * 1024 * 1024).toString("base64") }])).toMatchObject({
+    expect(await importSkills(null, [{ path: "big.zip", base64: Buffer.alloc(9 * 1024 * 1024).toString("base64") }])).toMatchObject({
       result: { error: "That's 9 MB. Drop up to 8 MB at a time." },
     });
-    expect(importSkills("gone", [file("a.md", "A.")])).toMatchObject({ result: { error: expect.stringMatching(/is gone/) } });
+    expect(await importSkills("gone", [file("a.md", "A.")])).toMatchObject({ result: { error: expect.stringMatching(/is gone/) } });
 
-    app.handleMessage(viewer, { type: "remove_skill", id: null, name: "hooks" });
+    await viewer.removeSkill(app, null, "hooks");
     expect(viewer.state.ownSkills).toEqual([]);
     expect(viewer.state.collections[0]!.skills!.map((skill) => skill.name)).toEqual(["hooks", "sound"]);
+  });
+});
+
+describe("skills synced with Linker", () => {
+  const roles = { user_jane: { org_ferret: "admin" }, user_ann: { org_ferret: "editor" }, user_vic: { org_ferret: "viewer" } } as const;
+  let fake: Awaited<ReturnType<typeof serveFakeLinkerSkills>>;
+  beforeEach(async () => {
+    fake = await serveFakeLinkerSkills(roles);
+  });
+  afterEach(() => fake.close());
+
+  const file = (filePath: string, text: string) => ({ path: filePath, base64: Buffer.from(text).toString("base64") });
+  const skill = (name: string, text: string) => file(`${name}/SKILL.md`, `---\ndescription: ${text}\n---\n\n${text}`);
+
+  /** A computer of a person in Ferret Media, with a LinkerEdit folder of its own. */
+  function computer(person: keyof typeof roles) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "linker-edit-sync-"));
+    const app = createApp({
+      version: "0.0.0",
+      store: memoryProjectStore([]),
+      collections: fileCollectionStore({ root }),
+      linker: linkerWithOrgs([FERRET], person),
+      ownSkills: path.join(root, "skills"),
+      linkerSkills: { api: createLinkerSkills({ appUrl: fake.url, accessToken: async () => person }), bin: path.join(root, "skills-bin") },
+      createSession: () => ({ send: async () => {}, resumeId: () => null }),
+      checkResolve: async () => ({ state: "not_running" }),
+    });
+    const viewer = client();
+    app.connect(viewer);
+    const brand = () => viewer.state.collections.find((collection) => collection.kind === "brand")!;
+    return {
+      root,
+      app,
+      viewer,
+      brand,
+      brandDir: path.join(root, "collections", "ferret-media", "skills"),
+      importSkills: (id: string | null, files: { path: string; base64: string }[]) => viewer.importSkills(app, id, files).then((reply) => reply.result),
+      removeSkill: (id: string | null, name: string) => viewer.removeSkill(app, id, name),
+      own: () => viewer.state.ownSkills!.map((saved) => saved.name),
+      brandSkills: () => brand().skills!.map((saved) => saved.name),
+    };
+  }
+
+  it("your own reach your other computer, and one removed there is removed here", async () => {
+    const [one, two] = [computer("user_jane"), computer("user_jane")];
+    await Promise.all([one.app.syncSkills(), two.app.syncSkills()]);
+    expect(two.viewer.state.ownSkillsSync).toEqual({ state: "synced", text: "Synced with Linker", skipped: [] });
+
+    expect(await one.importSkills(null, [skill("hooks", "First seconds.")])).toEqual({ imported: ["hooks"], replaced: [], skipped: [] });
+    await two.app.syncSkills();
+    expect(two.own()).toEqual(["hooks"]);
+    // Nothing changed since: Linker only says so.
+    await two.app.syncSkills();
+    expect(fake.state.requests.at(-1)).toBe("GET 304");
+
+    await two.removeSkill(null, "hooks");
+    await one.app.syncSkills();
+    expect(one.own()).toEqual([]);
+    expect(fake.state.requests.filter((request) => request.startsWith("DELETE"))).toEqual(["DELETE 204"]);
+  });
+
+  it("a brand's reach everyone in it; changed on two computers, Linker's wins and the other is kept in the bin", async () => {
+    const [jane, ann] = [computer("user_jane"), computer("user_ann")];
+    await jane.importSkills(jane.brand().id, [skill("sound", "Under speech.")]);
+    await ann.app.syncSkills();
+    expect(ann.brandSkills()).toEqual(["sound"]);
+    expect(ann.brand().skillsSync).toEqual({ state: "synced", text: "Synced with Linker", skipped: [] });
+
+    fs.writeFileSync(path.join(jane.brandDir, "sound", "SKILL.md"), "Jane's way.");
+    fs.writeFileSync(path.join(ann.brandDir, "sound", "SKILL.md"), "Ann's way.");
+    await jane.app.syncSkills();
+    await ann.app.syncSkills();
+    expect(fs.readFileSync(path.join(ann.brandDir, "sound", "SKILL.md"), "utf8")).toBe("Jane's way.");
+    const bin = path.join(ann.root, "skills-bin");
+    const binned = fs.readdirSync(bin, { recursive: true, encoding: "utf8" }).filter((found) => found.endsWith("SKILL.md"));
+    expect(binned.map((found) => found.split(path.sep).slice(1).join("/"))).toEqual([expect.stringMatching(/^org_ferret\/sound-\d\d-\d\d-\d\d\/SKILL\.md$/)]);
+    expect(fs.readFileSync(path.join(bin, binned[0]!), "utf8")).toBe("Ann's way.");
+    await jane.app.syncSkills();
+    expect(fs.readFileSync(path.join(jane.brandDir, "sound", "SKILL.md"), "utf8")).toBe("Jane's way.");
+  });
+
+  it("a viewer of a brand gets its skills, and is told it can't change them before anything is written", async () => {
+    const [jane, vic] = [computer("user_jane"), computer("user_vic")];
+    await jane.importSkills(jane.brand().id, [skill("sound", "Under speech.")]);
+    await vic.app.syncSkills();
+    expect(vic.brandSkills()).toEqual(["sound"]);
+
+    expect(await vic.importSkills(vic.brand().id, [skill("hooks", "First seconds.")])).toEqual({ error: "Only admins and editors of Ferret Media can add its skills." });
+    expect(fs.existsSync(path.join(vic.brandDir, "hooks"))).toBe(false);
+    await vic.removeSkill(vic.brand().id, "sound");
+    expect(vic.viewer.toasts.at(-1)).toBe("Only admins and editors of Ferret Media can remove its skills.");
+    expect(vic.brandSkills()).toEqual(["sound"]);
+  });
+
+  it("keep an import on this computer while Linker can't take skills, and send it once it can", async () => {
+    const [one, two] = [computer("user_jane"), computer("user_jane")];
+    fake.state.unavailable = true;
+    expect(await one.importSkills(null, [skill("hooks", "First seconds.")])).toMatchObject({ imported: ["hooks"] });
+    await one.app.syncSkills();
+    expect(one.viewer.state.ownSkillsSync).toEqual({ state: "problem", text: "Linker can't take skills yet", skipped: [] });
+
+    fake.state.unavailable = false;
+    await one.app.syncSkills();
+    expect(one.viewer.state.ownSkillsSync!.state).toBe("synced");
+    await two.app.syncSkills();
+    expect(two.own()).toEqual(["hooks"]);
+  });
+
+  it("say a sub-brand's stay on this computer", () => {
+    const one = computer("user_jane");
+    one.app.handleMessage(one.viewer, { type: "create_collection", kind: "subbrand", name: "Shorts", parentId: one.brand().id });
+    const shorts = one.viewer.state.collections.find((collection) => collection.name === "Shorts")!;
+    expect(shorts.skillsSync).toEqual({ state: "local", text: "On this computer only, like the sub-brand itself", skipped: [] });
   });
 });
 
@@ -410,12 +524,30 @@ function client() {
   const toasts: string[] = [];
   const files: { projectId: string; file: string; text: string }[] = [];
   const imports: Omit<Extract<ServerMessage, { type: "skills_imported" }>, "type">[] = [];
+  // Who waits for the next message of a type.
+  const waiting = new Map<string, () => void>();
+  const next = (type: ServerMessage["type"]) => new Promise<void>((resolve) => waiting.set(type, resolve));
   return {
     toasts,
     files,
     imports,
+    /** Sends import_skills; its answer. */
+    async importSkills(app: App, id: string | null, files: { path: string; base64: string }[]) {
+      const answered = next("skills_imported");
+      app.handleMessage(this, { type: "import_skills", requestId: imports.length + 1, id, files });
+      await answered;
+      return imports.at(-1)!;
+    },
+    /** Sends remove_skill, and waits for the list without it, or the toast saying why not. */
+    async removeSkill(app: App, id: string | null, name: string) {
+      const done = Promise.race([next("meta"), next("toast")]);
+      app.handleMessage(this, { type: "remove_skill", id, name });
+      await done;
+    },
     send(data: string) {
       const message = JSON.parse(data) as ServerMessage;
+      waiting.get(message.type)?.();
+      waiting.delete(message.type);
       if (message.type === "toast") toasts.push(message.text);
       if (message.type === "project_file") files.push({ projectId: message.projectId, file: message.file, text: message.text });
       if (message.type === "skills_imported") imports.push({ requestId: message.requestId, result: message.result });
