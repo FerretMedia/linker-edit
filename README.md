@@ -319,6 +319,13 @@ Each skill is a folder with a `SKILL.md` in the Agent Skills format, so you can 
 
 Skills of the same name add up. The agent reads all of them, and the most specific one wins where they disagree, so a series' skill only says what is different. The `description` in its front matter tells the agent what work it is for; an imported skill without one gets its first paragraph, and one that only adds to a skill of its name needs none.
 
+Signed in with Linker, your own skills are on every computer you use, and a brand's are with everyone in its Linker org. Linker-Edit checks with Linker when it starts, when you sign in, right after an import or a removal, and every minute. A sub-brand's and a series' skills stay on the computer they're on, like the sub-brand or series itself. Each Skills card says where its list stands: **Synced with Linker**, **On this computer only**, or what's wrong.
+
+- **Only admins and editors** of a brand's org can add or remove its skills; anyone in it gets them.
+- **A skill Linker can't keep**, such as one over 64 files or 512 KB, or with a file name other than letters, digits, dots, dashes and underscores, stays on this computer, and the card says which and why.
+- **Changed on two computers before they synced**, Linker's copy wins. The other is kept in `~/LinkerEdit/skills-bin/<date>/`.
+- **Offline**, imports and removals happen on this computer, and Linker catches up when it's back.
+
 ## Library
 
 **Library** in the top right (or in Settings) opens the folders you reuse: music, sound effects, graphics, LUTs, footage, anything else. Linker-Edit only points at them. It never copies, moves or deletes a file in them.

@@ -1,9 +1,12 @@
 <script lang="ts">
+  import CloudAlert from "@lucide/svelte/icons/cloud-alert";
+  import CloudCheck from "@lucide/svelte/icons/cloud-check";
   import FileUp from "@lucide/svelte/icons/file-up";
   import FolderUp from "@lucide/svelte/icons/folder-up";
+  import Monitor from "@lucide/svelte/icons/monitor";
   import Upload from "@lucide/svelte/icons/upload";
   import X from "@lucide/svelte/icons/x";
-  import type { SavedSkill, SkillImportResult, SkippedFile } from "#shared/protocol.ts";
+  import type { SavedSkill, SkillImportResult, SkillSync, SkippedFile } from "#shared/protocol.ts";
   import { droppedFiles, importSummary, pickedFiles, readForImport, type PickedFile } from "#lib/skillFiles.ts";
 
   // Skills of a brand, sub-brand or series, or your own: the list, and skill files dropped on it or picked to import.
@@ -11,6 +14,7 @@
     skills,
     shared,
     about,
+    sync,
     onImport,
     onRemove,
   }: {
@@ -19,6 +23,8 @@
     shared: { name: string }[];
     /** What these skills are for, under the heading. */
     about: string;
+    /** How the list stands with Linker; missing from older servers. */
+    sync: SkillSync | undefined;
     onImport: (files: { path: string; base64: string }[]) => Promise<SkillImportResult | { error: string }>;
     onRemove: (name: string) => void;
   } = $props();
@@ -32,6 +38,9 @@
   let root: HTMLDivElement;
   let fileInput: HTMLInputElement;
   let folderInput: HTMLInputElement;
+
+  const SYNC_ICON = { synced: CloudCheck, local: Monitor, problem: CloudAlert };
+  const notSynced = (name: string) => sync?.skipped.find((skip) => skip.name === name)?.reason;
 
   const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes("Files");
 
@@ -130,6 +139,13 @@
     <input bind:this={folderInput} type="file" class="hidden" webkitdirectory aria-label="Import a folder of skills" onchange={picked} />
   </div>
   <p class="text-xs text-muted-foreground">{about}</p>
+  {#if sync}
+    {@const Icon = SYNC_ICON[sync.state]}
+    <p class="flex items-center gap-1.5 text-xs {sync.state === 'problem' ? 'text-destructive' : 'text-muted-foreground'}">
+      <Icon class="size-3.5 shrink-0" aria-hidden="true" />
+      {sync.text}
+    </p>
+  {/if}
 
   {#if notice}
     <div class="flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs {notice.error ? 'border-destructive/40 text-destructive' : ''}" role="status">
@@ -163,7 +179,9 @@
         <li class="flex items-center gap-2 px-2.5 py-1.5">
           <div class="min-w-0 flex-1" title={skill.file}>
             <p class="truncate text-sm">{skill.name}</p>
-            {#if shared.some((other) => other.name === skill.name)}
+            {#if notSynced(skill.name)}
+              <p class="text-xs break-words text-destructive">Not on Linker: {notSynced(skill.name)}</p>
+            {:else if shared.some((other) => other.name === skill.name)}
               <p class="truncate text-xs text-muted-foreground"><span class="text-foreground">Adds to the one every project gets</span>{skill.description ? ` · ${skill.description}` : ""}</p>
             {:else if skill.description}
               <p class="truncate text-xs text-muted-foreground">{skill.description}</p>

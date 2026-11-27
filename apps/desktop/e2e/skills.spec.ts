@@ -81,6 +81,8 @@ test("a folder of skills and a zip dropped on a brand's Skills card are listed, 
   });
 
   await expect(card.getByRole("status")).toContainText("Imported 3 skills, skipped 3.");
+  // The fake Linker has the person as an admin of Ferret Media, so they went to Linker too.
+  await expect(card.getByText("Synced with Linker")).toBeVisible();
   const names = card.getByRole("listitem").filter({ has: page.getByRole("button", { name: /^Remove the skill/ }) });
   await expect(names).toHaveText([/^\s*color-grading\s*Adds to the one every project gets/, /^\s*hooks\s*The first three seconds\./, /^\s*podcast\s*Cutting a podcast/]);
   await card.getByText("What was skipped").click();
@@ -116,6 +118,7 @@ test("your own skills are imported from a folder in Settings, for every project"
   const card = page.getByRole("region", { name: "Skills" });
   await page.getByLabel("Import a folder of skills").setInputFiles(path.join(picked, "mine"));
   await expect(card.getByRole("status")).toContainText("Imported 2 skills.");
+  await expect(card.getByText("Synced with Linker")).toBeVisible();
   await expect(card.getByRole("button", { name: /^Remove the skill/ })).toHaveCount(2);
   await expect(card.getByText("One face, three words.")).toBeVisible();
   expect(fs.readFileSync(path.join(dir, "skills", "thumbnails", "SKILL.md"), "utf8")).toBe(
