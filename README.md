@@ -307,7 +307,9 @@ A skill says how one kind of work is done, such as color grading. The agent sees
 - `sound`: choosing music, levels, loudness.
 - `titles-and-captions`: what to put on screen, and where.
 
-A brand, sub-brand or series can have skills of its own: pick it on the Brands page, and use **Add skill**. You can also add your own for every project, as a file. Each is a folder with a `SKILL.md` in the Agent Skills format, plus other `.md` files it names:
+Bring your own skills by dropping them on the **Skills** card, or with **Import**: your own, for every project, in **Settings → Skills**; a brand's, sub-brand's or series' on the Brands page. Drop one `SKILL.md`, a skill's folder, a folder of many skills, or a `.zip` or `.skill` export, such as Claude's. Every `SKILL.md` makes its folder a skill, with its `references/`, `scripts/` and other text files; a loose `.md` file becomes a skill by itself. A skill of the same name is replaced whole. Hidden files, binaries and files over 256 KB are left out, and the app says which and why. One drop can be up to 8 MB.
+
+Each skill is a folder with a `SKILL.md` in the Agent Skills format, so you can also put one in place by hand:
 
 ```
 ~/LinkerEdit/skills/color-grading/SKILL.md                     for all your projects, with or without a brand
@@ -315,7 +317,7 @@ A brand, sub-brand or series can have skills of its own: pick it on the Brands p
 ~/LinkerEdit/collections/reels/skills/color-grading/           for a series
 ```
 
-Skills of the same name add up. The agent reads all of them, and the most specific one wins where they disagree, so a series' skill only says what is different. The `description` in its front matter tells the agent what work it is for.
+Skills of the same name add up. The agent reads all of them, and the most specific one wins where they disagree, so a series' skill only says what is different. The `description` in its front matter tells the agent what work it is for; an imported skill without one gets its first paragraph, and one that only adds to a skill of its name needs none.
 
 ## Library
 
