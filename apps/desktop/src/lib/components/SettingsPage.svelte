@@ -366,6 +366,7 @@
                 skills={app.ownSkills}
                 shared={app.skills ?? []}
                 about="How one kind of work is done, such as color grading. The agent sees the list and reads a skill only when the work needs it."
+                sync={app.ownSkillsSync}
                 onImport={(files) => importSkills(null, files)}
                 onRemove={(name) => send({ type: "remove_skill", id: null, name })}
               />

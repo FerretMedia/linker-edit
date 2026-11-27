@@ -29,6 +29,7 @@ import { createCollections } from "./collections/collections.ts";
 import type { CollectionStore } from "./collections/store.ts";
 import { memoryCollectionStore } from "./collections/testing.ts";
 import { READ_SKILL, readSkill, type SkillRoot } from "./skills/skills.ts";
+import type { SkillsApi } from "./skills/sync.ts";
 import { ADD_LESSON, isBriefTool, SAVE_BRIEF, SAVE_EXAMPLE } from "./collections/tools.ts";
 import { isStudyTool, type StudyService } from "./study/study.ts";
 import { browseFolders, expandHome } from "./folders.ts";
@@ -88,6 +89,8 @@ export interface AppOptions {
   skills?: SkillRoot[];
   /** The folder of your own skills, which every project gets too. */
   ownSkills?: string;
+  /** Linker's copy of your own skills and your brands', and where a skill changed on both sides keeps this computer's copy. */
+  linkerSkills?: { api: SkillsApi; bin: string };
   /** Runs one of Linker-Edit's own Resolve tools for an agent working in the project folder dir. */
   resolveTools?: (
     tool: string,
@@ -223,6 +226,7 @@ export function createApp(options: AppOptions) {
     ownSkills: options.ownSkills,
     projects: () => [...projects.values()].map((project) => project.saved),
     orgs: () => options.linker?.orgs() ?? null,
+    linkerSkills: options.linkerSkills && { ...options.linkerSkills, account: () => options.linker?.userId() ?? null },
     setCollection(projectId, collection, commitMessage) {
       const project = projects.get(projectId);
       if (!project) return;
@@ -648,6 +652,7 @@ export function createApp(options: AppOptions) {
       collections: collections.summaries(),
       skills: collections.sharedSkills(),
       ownSkills: collections.ownSkills(),
+      ownSkillsSync: collections.ownSkillsSync(),
     } satisfies Partial<AppMeta>;
   }
 
@@ -686,6 +691,7 @@ export function createApp(options: AppOptions) {
       collections: shared.collections,
       skills: shared.skills,
       ownSkills: shared.ownSkills,
+      ownSkillsSync: shared.ownSkillsSync,
     };
   }
 
@@ -735,7 +741,11 @@ export function createApp(options: AppOptions) {
   options.linker?.onStatus(() => {
     collections.syncBrands();
     sendMeta();
+    void collections.syncSkills();
   });
+  void collections.syncSkills();
+  // Unref'd: it never keeps a server, or a test, from exiting.
+  setInterval(() => void collections.syncSkills(), 60_000).unref();
   options.connect?.onStatus(sendMeta);
   options.appUpdates?.onStatus(sendMeta);
 
@@ -1554,7 +1564,10 @@ export function createApp(options: AppOptions) {
         if (typeof message.path === "string") void sendFolders(client, message.requestId, message.path);
         break;
       case "import_skills":
-        send(client, { type: "skills_imported", requestId: message.requestId, result: collections.importSkills(message.id ?? null, message.files) });
+        void collections.importSkills(message.id ?? null, message.files).then((result) => send(client, { type: "skills_imported", requestId: message.requestId, result }));
+        break;
+      case "remove_skill":
+        void collections.removeSkill(message.id ?? null, message.name).then((refusal) => refusal && toast(client, refusal));
         break;
       case "refresh_remote_access":
         void options.remote?.refresh();
@@ -1718,6 +1731,7 @@ export function createApp(options: AppOptions) {
       return timeline && replaces ? { ...timeline, replaces } : timeline;
     },
     busy: resolveBusy,
+    syncSkills: collections.syncSkills,
     /**
      * One of Linker-Edit's Resolve tools, called by an agent's "linker" MCP server. Only the thread with a
      * turn running may use Resolve, and in "ask" mode changes wait for the user, for every agent alike.

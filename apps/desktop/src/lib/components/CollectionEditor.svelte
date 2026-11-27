@@ -195,6 +195,7 @@
     skills={collection.skills ?? []}
     shared={sharedSkills}
     about="How one kind of work is done in this {label.lower}, such as color grading. The agent reads a skill only when the work needs it; the rules above it reads always."
+    sync={collection.skillsSync}
     onImport={onImportSkills}
     onRemove={onRemoveSkill}
   />

@@ -45,11 +45,12 @@ export function memoryCollectionStore(
 }
 
 /** A Linker account signed in with these orgs, for app tests: each org is a brand. */
-export function linkerWithOrgs(orgs: LinkerOrg[]): LinkerService {
+export function linkerWithOrgs(orgs: LinkerOrg[], userId = "user_jane"): LinkerService {
   return {
     status: () => ({ state: "signed_in", name: "Jane", email: null, picture: null, plan: null, appUrl: "https://app.example" }),
     onStatus: () => {},
     orgs: () => orgs,
     listOrgs: async () => {},
+    userId: () => userId,
   } as Partial<LinkerService> as LinkerService;
 }

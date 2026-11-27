@@ -1,10 +1,12 @@
 // A stand-in for Linker (app.linker.cool and its Clerk) as far as a signed-in Linker-Edit asks it: who the person
-// is, and their orgs (GET /api/edit/orgs). The e2e server points linkerAuthServer and linkerAppUrl at it, with a
-// sign-in written for it beforehand (signedInAccount). PUT /fake/orgs changes the orgs it lists.
+// is, their orgs (GET /api/edit/orgs) and their skills (/api/edit/skills). The e2e server points linkerAuthServer and
+// linkerAppUrl at it, with a sign-in written for it beforehand (signedInAccount). PUT /fake/orgs changes the orgs it
+// lists; the person is an admin of Ferret Media and a viewer of Studio North.
 //
 //   node e2e/fake-linker.ts [port]
 import * as http from "node:http";
 import type { LinkerOrg } from "../shared/protocol.ts";
+import { fakeLinkerSkills } from "../server/skills/testing.ts";
 
 export const FAKE_LINKER_PORT = 4398;
 const TOKEN = "fake-linker-token";
@@ -32,10 +34,12 @@ export const FAKE_ORGS: LinkerOrg[] = [
 
 function serve(port: number) {
   let orgs = FAKE_ORGS;
+  const skills = fakeLinkerSkills({ user_fake: { org_ferret: "admin", org_north: "viewer" } });
   const base = `http://127.0.0.1:${port}`;
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const answer = (status: number, body: unknown) => res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
     const signedIn = req.headers.authorization === `Bearer ${TOKEN}`;
+    if (await skills.handle(req, res, signedIn ? "user_fake" : null)) return;
     const route = `${req.method} ${new URL(req.url ?? "/", base).pathname}`;
     switch (route) {
       case "GET /.well-known/oauth-authorization-server":
