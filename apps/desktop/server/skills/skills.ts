@@ -36,11 +36,11 @@ export const READ_SKILL_TOOL = {
   annotations: { readOnlyHint: true },
 };
 
-const SKILL_FILE = "SKILL.md";
-const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const SKILL_FILE = "SKILL.md";
+export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const DETAIL_FILE = /^[a-z0-9][a-z0-9-]*\.md$/;
 const MAX_TEXT = 20_000;
-const MAX_DESCRIPTION = 300;
+export const MAX_DESCRIPTION = 300;
 
 function readText(file: string): string | null {
   try {
@@ -50,15 +50,18 @@ function readText(file: string): string | null {
   }
 }
 
-const DESCRIPTION = /^description:[ \t]*(.*(?:\r?\n[ \t]+.*)*)/m;
+/** A top-level field of front matter: its line, and the indented lines below it, as YAML allows. */
+export const frontMatterField = (key: "name" | "description") => new RegExp(`^${key}:[ \\t]*(.*(?:\\r?\\n[ \\t]+.*)*)`, "m");
 
-/** The front matter's description: on its line, or on the indented lines below it, as YAML allows. */
-function description(text: string): string {
-  const found = DESCRIPTION.exec(FRONT_MATTER.exec(text)?.[1] ?? "")?.[1] ?? "";
+/** A field of a skill's front matter as one line of plain text; "" when it has none. */
+export function frontMatterValue(text: string, key: "name" | "description"): string {
+  const found = frontMatterField(key).exec(FRONT_MATTER.exec(text)?.[1] ?? "")?.[1] ?? "";
   const value = found.replace(/^[>|][+-]?(?=\s|$)/, "").replace(/\s+/g, " ").trim();
   const [, quote, inner] = /^(["'])(.*)\1$/.exec(value) ?? [];
-  return (quote === '"' ? inner!.replaceAll('\\"', '"') : quote ? inner!.replaceAll("''", "'") : value).slice(0, MAX_DESCRIPTION);
+  return quote === '"' ? inner!.replaceAll('\\"', '"') : quote ? inner!.replaceAll("''", "'") : value;
 }
+
+const description = (text: string) => frontMatterValue(text, "description").slice(0, MAX_DESCRIPTION);
 
 const capped = (text: string) => (text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT)}\n\n(The rest is left out: a skill can be up to ${MAX_TEXT.toLocaleString("en-US")} characters.)`);
 
@@ -106,7 +109,7 @@ export function saveSkill(dir: string, skill: { name: unknown; description: unkn
   const before = readText(file)?.replaceAll("\r\n", "\n") ?? null;
   if (skill.isNew === true && before !== null) return `There already is a skill "${name}" here.`;
   // Front matter someone wrote by hand keeps its other fields.
-  const others = (FRONT_MATTER.exec(before ?? "")?.[1] ?? `name: ${name}`).replace(DESCRIPTION, "").replace(/\n{2,}/g, "\n").trim();
+  const others = (FRONT_MATTER.exec(before ?? "")?.[1] ?? `name: ${name}`).replace(frontMatterField("description"), "").replace(/\n{2,}/g, "\n").trim();
   const front = [others, ...(about ? [`description: '${about.replaceAll("'", "''")}'`] : [])].filter(Boolean).join("\n");
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });

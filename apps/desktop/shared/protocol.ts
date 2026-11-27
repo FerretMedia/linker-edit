@@ -859,6 +859,19 @@ export interface SavedSkill {
   file: string;
 }
 
+/** A file or skill an import left out, and why. */
+export interface SkippedFile {
+  path: string;
+  reason: string;
+}
+
+/** What an import_skills wrote: every skill's name, those that replaced one of the same name, and what it left out. */
+export interface SkillImportResult {
+  imported: string[];
+  replaced: string[];
+  skipped: SkippedFile[];
+}
+
 /** A rule the agent learned from the user's feedback, kept with the words it came from so a wrong one is easy to spot. */
 export interface Lesson {
   id: string;
