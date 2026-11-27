@@ -24,12 +24,12 @@ export const READ_SKILL = "read_skill";
 export const READ_SKILL_TOOL = {
   name: READ_SKILL,
   description:
-    "Read a skill from the list in your rules: how that kind of work is done here. Read it before you plan or start the work. A skill can name other files of its own; pass one as file.",
+    "Read a skill from the list in your rules: how that kind of work is done here. Read it before you plan or start the work. A skill can name other files in its folder, such as references/interview.md; pass that path as file.",
   inputSchema: {
     type: "object",
     properties: {
       name: { type: "string", description: "The skill's name, as listed." },
-      file: { type: "string", description: 'A file the skill names, such as "interview.md".' },
+      file: { type: "string", description: 'A file in the skill\'s folder, by its path there, such as "references/interview.md".' },
     },
     required: ["name"],
   },
@@ -38,7 +38,8 @@ export const READ_SKILL_TOOL = {
 
 export const SKILL_FILE = "SKILL.md";
 export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const DETAIL_FILE = /^[a-z0-9][a-z0-9-]*\.md$/;
+// A folder or file name in a skill's folder: not hidden, so never "." or "..", and nothing a path could escape with.
+const SAFE_PART = /^[^.\\/:*?"<>|\x00-\x1f][^\\/:*?"<>|\x00-\x1f]*$/;
 const MAX_TEXT = 20_000;
 export const MAX_DESCRIPTION = 300;
 
@@ -141,19 +142,39 @@ A skill says how a kind of work is done: Linker-Edit's way, then what the user a
 ${skills.map(({ name, description: about, sources }) => `- ${name}: ${about} (${sources.map((source) => source.label).join(", ")})`).join("\n")}`;
 }
 
+/** The paths of everything in a skill's folder, in any root, "/" between folders. */
+function skillFiles(roots: SkillRoot[], name: string): string[] {
+  return roots.flatMap(({ dir }) => {
+    try {
+      return fs.readdirSync(path.join(dir, name), { recursive: true, encoding: "utf8" }).map((file) => file.split(path.sep).join("/"));
+    } catch {
+      return [];
+    }
+  });
+}
+
 /** A skill's text from every root that has it, or one of its other files from the most specific root that has that. */
 export function readSkill(roots: SkillRoot[], name: string, file?: string): string {
   const skills = listSkills(roots);
   const skill = skills.find((candidate) => candidate.name === name);
   // Agents ask for a skill's file as if it were a skill.
-  const owner = skill || !SKILL_NAME.test(name) ? undefined : skills.find((other) => roots.some(({ dir }) => fs.existsSync(path.join(dir, other.name, `${name}.md`))));
+  const owner =
+    skill || !SKILL_NAME.test(name)
+      ? undefined
+      : skills.find((other) => skillFiles(roots, other.name).some((found) => found === `${name}.md` || found.endsWith(`/${name}.md`)));
   if (owner) return readSkill(roots, owner.name, `${name}.md`);
   if (!skill) throw new Error(skills.length ? `There is no skill "${name}". There are: ${skills.map((candidate) => candidate.name).join(", ")}.` : "There are no skills here.");
   if (file) {
-    if (!DETAIL_FILE.test(file)) throw new Error(`"${file}" isn't a file name a skill can have, such as "interview.md".`);
-    for (const { dir } of roots.toReversed()) {
-      const text = readText(path.join(dir, name, file));
-      if (text !== null) return capped(text);
+    if (!file.split("/").every((part) => SAFE_PART.test(part))) throw new Error(`"${file}" isn't a path in the skill's folder, such as "references/interview.md".`);
+    // Named by its file name alone, while it is in a folder of the skill.
+    const paths = file.includes("/") ? [file] : [file, ...skillFiles(roots, name).filter((found) => found.endsWith(`/${file}`))];
+    for (const found of paths) {
+      for (const { dir } of roots.toReversed()) {
+        const text = readText(path.join(dir, name, ...found.split("/")));
+        if (text === null) continue;
+        if (text.includes("\0")) throw new Error(`"${found}" isn't a text file.`);
+        return capped(text);
+      }
     }
     throw new Error(`The skill "${name}" has no file "${file}".`);
   }

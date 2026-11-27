@@ -118,10 +118,23 @@ describe("skills", () => {
     expect(readSkill(roots, "skin")).toBe("Warmer skin.");
     expect(() => readSkill(roots, "../color/skin")).toThrow(/no skill/);
     write("shipped", "secret.md", "No.");
-    for (const file of ["../secret.md", "..\\secret.md", path.join(dir, "shipped", "secret.md"), "SKILL.md.bak"]) {
-      expect(() => readSkill(roots, "color", file)).toThrow(/isn't a file name/);
+    write("shipped", "color/.git/config", "No.");
+    for (const file of ["../secret.md", "..\\secret.md", "references/../../secret.md", path.join(dir, "shipped", "secret.md"), "/secret.md", "C:secret.md", ".git/config"]) {
+      expect(() => readSkill(roots, "color", file)).toThrow(/isn't a path in the skill's folder/);
     }
     expect(() => readSkill(roots, "color", "gone.md")).toThrow(/no file/);
+    expect(() => readSkill(roots, "color", "references")).toThrow(/no file/);
+  });
+
+  it("gives a file in a folder of a skill, by its path or its name alone, and any text file", () => {
+    write("shipped", "color/references/print.md", "Matte paper.");
+    write("series", "color/scripts/levels.py", "print('-14 LUFS')");
+    write("series", "color/scripts/logo.png", "\x89PNG\0\0");
+    expect(readSkill(roots, "color", "references/print.md")).toBe("Matte paper.");
+    expect(readSkill(roots, "color", "print.md")).toBe("Matte paper.");
+    expect(readSkill(roots, "print")).toBe("Matte paper.");
+    expect(readSkill(roots, "color", "scripts/levels.py")).toBe("print('-14 LUFS')");
+    expect(() => readSkill(roots, "color", "scripts/logo.png")).toThrow(/isn't a text file/);
     expect(() => readSkill(roots, "../color")).toThrow('There is no skill "../color". There are: color, sound.');
   });
 
