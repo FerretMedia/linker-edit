@@ -538,6 +538,8 @@ export interface AppMeta {
   skills?: { name: string; description: string }[];
   /** Your own skills, which every project gets too, in ~/LinkerEdit/skills. Missing from older servers. */
   ownSkills?: SavedSkill[];
+  /** How your own skills stand with Linker. Missing from older servers. */
+  ownSkillsSync?: SkillSync;
 }
 
 export interface AppState extends AppMeta {
@@ -846,6 +848,8 @@ export interface CollectionSummary {
   examples: { name: string; file: string }[];
   /** Its own skills, by name. A skill of the same name as Linker-Edit's adds to it. Missing from older servers. */
   skills?: SavedSkill[];
+  /** How its skills stand with Linker. Missing from older servers. */
+  skillsSync?: SkillSync;
   /** The project that holds its setup threads; null until "Set up with AI" was used. */
   setupProjectId: string | null;
   /** Approved edits of its projects, newest first, to see whether the brief works. */
@@ -859,6 +863,16 @@ export interface SavedSkill {
   description: string;
   /** Its SKILL.md. */
   file: string;
+}
+
+/** How a list of skills stands with Linker, for its status line. */
+export interface SkillSync {
+  /** synced: on Linker too, so on your other computers, and a brand's with everyone in it. local: on this computer only. */
+  state: "synced" | "local" | "problem";
+  /** What the status line says, such as "Synced with Linker". */
+  text: string;
+  /** Skills of the list Linker didn't take, and why. */
+  skipped: { name: string; reason: string }[];
 }
 
 /** A file or skill an import left out, and why. */
