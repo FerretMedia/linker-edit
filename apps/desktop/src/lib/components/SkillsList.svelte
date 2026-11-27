@@ -80,7 +80,7 @@
 
 <div
   bind:this={root}
-  class="flex flex-col gap-2 rounded-xl p-4 outline-2 -outline-offset-4 transition-colors {over ? 'bg-primary/5 outline-primary outline-dashed' : 'outline-transparent'}"
+  class="flex flex-col gap-2 p-4 outline-2 -outline-offset-4 transition-colors {over ? 'bg-primary/5 outline-primary outline-dashed' : 'outline-transparent'}"
   role="region"
   aria-label="Skills"
   ondragenter={(event) => {
@@ -162,13 +162,12 @@
       {#each skills as skill (skill.name)}
         <li class="flex items-center gap-2 px-2.5 py-1.5">
           <div class="min-w-0 flex-1" title={skill.file}>
-            <p class="flex items-center gap-2 text-sm">
-              <span class="truncate">{skill.name}</span>
-              {#if shared.some((other) => other.name === skill.name)}
-                <span class="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground">Adds to the one every project gets</span>
-              {/if}
-            </p>
-            {#if skill.description}<p class="truncate text-xs text-muted-foreground">{skill.description}</p>{/if}
+            <p class="truncate text-sm">{skill.name}</p>
+            {#if shared.some((other) => other.name === skill.name)}
+              <p class="truncate text-xs text-muted-foreground"><span class="text-foreground">Adds to the one every project gets</span>{skill.description ? ` · ${skill.description}` : ""}</p>
+            {:else if skill.description}
+              <p class="truncate text-xs text-muted-foreground">{skill.description}</p>
+            {/if}
           </div>
           <button
             type="button"
