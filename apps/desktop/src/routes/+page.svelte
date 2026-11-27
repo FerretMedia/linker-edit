@@ -397,6 +397,7 @@
     onLibrary={() => openLibrary()}
     onSignOut={web.phase.kind === "app" ? () => web.signOut() : null}
     send={(message) => shown.server.send(message)}
+    importSkills={(id, files) => shown.server.importSkills(id, files)}
     onClose={closeSettings}
   />
 {:else if brands && settingsMachine && settingsApp}
@@ -414,6 +415,7 @@
         closeSettings();
       } else shown.server.send(message);
     }}
+    importSkills={(id, files) => shown.server.importSkills(id, files)}
     onClose={closeSettings}
   />
 {:else if library && app}

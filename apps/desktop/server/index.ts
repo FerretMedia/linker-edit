@@ -84,10 +84,8 @@ const app = createApp({
   store: fileProjectStore({ root: config.projectsDir, legacyDir: config.workspaceDir }),
   // Workspaces and series live next to the config: ~/LinkerEdit/collections.json and collections/.
   collections: fileCollectionStore({ root: path.dirname(config.configFile) }),
-  skills: [
-    { label: "Linker-Edit", dir: path.join(APP_ROOT, "skills") },
-    { label: "Your own", dir: path.join(path.dirname(config.configFile), "skills") },
-  ],
+  skills: [{ label: "Linker-Edit", dir: path.join(APP_ROOT, "skills") }],
+  ownSkills: path.join(path.dirname(config.configFile), "skills"),
   // Codex reads the project's rules from AGENTS.md, written before each turn (prepareFolder).
   createSession: (provider, approvalMode, dir, resumeId, rules) => {
     const projectConfig = { ...config, workspaceDir: dir };

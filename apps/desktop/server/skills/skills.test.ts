@@ -8,7 +8,8 @@ import { LIBRARY_TOOLS } from "../library/tools.ts";
 import { RESOLVE_TOOLS } from "../resolve/tools.ts";
 import { AUTONOMOUS_RULES } from "../rules.ts";
 import { STUDY_TOOLS } from "../study/study.ts";
-import { listSkills, READ_SKILL_TOOL, readSkill, removeSkill, savedSkills, saveSkill, skillsSection, type SkillRoot } from "./skills.ts";
+import type { ImportedSkill } from "./import.ts";
+import { listSkills, READ_SKILL_TOOL, readSkill, removeSkill, savedSkills, skillsSection, writeSkills, type SkillRoot } from "./skills.ts";
 
 let dir: string;
 let roots: SkillRoot[];
@@ -31,42 +32,42 @@ beforeEach(() => {
   write("shipped", "sound/SKILL.md", "---\r\nname: sound\r\ndescription: Music and levels.\r\n---\r\n\r\nMusic under speech.\r\n");
 });
 
-describe("skills saved from Settings", () => {
+describe("imported skills", () => {
   const own = () => path.join(dir, "series");
-  const save = (skill: Parameters<typeof saveSkill>[1]) => saveSkill(own(), skill, listSkills(roots.slice(0, 2)));
+  const skill = (name: string, files: Record<string, string>): ImportedSkill => ({ name, description: "", files: new Map(Object.entries(files)) });
 
-  it("are written as skills the agent reads, and keep a hand-written file's other fields", () => {
-    expect(save({ name: "Podcast Clips!", description: "Cutting Mila's\n clips: D:\\ short.", text: "One idea per clip.\r\nNo more.", isNew: true })).toBeNull();
-    expect(savedSkills(own())).toEqual([
-      { name: "podcast-clips", description: "Cutting Mila's clips: D:\\ short.", text: "One idea per clip.\nNo more.\n", file: path.join(own(), "podcast-clips", "SKILL.md") },
-    ]);
-    expect(readSkill(roots, "podcast-clips")).toContain("One idea per clip.");
+  it("are written as skills the agent reads, and replace a skill of their name whole", () => {
+    expect(writeSkills(own(), [skill("podcast", { "SKILL.md": "---\nname: podcast\ndescription: Clips.\n---\n\nOne idea.", "references/hooks.md": "First line." })])).toEqual({
+      imported: ["podcast"],
+      replaced: [],
+      skipped: [],
+    });
+    expect(savedSkills(own())).toEqual([{ name: "podcast", description: "Clips.", file: path.join(own(), "podcast", "SKILL.md") }]);
+    expect(readSkill(roots, "podcast", "references/hooks.md")).toBe("First line.");
 
-    write("series", "color/SKILL.md", "---\r\nname: color\r\ndescription: >\r\n  Old\r\n  words.\r\nlicense: MIT\r\n---\r\n\r\nTeal.\r\n");
-    expect(save({ name: "color", description: "", text: "Warm." })).toBeNull();
-    expect(fs.readFileSync(path.join(own(), "color", "SKILL.md"), "utf8")).toBe("---\nname: color\nlicense: MIT\n---\n\nWarm.\n");
-    expect(save({ name: "color", description: "Reels color.", text: "Warm." })).toBeNull();
-    expect(listSkills(roots).find((skill) => skill.name === "color")!.description).toBe("Reels color.");
+    expect(writeSkills(own(), [skill("podcast", { "SKILL.md": "---\nname: podcast\ndescription: Shorter clips.\n---\n\nTwo ideas." })])).toEqual({
+      imported: ["podcast"],
+      replaced: ["podcast"],
+      skipped: [],
+    });
+    expect(readSkill(roots, "podcast")).toMatch(/Two ideas\.$/);
+    expect(() => readSkill(roots, "podcast", "references/hooks.md")).toThrow(/no file/);
+    expect(fs.readdirSync(own())).toEqual(["podcast"]);
   });
 
-  it.each([
-    [{ name: "..", description: "x", text: "x" }, /name/],
-    [{ name: "a".repeat(41), description: "x", text: "x" }, /name/],
-    [{ name: "new", description: " ", text: "x" }, /what work/],
-    [{ name: "new", description: "x", text: " " }, /Write what/],
-    [{ name: "new", description: "x", text: "x".repeat(20_001) }, /20,000/],
-    [{ name: "new", description: "x".repeat(301), text: "x" }, /300/],
-    [{ name: 1, description: null, text: {} }, /name/],
-  ])("are refused: %#", (skill, reason) => {
-    expect(save(skill)).toMatch(reason);
-    expect(savedSkills(own())).toEqual([]);
+  it("leave the skill they would replace as it was when writing fails, and nothing half written", () => {
+    write("series", "color/SKILL.md", "Warm.");
+    write("series", ".importing-stale/SKILL.md", "From an import that stopped half way.");
+    // A file where a folder has to go.
+    const result = writeSkills(own(), [skill("color", { "SKILL.md": "Cold.", notes: "x", "notes/more.md": "y" }), skill("sound", { "SKILL.md": "Loud." })]);
+    expect(result).toMatchObject({ imported: ["sound"], replaced: [], skipped: [{ path: "color", reason: expect.stringMatching(/^Couldn't write it: /) }] });
+    expect(readSkill(roots, "color")).toMatch(/Warm\.$/);
+    expect(fs.readdirSync(own()).sort()).toEqual(["color", "sound"]);
   });
 
-  it("never replace one by mistake, and are removed by name only", () => {
-    expect(save({ name: "color", description: "", text: "Warm.", isNew: true })).toBeNull();
-    expect(save({ name: "Color", description: "", text: "Cold.", isNew: true })).toMatch(/already is/);
+  it("are removed by name only", () => {
+    write("series", "color/SKILL.md", "Warm.");
     expect(removeSkill(own(), "../shipped")).toBeNull();
-    expect(readSkill(roots, "color")).toContain("Warm.");
     expect(listSkills(roots.slice(0, 1))).toHaveLength(2);
     expect(removeSkill(own(), "color")).toBeNull();
     expect(savedSkills(own())).toEqual([]);
@@ -118,10 +119,23 @@ describe("skills", () => {
     expect(readSkill(roots, "skin")).toBe("Warmer skin.");
     expect(() => readSkill(roots, "../color/skin")).toThrow(/no skill/);
     write("shipped", "secret.md", "No.");
-    for (const file of ["../secret.md", "..\\secret.md", path.join(dir, "shipped", "secret.md"), "SKILL.md.bak"]) {
-      expect(() => readSkill(roots, "color", file)).toThrow(/isn't a file name/);
+    write("shipped", "color/.git/config", "No.");
+    for (const file of ["../secret.md", "..\\secret.md", "references/../../secret.md", path.join(dir, "shipped", "secret.md"), "/secret.md", "C:secret.md", ".git/config"]) {
+      expect(() => readSkill(roots, "color", file)).toThrow(/isn't a path in the skill's folder/);
     }
     expect(() => readSkill(roots, "color", "gone.md")).toThrow(/no file/);
+    expect(() => readSkill(roots, "color", "references")).toThrow(/no file/);
+  });
+
+  it("gives a file in a folder of a skill, by its path or its name alone, and any text file", () => {
+    write("shipped", "color/references/print.md", "Matte paper.");
+    write("series", "color/scripts/levels.py", "print('-14 LUFS')");
+    write("series", "color/scripts/logo.png", "\x89PNG\0\0");
+    expect(readSkill(roots, "color", "references/print.md")).toBe("Matte paper.");
+    expect(readSkill(roots, "color", "print.md")).toBe("Matte paper.");
+    expect(readSkill(roots, "print")).toBe("Matte paper.");
+    expect(readSkill(roots, "color", "scripts/levels.py")).toBe("print('-14 LUFS')");
+    expect(() => readSkill(roots, "color", "scripts/logo.png")).toThrow(/isn't a text file/);
     expect(() => readSkill(roots, "../color")).toThrow('There is no skill "../color". There are: color, sound.');
   });
 
