@@ -129,7 +129,10 @@ export function writeSkills(dir: string, skills: ImportedSkill[]): SkillImportRe
         if (replacing) fs.renameSync(old, target);
         throw error;
       }
-      fs.rmSync(old, { recursive: true, force: true });
+      // A file of the old one still open on Windows: the next import clears it away.
+      try {
+        fs.rmSync(old, { recursive: true, force: true });
+      } catch {}
       result.imported.push(skill.name);
       if (replacing) result.replaced.push(skill.name);
     } catch (error) {
