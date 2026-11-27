@@ -9,8 +9,9 @@ export const SKILL_IMPORT_LIMITS = {
   dropBytes: 8 * MB,
   /** One file of a skill. Claude's own skills keep references and scripts well under this. */
   fileBytes: 256 * KB,
-  skillFiles: 200,
-  skillBytes: 2 * MB,
+  /** The same as Linker's, so every skill that imports can sync to your other computers. */
+  skillFiles: 64,
+  skillBytes: 512 * KB,
   /** What the zips of one drop may unpack to, and how many files they may hold. */
   unpackedBytes: 32 * MB,
   zipEntries: 2_000,

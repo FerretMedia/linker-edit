@@ -90,8 +90,8 @@ describe("importing skills", () => {
     ],
     [
       "a skill with too many files",
-      [text("big/SKILL.md", skill("big", "Big.")), ...Array.from({ length: 200 }, (_, index) => text(`big/refs/${index}.md`, "x"))],
-      { skills: [], skipped: ["big: It has over 200 files."] },
+      [text("big/SKILL.md", skill("big", "Big.")), ...Array.from({ length: 64 }, (_, index) => text(`big/refs/${index}.md`, "x"))],
+      { skills: [], skipped: ["big: It has over 64 files."] },
     ],
   ])("%s", (_, files, expected) => {
     expect(imported(files)).toEqual(expected);
